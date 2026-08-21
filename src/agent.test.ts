@@ -1,4 +1,5 @@
-import { dedent, inference, initializeLogger, voice } from '@livekit/agents';
+import { dedent, initializeLogger, voice } from '@livekit/agents';
+import * as openai from '@livekit/agents-plugin-openai';
 import dotenv from 'dotenv';
 import { afterEach, beforeEach, describe, it } from 'vitest';
 import { createAgent } from './agent.ts';
@@ -11,10 +12,14 @@ initializeLogger({ pretty: true, level: 'warn' });
 
 describe('agent evaluation', () => {
   let session: voice.AgentSession;
-  let judgeLlm: inference.LLM;
+  let judgeLlm: openai.LLM;
 
   beforeEach(async () => {
-    judgeLlm = new inference.LLM({ model: 'openai/gpt-4.1-mini' });
+    // The judge runs on the same local Ollama model as the agent so tests need no cloud access
+    judgeLlm = openai.LLM.withOllama({
+      baseURL: process.env.LOCAL_LLM_URL ?? 'http://localhost:11434/v1',
+      model: process.env.LOCAL_LLM_MODEL ?? 'gemma4:e4b',
+    });
     session = new voice.AgentSession();
     await session.start({ agent: createAgent() });
   });
