@@ -85,9 +85,11 @@ Minimum `.env.local` besides the LiveKit values:
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client; redirect URI `http://localhost:3000/api/auth/callback/google`            |
 | `DEV_USER_EMAIL`                            | _dev only_: skip Google and sign every request in as this user (ignored in production) |
 
-Run each app in its own terminal:
+Start everything with one command (color-coded output via `concurrently`), or each app in its own terminal:
 
 ```sh
+npm run dev          # api + web + agent + embed together
+
 npm run dev:api      # http://localhost:4000  (set PORT / API_PORT if 4000 is taken)
 npm run dev:web      # http://localhost:3000  agent & supervisor desk
 npm run dev:agent    # registers the AI agent "cc-agent" with LiveKit Cloud

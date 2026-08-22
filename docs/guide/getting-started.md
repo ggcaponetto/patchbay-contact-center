@@ -65,7 +65,7 @@ No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `AD
 
 ## Run the four dev servers
 
-Each in its own terminal, from the repo root:
+`npm run dev` starts all four at once (via `concurrently`, color-coded: api blue, web magenta, agent green, embed yellow; Ctrl+C stops them all). Or run each in its own terminal, from the repo root:
 
 | Command             | What                                                             | URL                     |
 | ------------------- | ---------------------------------------------------------------- | ----------------------- |
