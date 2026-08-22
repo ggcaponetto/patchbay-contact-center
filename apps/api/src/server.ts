@@ -29,6 +29,7 @@ import { type Auth, type GetSession, type SessionUser, devAuth, registerAuth } f
 import type { Db } from './db/client.ts';
 import { Flow } from './flow.ts';
 import type { LiveKit } from './livekit.ts';
+import { registerOpenApi } from './openapi.ts';
 import { adminRoutes } from './routes/admin.ts';
 import { deskRoutes } from './routes/desk.ts';
 import { internalRoutes } from './routes/internal.ts';
@@ -63,6 +64,9 @@ export type ServerDeps = {
   /** Shared secret for `/api/internal`; defaults to the `INTERNAL_API_SECRET` env var. */
   internalSecret?: string;
 };
+
+/** Version reported in the OpenAPI document (the root `package.json` version). */
+const API_VERSION = '0.1.0';
 
 /**
  * Per-request context filled by the `authenticate` preHandler.
@@ -128,7 +132,12 @@ export async function buildServer(deps: ServerDeps) {
     reply.header('x-frame-options', 'DENY');
     reply.header('referrer-policy', 'no-referrer');
   });
-  app.get('/api/health', async () => ({ ok: true }));
+  registerOpenApi(app, { title: 'Patchbay Contact Center API', version: API_VERSION });
+  app.get(
+    '/api/health',
+    { config: { doc: { summary: 'Liveness', access: 'public', tag: 'meta' } } },
+    async () => ({ ok: true }),
+  );
   // Root page: tells a human what this origin is and gives crawlers (the DAST spider,
   // build/dast.mjs) the unauthenticated surface to walk.
   app.get('/', async (_request, reply) =>
@@ -205,15 +214,29 @@ export async function buildServer(deps: ServerDeps) {
     };
   const guards: Guards = { authenticate, authorize };
 
-  app.get('/api/me', { preHandler: authenticate }, async (request) => ({
-    user: request.ctx.user,
-    isAdmin: adminEmails.includes(request.ctx.user.email.toLowerCase()),
-    memberships:
-      request.ctx.actor === 'api_key' ? [] : await membershipsOf(deps.db, request.ctx.user.id),
-    permissions: [...request.ctx.permissions],
-    // The desk shows the "switch user" menu only under the dev-auth bypass.
-    devMode: Boolean(deps.devUserEmail),
-  }));
+  app.get(
+    '/api/me',
+    {
+      preHandler: authenticate,
+      config: {
+        doc: {
+          summary: 'Who am I: user, memberships, permissions',
+          access: 'session',
+          tag: 'meta',
+          errors: ['401 unauthenticated'],
+        },
+      },
+    },
+    async (request) => ({
+      user: request.ctx.user,
+      isAdmin: adminEmails.includes(request.ctx.user.email.toLowerCase()),
+      memberships:
+        request.ctx.actor === 'api_key' ? [] : await membershipsOf(deps.db, request.ctx.user.id),
+      permissions: [...request.ctx.permissions],
+      // The desk shows the "switch user" menu only under the dev-auth bypass.
+      devMode: Boolean(deps.devUserEmail),
+    }),
+  );
 
   /** In-process event bus: internal routes publish, the desk websocket subscribes. */
   const hub = new EventEmitter();

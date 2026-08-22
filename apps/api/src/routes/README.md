@@ -54,6 +54,16 @@ Side effects: `call` row (`ringing` → `ai` or `waiting_human`), `customer` par
 stopped). `escalate` blocks until a human accepted or nobody could; the worker needs an
 HTTP timeout longer than the whole ring cycle.
 
+## OpenAPI
+
+`GET /api/openapi.json` is the OpenAPI 3.1 document of everything below, generated at
+boot from the routes themselves (`openapi.ts`): each route declares `config.doc` with a
+summary, the required permission and its zod body / response schemas, which zod turns
+into JSON Schema — so the document cannot drift from the code. `server.test.ts` fails when
+a route is registered without documentation. Integrations (and the MCP server later)
+read this document; `x-permission` on every operation says which API-key permission it
+needs.
+
 ## Authorization
 
 Every route names one **permission** (`Permission` in `@cc/shared`): `calls:read`,

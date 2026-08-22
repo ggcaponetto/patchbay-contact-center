@@ -16,11 +16,12 @@
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
  */
-import { AgentStateRequest } from '@cc/shared';
+import { AgentPresence, AgentStateRequest } from '@cc/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
+import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
 import { callDetail, listCalls } from '../services/calls.ts';
 import { getTenant } from '../services/tenants.ts';
@@ -34,6 +35,16 @@ type P = { Params: { id: string } };
 
 /** Body of the supervisor's force-state route: an agent state request, or log the agent out. */
 const ForceStateBody = z.union([AgentStateRequest, z.object({ state: z.literal('logged_out') })]);
+const JoinBody = z.object({ mode: z.enum(['listen', 'takeover']) });
+const LeaveBody = z.object({ role: z.enum(['human', 'supervisor']).default('human') });
+const TokenResponse = z.object({ token: z.string(), url: z.string() });
+const doc = (
+  summary: string,
+  access: Access,
+  extra: Partial<RouteDoc> = {},
+): { doc: RouteDoc } => ({
+  doc: { summary, access, tag: 'desk', ...extra },
+});
 
 /**
  * Endpoints for signed-in agents and supervisors of a tenant.
@@ -51,17 +62,34 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   const supervise = authorize('calls:supervise');
 
   /** The tenant settings every member needs at the desk (reason codes, wrap-up length). */
-  app.get('/settings', { preHandler: read }, async (request) => {
-    const tenant = await getTenant(db, request.ctx.tenantId);
-    return {
-      notReadyReasons: tenant?.settings.notReadyReasons ?? [],
-      acwSec: tenant?.settings.acwSec ?? 0,
-    };
-  });
+  app.get(
+    '/settings',
+    {
+      preHandler: read,
+      config: doc(
+        'Tenant settings every member needs (reason codes, wrap-up length)',
+        'calls:read',
+      ),
+    },
+    async (request) => {
+      const tenant = await getTenant(db, request.ctx.tenantId);
+      return {
+        notReadyReasons: tenant?.settings.notReadyReasons ?? [],
+        acwSec: tenant?.settings.acwSec ?? 0,
+      };
+    },
+  );
 
   /** Everyone online in the tenant with their state (the `presence` message, on demand). */
-  app.get('/agents', { preHandler: read }, async (request) =>
-    flow.routing.snapshot(request.ctx.tenantId),
+  app.get(
+    '/agents',
+    {
+      preHandler: read,
+      config: doc('Everyone online in the tenant with their state', 'calls:read', {
+        response: z.array(AgentPresence),
+      }),
+    },
+    async (request) => flow.routing.snapshot(request.ctx.tenantId),
   );
 
   /** My own presence, or 404 when I have no desk socket open. */
@@ -69,29 +97,60 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     flow.routing.snapshot(tenantId).find((a) => a.userId === userId);
 
   /** Go `ready` or `not_ready` (with a reason code). 409 `offline` / `on_call`. */
-  app.post('/state', { preHandler: answer }, async (request, reply) => {
-    const body = parseBody(AgentStateRequest, request.body, reply);
-    if (!body) return undefined;
-    const err = flow.routing.setState(request.ctx.user.id, body.state, body.reason);
-    if (err) return reply.code(409).send({ error: err });
-    return mine(request.ctx.user.id, request.ctx.tenantId);
-  });
+  app.post(
+    '/state',
+    {
+      preHandler: answer,
+      config: doc('Go ready or not ready (with a reason code)', 'calls:answer', {
+        body: AgentStateRequest,
+        response: AgentPresence,
+        errors: ['409 offline / on_call'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(AgentStateRequest, request.body, reply);
+      if (!body) return undefined;
+      const err = flow.routing.setState(request.ctx.user.id, body.state, body.reason);
+      if (err) return reply.code(409).send({ error: err });
+      return mine(request.ctx.user.id, request.ctx.tenantId);
+    },
+  );
 
   /** Add the tenant's `acwSec` to my running wrap-up. 409 `not_in_acw`. */
-  app.post('/acw/extend', { preHandler: answer }, async (request, reply) => {
-    const tenant = await getTenant(db, request.ctx.tenantId);
-    const ok = flow.routing.extendAcw(request.ctx.user.id, tenant?.settings.acwSec ?? 30);
-    if (!ok) return reply.code(409).send({ error: 'not_in_acw' });
-    return mine(request.ctx.user.id, request.ctx.tenantId);
-  });
+  app.post(
+    '/acw/extend',
+    {
+      preHandler: answer,
+      config: doc('Add the wrap-up time to my running wrap-up', 'calls:answer', {
+        response: AgentPresence,
+        errors: ['409 not_in_acw'],
+      }),
+    },
+    async (request, reply) => {
+      const tenant = await getTenant(db, request.ctx.tenantId);
+      const ok = flow.routing.extendAcw(request.ctx.user.id, tenant?.settings.acwSec ?? 30);
+      if (!ok) return reply.code(409).send({ error: 'not_in_acw' });
+      return mine(request.ctx.user.id, request.ctx.tenantId);
+    },
+  );
 
   /** Finish wrap-up early: straight to `ready`. */
-  app.post('/acw/done', { preHandler: answer }, async (request, reply) => {
-    const me = mine(request.ctx.user.id, request.ctx.tenantId);
-    if (me?.state !== 'acw') return reply.code(409).send({ error: 'not_in_acw' });
-    flow.routing.setState(request.ctx.user.id, 'ready');
-    return mine(request.ctx.user.id, request.ctx.tenantId);
-  });
+  app.post(
+    '/acw/done',
+    {
+      preHandler: answer,
+      config: doc('Finish wrap-up early', 'calls:answer', {
+        response: AgentPresence,
+        errors: ['409 not_in_acw'],
+      }),
+    },
+    async (request, reply) => {
+      const me = mine(request.ctx.user.id, request.ctx.tenantId);
+      if (me?.state !== 'acw') return reply.code(409).send({ error: 'not_in_acw' });
+      flow.routing.setState(request.ctx.user.id, 'ready');
+      return mine(request.ctx.user.id, request.ctx.tenantId);
+    },
+  );
 
   /**
    * Supervisors: force an online agent of the tenant `ready` / `not_ready` (which also
@@ -100,7 +159,13 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
    */
   app.post<{ Params: { userId: string } }>(
     '/agents/:userId/state',
-    { preHandler: supervise },
+    {
+      preHandler: supervise,
+      config: doc('Force an agent ready / not ready, or log them out', 'calls:supervise', {
+        body: ForceStateBody,
+        errors: ['404 not_found', '409 on_call'],
+      }),
+    },
     async (request, reply) => {
       const body = parseBody(ForceStateBody, request.body, reply);
       if (!body) return undefined;
@@ -121,61 +186,105 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   );
 
   /** Latest 50 calls of the tenant, newest first. */
-  app.get('/calls', { preHandler: read }, async (request) => listCalls(db, request.ctx.tenantId));
+  app.get(
+    '/calls',
+    { preHandler: read, config: doc('Latest 50 calls of the tenant, newest first', 'calls:read') },
+    async (request) => listCalls(db, request.ctx.tenantId),
+  );
 
   /** One call with participants, transcript and events. */
-  app.get<P>('/calls/:id', { preHandler: read }, async (request, reply) => {
-    const detail = await callDetail(db, request.ctx.tenantId, request.params.id);
-    return detail ?? reply.code(404).send({ error: 'not_found' });
-  });
+  app.get<P>(
+    '/calls/:id',
+    {
+      preHandler: read,
+      config: doc('One call with participants, transcript and events', 'calls:read', {
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const detail = await callDetail(db, request.ctx.tenantId, request.params.id);
+      return detail ?? reply.code(404).send({ error: 'not_found' });
+    },
+  );
 
   /**
    * Accept the offer currently ringing this agent; returns the LiveKit token to join.
    * `routing.accept` is the gate: only the agent being rung right now gets through.
    */
-  app.post<P>('/calls/:id/accept', { preHandler: answer }, async (request, reply) => {
-    const { id } = request.params;
-    if (!(await callDetail(db, request.ctx.tenantId, id))) {
-      return reply.code(404).send({ error: 'not_found' });
-    }
-    if (!flow.routing.accept(id, request.ctx.user.id)) {
-      return reply.code(409).send({ error: 'not_ringing_you' });
-    }
-    const joined = await flow.join(id, request.ctx.user, 'agent');
-    return joined ?? reply.code(409).send({ error: 'call_over' });
-  });
+  app.post<P>(
+    '/calls/:id/accept',
+    {
+      preHandler: answer,
+      config: doc('Accept the offer ringing me; returns the LiveKit token', 'calls:answer', {
+        response: TokenResponse,
+        errors: ['404 not_found', '409 not_ringing_you / call_over'],
+      }),
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!(await callDetail(db, request.ctx.tenantId, id))) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+      if (!flow.routing.accept(id, request.ctx.user.id)) {
+        return reply.code(409).send({ error: 'not_ringing_you' });
+      }
+      const joined = await flow.join(id, request.ctx.user, 'agent');
+      return joined ?? reply.code(409).send({ error: 'call_over' });
+    },
+  );
 
   /** Same as the `offer.decline` socket message; always `{ ok: true }`. */
-  app.post<P>('/calls/:id/decline', { preHandler: answer }, async (request) => {
-    flow.routing.decline(request.params.id, request.ctx.user.id);
-    return { ok: true };
-  });
+  app.post<P>(
+    '/calls/:id/decline',
+    { preHandler: answer, config: doc('Decline the offer ringing me', 'calls:answer') },
+    async (request) => {
+      flow.routing.decline(request.params.id, request.ctx.user.id);
+      return { ok: true };
+    },
+  );
 
   /** Supervisors: listen in silently or take the call over. Returns a LiveKit token. */
-  app.post<P>('/calls/:id/join', { preHandler: supervise }, async (request, reply) => {
-    const body = parseBody(z.object({ mode: z.enum(['listen', 'takeover']) }), request.body, reply);
-    if (!body) return undefined;
-    const { id } = request.params;
-    if (!(await callDetail(db, request.ctx.tenantId, id))) {
-      return reply.code(404).send({ error: 'not_found' });
-    }
-    const joined = await flow.join(id, request.ctx.user, body.mode);
-    return joined ?? reply.code(409).send({ error: 'call_over' });
-  });
+  app.post<P>(
+    '/calls/:id/join',
+    {
+      preHandler: supervise,
+      config: doc(
+        'Listen in silently or take the call over; returns the LiveKit token',
+        'calls:supervise',
+        { body: JoinBody, response: TokenResponse, errors: ['404 not_found', '409 call_over'] },
+      ),
+    },
+    async (request, reply) => {
+      const body = parseBody(JoinBody, request.body, reply);
+      if (!body) return undefined;
+      const { id } = request.params;
+      if (!(await callDetail(db, request.ctx.tenantId, id))) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+      const joined = await flow.join(id, request.ctx.user, body.mode);
+      return joined ?? reply.code(409).send({ error: 'call_over' });
+    },
+  );
 
   /** The desk left the room. A human agent leaving ends the call. */
-  app.post<P>('/calls/:id/leave', { preHandler: answer }, async (request, reply) => {
-    const body = parseBody(
-      z.object({ role: z.enum(['human', 'supervisor']).default('human') }),
-      request.body ?? {},
-      reply,
-    );
-    if (!body) return undefined;
-    const { id } = request.params;
-    if (!(await callDetail(db, request.ctx.tenantId, id))) {
-      return reply.code(404).send({ error: 'not_found' });
-    }
-    await flow.leave(id, request.ctx.user, body.role);
-    return { ok: true };
-  });
+  app.post<P>(
+    '/calls/:id/leave',
+    {
+      preHandler: answer,
+      config: doc('Leave the room; a human leaving ends the call', 'calls:answer', {
+        body: LeaveBody,
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(LeaveBody, request.body ?? {}, reply);
+      if (!body) return undefined;
+      const { id } = request.params;
+      if (!(await callDetail(db, request.ctx.tenantId, id))) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+      await flow.leave(id, request.ctx.user, body.role);
+      return { ok: true };
+    },
+  );
 };

@@ -47,53 +47,73 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
   app,
   { db, livekit, flow, hub },
 ) => {
-  app.post('/calls', async (request, reply) => {
-    const body = parseBody(CreateCallBody, request.body, reply);
-    if (!body) return undefined;
-    const resolved = await resolveEmbedKey(db, body.embedKey, body.queue);
-    if (!resolved) return reply.code(404).send({ error: 'unknown_embed_key_or_queue' });
-    if (!originAllowed(resolved.key.allowedOrigins, request.headers.origin)) {
-      return reply.code(403).send({ error: 'origin_not_allowed' });
-    }
-    const { tenant, queue } = resolved;
-    const id = randomUUID();
-    const roomName = roomNameFor(tenant.id, id);
-    await createCall(db, {
-      id,
-      tenantId: tenant.id,
-      queueId: queue.id,
-      roomName,
-      customerMeta: body.customerMeta,
-      ...(body.language ? { language: body.language } : {}),
-    });
-    const identity = `customer:${id}`;
-    await addParticipant(db, { callId: id, kind: 'customer', identity });
-    await addEvent(db, id, 'call.created', {
-      queue: queue.key,
-      origin: request.headers.origin ?? null,
-    });
+  app.post(
+    '/calls',
+    {
+      config: {
+        doc: {
+          summary: 'Start a call from the embedded button; returns the LiveKit token',
+          access: 'public',
+          tag: 'public',
+          body: CreateCallBody,
+          response: z.object({
+            callId: z.string(),
+            roomName: z.string(),
+            token: z.string(),
+            url: z.string(),
+          }),
+          errors: ['400 invalid_body', '403 origin_not_allowed', '404 unknown_embed_key_or_queue'],
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = parseBody(CreateCallBody, request.body, reply);
+      if (!body) return undefined;
+      const resolved = await resolveEmbedKey(db, body.embedKey, body.queue);
+      if (!resolved) return reply.code(404).send({ error: 'unknown_embed_key_or_queue' });
+      if (!originAllowed(resolved.key.allowedOrigins, request.headers.origin)) {
+        return reply.code(403).send({ error: 'origin_not_allowed' });
+      }
+      const { tenant, queue } = resolved;
+      const id = randomUUID();
+      const roomName = roomNameFor(tenant.id, id);
+      await createCall(db, {
+        id,
+        tenantId: tenant.id,
+        queueId: queue.id,
+        roomName,
+        customerMeta: body.customerMeta,
+        ...(body.language ? { language: body.language } : {}),
+      });
+      const identity = `customer:${id}`;
+      await addParticipant(db, { callId: id, kind: 'customer', identity });
+      await addEvent(db, id, 'call.created', {
+        queue: queue.key,
+        origin: request.headers.origin ?? null,
+      });
 
-    // Same payload whether the AI starts now (token room config) or later (dispatch API).
-    const metadata: DispatchMetadata = {
-      callId: id,
-      tenantId: tenant.id,
-      queueKey: queue.key,
-      settings: tenant.settings,
-      customerMeta: body.customerMeta,
-    };
-    const aiFirst = tenant.settings.routingMode === 'ai-first';
-    const token = await livekit.createToken({
-      room: roomName,
-      identity,
-      name: 'Customer',
-      attributes: { role: 'customer' },
-      ...(aiFirst ? { dispatchMetadata: JSON.stringify(metadata) } : {}),
-    });
-    const status = aiFirst ? 'ai' : 'waiting_human';
-    await setCallStatus(db, id, status);
-    // Desks refetch their call lists on `call.updated`: this is how a new call shows up.
-    hub.emit('call.updated', { tenantId: resolved.key.tenantId, callId: id, status });
-    if (!aiFirst) void flow.humanFirst(id, metadata);
-    return { callId: id, roomName, token, url: livekit.url };
-  });
+      // Same payload whether the AI starts now (token room config) or later (dispatch API).
+      const metadata: DispatchMetadata = {
+        callId: id,
+        tenantId: tenant.id,
+        queueKey: queue.key,
+        settings: tenant.settings,
+        customerMeta: body.customerMeta,
+      };
+      const aiFirst = tenant.settings.routingMode === 'ai-first';
+      const token = await livekit.createToken({
+        room: roomName,
+        identity,
+        name: 'Customer',
+        attributes: { role: 'customer' },
+        ...(aiFirst ? { dispatchMetadata: JSON.stringify(metadata) } : {}),
+      });
+      const status = aiFirst ? 'ai' : 'waiting_human';
+      await setCallStatus(db, id, status);
+      // Desks refetch their call lists on `call.updated`: this is how a new call shows up.
+      hub.emit('call.updated', { tenantId: resolved.key.tenantId, callId: id, status });
+      if (!aiFirst) void flow.humanFirst(id, metadata);
+      return { callId: id, roomName, token, url: livekit.url };
+    },
+  );
 };

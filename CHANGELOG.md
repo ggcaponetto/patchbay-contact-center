@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- OpenAPI (Phase 1 Foundations): `GET /api/openapi.json`, generated from the routes and
+  the zod contracts; a test fails when a route is undocumented.
 - RBAC and API keys (Phase 1 Foundations): every route names a permission
   (`calls:read`, `calls:answer`, `calls:supervise`, `tenant:read`, `tenant:write`,
   `api-keys:manage`); roles are permission sets; supervisors create scoped API keys in

@@ -19,6 +19,7 @@ import type { EventEmitter } from 'node:events';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
+import type { RouteDoc } from '../openapi.ts';
 import {
   addEvent,
   addParticipant,
@@ -45,6 +46,39 @@ export type InternalOpts = {
  * All routes are under `/calls/:id` and answer 404 `not_found` for unknown calls and
  * 401 `unauthenticated` for a wrong secret.
  */
+/** Body of `POST /calls/:id/events`. */
+const EventBody = z.object({
+  type: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+/** Body of `POST /calls/:id/participants`. */
+const ParticipantBody = z.object({
+  kind: z.enum(['ai', 'transcriber']),
+  identity: z.string().min(1),
+  left: z.boolean().default(false),
+});
+/** Body of `POST /calls/:id/escalate`. */
+const EscalateBody = z.object({
+  reason: z.string().min(1),
+  summary: z.string().min(1),
+  ringSec: z.number().int().min(5).max(120).default(20),
+});
+/** Body of `POST /calls/:id/status`. */
+const StatusBody = z.object({ status: CallStatus, summary: z.string().optional() });
+/** What `escalate` resolves with (`Flow`'s `Outcome`). */
+const OutcomeResponse = z.union([
+  z.object({ outcome: z.literal('accepted'), agentName: z.string() }),
+  z.object({ outcome: z.literal('nobody') }),
+]);
+const internal = (doc: Omit<RouteDoc, 'access' | 'tag'>): { doc: RouteDoc } => ({
+  doc: {
+    access: 'internal',
+    tag: 'internal',
+    errors: ['401 unauthenticated', '404 not_found'],
+    ...doc,
+  },
+});
+
 export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
   app,
   { db, secret, hub, flow },
@@ -67,96 +101,115 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
   };
 
   /** The call row (status, room name, customer metadata). */
-  app.get<{ Params: { id: string } }>('/calls/:id', async (request, reply) =>
-    withCall(request.params.id, reply),
+  app.get<{ Params: { id: string } }>(
+    '/calls/:id',
+    { config: internal({ summary: 'The call row (status, room name, customer metadata)' }) },
+    async (request, reply) => withCall(request.params.id, reply),
   );
 
   /** Stores one transcript segment and pushes it to subscribed desks. Returns the row. */
-  app.post<{ Params: { id: string } }>('/calls/:id/transcript', async (request, reply) => {
-    const row = await withCall(request.params.id, reply);
-    if (!row) return undefined;
-    const body = parseBody(TranscriptSegmentInput, request.body, reply);
-    if (!body) return undefined;
-    const seg = await addTranscript(db, row.id, body);
-    hub.emit('transcript', { tenantId: row.tenantId, callId: row.id, segment: body });
-    return seg;
-  });
+  app.post<{ Params: { id: string } }>(
+    '/calls/:id/transcript',
+    {
+      config: internal({
+        summary: 'Store one transcript segment and push it to subscribed desks',
+        body: TranscriptSegmentInput,
+      }),
+    },
+    async (request, reply) => {
+      const row = await withCall(request.params.id, reply);
+      if (!row) return undefined;
+      const body = parseBody(TranscriptSegmentInput, request.body, reply);
+      if (!body) return undefined;
+      const seg = await addTranscript(db, row.id, body);
+      hub.emit('transcript', { tenantId: row.tenantId, callId: row.id, segment: body });
+      return seg;
+    },
+  );
 
   /** Appends a free-form timeline event (`ai.joined`, `tool.called`, ...). */
-  app.post<{ Params: { id: string } }>('/calls/:id/events', async (request, reply) => {
-    const row = await withCall(request.params.id, reply);
-    if (!row) return undefined;
-    const body = parseBody(
-      z.object({ type: z.string().min(1), payload: z.record(z.string(), z.unknown()).default({}) }),
-      request.body,
-      reply,
-    );
-    if (!body) return undefined;
-    await addEvent(db, row.id, body.type, body.payload);
-    return { ok: true };
-  });
+  app.post<{ Params: { id: string } }>(
+    '/calls/:id/events',
+    { config: internal({ summary: 'Append a timeline event', body: EventBody }) },
+    async (request, reply) => {
+      const row = await withCall(request.params.id, reply);
+      if (!row) return undefined;
+      const body = parseBody(EventBody, request.body, reply);
+      if (!body) return undefined;
+      await addEvent(db, row.id, body.type, body.payload);
+      return { ok: true };
+    },
+  );
 
   /** Records the AI (or transcriber) joining, or with `left: true`, leaving the room. */
-  app.post<{ Params: { id: string } }>('/calls/:id/participants', async (request, reply) => {
-    const row = await withCall(request.params.id, reply);
-    if (!row) return undefined;
-    const body = parseBody(
-      z.object({
-        kind: z.enum(['ai', 'transcriber']),
-        identity: z.string().min(1),
-        left: z.boolean().default(false),
+  app.post<{ Params: { id: string } }>(
+    '/calls/:id/participants',
+    {
+      config: internal({
+        summary: 'Record the AI or transcriber joining (or, with `left`, leaving)',
+        body: ParticipantBody,
       }),
-      request.body,
-      reply,
-    );
-    if (!body) return undefined;
-    if (body.left) await markParticipantLeft(db, row.id, body.identity);
-    else await addParticipant(db, { callId: row.id, kind: body.kind, identity: body.identity });
-    return { ok: true };
-  });
+    },
+    async (request, reply) => {
+      const row = await withCall(request.params.id, reply);
+      if (!row) return undefined;
+      const body = parseBody(ParticipantBody, request.body, reply);
+      if (!body) return undefined;
+      if (body.left) await markParticipantLeft(db, row.id, body.identity);
+      else await addParticipant(db, { callId: row.id, kind: body.kind, identity: body.identity });
+      return { ok: true };
+    },
+  );
 
   /**
    * Long-poll: resolves once a human accepted or nobody could take the call.
    * The response is `Flow`'s `Outcome`; the worker must use an HTTP timeout longer than
    * `ringSec` times the number of agents it expects to be rung.
    */
-  app.post<{ Params: { id: string } }>('/calls/:id/escalate', async (request, reply) => {
-    const row = await withCall(request.params.id, reply);
-    if (!row) return undefined;
-    const body = parseBody(
-      z.object({
-        reason: z.string().min(1),
-        summary: z.string().min(1),
-        ringSec: z.number().int().min(5).max(120).default(20),
+  app.post<{ Params: { id: string } }>(
+    '/calls/:id/escalate',
+    {
+      config: internal({
+        summary: 'Escalate to a human: long-polls until someone accepts or nobody can',
+        body: EscalateBody,
+        response: OutcomeResponse,
       }),
-      request.body,
-      reply,
-    );
-    if (!body) return undefined;
-    return flow.escalate(row.id, body.reason, body.summary, body.ringSec);
-  });
+    },
+    async (request, reply) => {
+      const row = await withCall(request.params.id, reply);
+      if (!row) return undefined;
+      const body = parseBody(EscalateBody, request.body, reply);
+      if (!body) return undefined;
+      return flow.escalate(row.id, body.reason, body.summary, body.ringSec);
+    },
+  );
 
   /**
    * Sets the status (and optionally the AI summary). `ended` goes through `Flow.end`
    * so the room is deleted and ringing stops; other statuses are written directly.
    * Returns the updated call row.
    */
-  app.post<{ Params: { id: string } }>('/calls/:id/status', async (request, reply) => {
-    const row = await withCall(request.params.id, reply);
-    if (!row) return undefined;
-    const body = parseBody(
-      z.object({ status: CallStatus, summary: z.string().optional() }),
-      request.body,
-      reply,
-    );
-    if (!body) return undefined;
-    if (body.summary) await setSummary(db, row.id, body.summary);
-    if (body.status === 'ended') {
-      await flow.end(row.id);
-      return getCall(db, row.id);
-    }
-    const updated = await setCallStatus(db, row.id, body.status);
-    hub.emit('call.updated', { tenantId: row.tenantId, callId: row.id, status: body.status });
-    return updated;
-  });
+  app.post<{ Params: { id: string } }>(
+    '/calls/:id/status',
+    {
+      config: internal({
+        summary: 'Set the call status and optionally the AI summary',
+        body: StatusBody,
+      }),
+    },
+    async (request, reply) => {
+      const row = await withCall(request.params.id, reply);
+      if (!row) return undefined;
+      const body = parseBody(StatusBody, request.body, reply);
+      if (!body) return undefined;
+      if (body.summary) await setSummary(db, row.id, body.summary);
+      if (body.status === 'ended') {
+        await flow.end(row.id);
+        return getCall(db, row.id);
+      }
+      const updated = await setCallStatus(db, row.id, body.status);
+      hub.emit('call.updated', { tenantId: row.tenantId, callId: row.id, status: body.status });
+      return updated;
+    },
+  );
 };
