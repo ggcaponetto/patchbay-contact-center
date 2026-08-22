@@ -3,9 +3,9 @@
  *
  * This file is deliberately free of LiveKit room / API wiring so that it can be driven
  * by the evals in `agent.integration.test.ts`: side effects are injected through
- * {@link AgentActions} and `main.ts` supplies the real implementations.
+ * {@link AgentActions} and `worker.ts` supplies the real implementations.
  *
- * Place in the flow: `main.ts` calls {@link createAgent} once per job and passes the
+ * Place in the flow: `worker.ts` calls {@link createAgent} once per job and passes the
  * result to `voice.AgentSession.start`; at shutdown it calls {@link summarize} to produce
  * the call summary stored by the API.
  *
@@ -40,8 +40,10 @@ export type AgentOptions = {
   instructions?: string;
   /** Side effects of the tools. */
   actions: AgentActions;
-  /** LiveKit Inference model id; defaults to {@link LLM_MODEL}. */
+  /** LiveKit Inference model id; defaults to {@link LLM_MODEL}. Ignored when `llm` is given. */
   llmModel?: string;
+  /** Ready-made LLM (tests pass a fake); defaults to `new inference.LLM({ model: llmModel })`. */
+  llm?: llm.LLM;
 };
 
 /**
@@ -93,7 +95,7 @@ const baseInstructions = dedent`
  *   goodbye; the actual hang-up is the action's job.
  *
  * STT, TTS and turn detection are **not** configured here; they live on the
- * `AgentSession` in `main.ts`, so this agent also runs in text-only test sessions.
+ * `AgentSession` in `worker.ts`, so this agent also runs in text-only test sessions.
  *
  * @returns An `Agent` ready for `session.start({ agent })`.
  * @example
@@ -104,12 +106,17 @@ const baseInstructions = dedent`
  * });
  * ```
  */
-export function createAgent({ instructions, actions, llmModel = LLM_MODEL }: AgentOptions) {
+export function createAgent({
+  instructions,
+  actions,
+  llmModel = LLM_MODEL,
+  llm: model = new inference.LLM({ model: llmModel }),
+}: AgentOptions) {
   return Agent.create({
     instructions: instructions
       ? `${baseInstructions}\n\n# Company instructions\n\n${instructions}`
       : baseInstructions,
-    llm: new inference.LLM({ model: llmModel }),
+    llm: model,
     tools: [
       tool({
         name: 'escalateToHuman',
@@ -146,7 +153,7 @@ export function createAgent({ instructions, actions, llmModel = LLM_MODEL }: Age
  *
  * Only user and assistant messages are used (tool calls and system prompts are dropped)
  * and rendered as `Caller:` / `Agent:` lines. Called from the shutdown callback in
- * `main.ts`; the result is stored on the call and shown on the desk.
+ * `worker.ts`; the result is stored on the call and shown on the desk.
  *
  * @param model - Any LLM, normally `new inference.LLM({ model: LLM_MODEL })`.
  * @param history - `session.history` of the finished call.

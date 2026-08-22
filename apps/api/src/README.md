@@ -5,16 +5,17 @@ LiveKit access, and the three modules that move a call between the AI and humans
 (`routing.ts`, `flow.ts`, `ws.ts`). Routes, services and the database live in their own
 folders with their own READMEs.
 
-| File         | Role                                                                 |
-| ------------ | -------------------------------------------------------------------- |
-| `index.ts`   | Process entrypoint: env, migrations, real dependencies, listen       |
-| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler    |
-| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                 |
-| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room             |
-| `routing.ts` | In-memory presence and ring-offer state machine (no I/O)             |
-| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave |
-| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out               |
-| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)             |
+| File         | Role                                                                   |
+| ------------ | ---------------------------------------------------------------------- |
+| `index.ts`   | Process entrypoint: loads `.env.local`, calls `start()`                |
+| `boot.ts`    | `start(env, deps)`: migrations, real dependencies, auth choice, listen |
+| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler      |
+| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                   |
+| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room               |
+| `routing.ts` | In-memory presence and ring-offer state machine (no I/O)               |
+| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave   |
+| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out                 |
+| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)               |
 
 ## `routing.ts`: presence and offers
 
@@ -229,8 +230,10 @@ session resolver you control (`srv.as(user).inject(...)`). `freshDb()` migrates 
 truncates the test database; `dbAvailable()` lets integration suites skip when Postgres
 is down. `fakeLiveKit()` records `tokens`, `dispatched` and `deleted` for assertions.
 
-## `index.ts`
+## `index.ts` and `boot.ts`
 
-Loads `.env.local`, runs migrations, creates the database pool and LiveKit client, picks
-the auth strategy (`DEV_USER_EMAIL` outside production, Better Auth otherwise), calls
-`buildServer` and listens on `PORT`.
+`index.ts` loads `.env.local` and calls `start()` from `boot.ts`, which runs migrations,
+creates the database pool and LiveKit client, picks the auth strategy (`DEV_USER_EMAIL`
+outside production, Better Auth otherwise), calls `buildServer` and listens on `PORT`.
+`start(env, deps)` takes its factories as a parameter so `boot.test.ts` can run the whole
+sequence with fakes.

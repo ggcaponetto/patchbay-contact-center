@@ -230,7 +230,6 @@ docs/api/
 .vitepress/dist/
 .env.local
 .env.*.local
-.env.selfhosted.local.bak
 
 # local run logs
 *.log

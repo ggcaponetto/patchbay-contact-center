@@ -41,25 +41,10 @@ export default defineConfig({
       provider: 'v8',
       // lcov feeds Codecov and the Sonar scan in CI
       reporter: ['text', 'lcov'],
-      // Logic modules carry the gate. LiveKit/React/Fastify wiring (entrypoints,
-      // components, DB client, worker glue) is smoke-tested, not line-covered.
-      include: [
-        'packages/shared/src/**/*.ts',
-        'apps/api/src/**/*.ts',
-        'apps/embed/src/state.ts',
-        'apps/web/src/lib/**/*.ts',
-      ],
-      exclude: [
-        'apps/api/src/index.ts',
-        'apps/api/src/db/**',
-        'apps/api/src/livekit.ts',
-        'apps/api/src/auth.ts',
-        'apps/api/src/testing.ts',
-        'apps/web/src/lib/hooks.ts',
-        'apps/web/src/lib/api.ts',
-        '**/*.test.ts',
-        '**/*.test.tsx',
-      ],
+      // Every source file counts. Entrypoints are kept tiny and wiring is tested with
+      // fakes (see tests/README.md); only test files themselves are left out.
+      include: ['apps/*/src/**/*.{ts,tsx}', 'packages/*/src/**/*.ts'],
+      exclude: ['**/*.test.ts', '**/*.test.tsx'],
       thresholds: { lines: 90, functions: 90, branches: 90, statements: 90 },
     },
   },

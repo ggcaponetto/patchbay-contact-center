@@ -3,7 +3,7 @@
  *
  * A `voice.AgentSession` only transcribes the participant it is talking to (the
  * customer). After a human agent joins, the desk still wants a transcript of everyone,
- * so `main.ts` starts this transcriber on the remaining tracks:
+ * so `worker.ts` starts this transcriber on the remaining tracks:
  *
  * - `leave` handoff: the session is closed; transcribe customer **and** human.
  * - `listen` handoff: the session keeps transcribing the customer; transcribe the human.

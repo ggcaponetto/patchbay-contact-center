@@ -31,12 +31,13 @@
 
 ## Coverage gate
 
-`vitest.config.ts` enforces 90% lines, functions, branches and statements with the v8 provider, but only on **logic modules**:
+`vitest.config.ts` enforces 90% lines, functions, branches and statements (v8 provider) across **every source file** in `apps/*/src` and `packages/*/src`; only the test files themselves are excluded. The thresholds are global, so a handful of tiny lines in an entrypoint do not fail the build, but every module is expected to carry its own tests:
 
-- included: `packages/shared/src/**`, `apps/api/src/**`, `apps/embed/src/state.ts`, `apps/web/src/lib/**`;
-- excluded: `apps/api/src/index.ts` (process entrypoint), `apps/api/src/db/**` (Drizzle client and migrator), `apps/api/src/livekit.ts` (real Cloud client — replaced by `fakeLiveKit` in tests), `apps/api/src/auth.ts` (Better Auth wiring), `apps/api/src/testing.ts` (test helpers), `apps/web/src/lib/hooks.ts` and `api.ts` (browser wiring), and all test files.
+- pure logic (routing, reducers, state machines, services) is tested directly;
+- wiring (Fastify composition, LiveKit clients, React components, the web component, the agent worker) is tested with fakes at the module boundary — `vi.mock('livekit-client')`, a fake `WebSocket`, a fake job context, `fakeLiveKit()` from `apps/api/src/testing.ts`;
+- process entrypoints (`apps/api/src/index.ts`, `apps/agent/src/main.ts`, `apps/web/src/main.tsx`) stay a few lines long and delegate to a testable module.
 
-The agent worker, React components and the web component's DOM class are not in the coverage set at all: they are LiveKit/React glue that is smoke-tested by the evals and e2e, not line-covered. Add a new logic module to `include` when you create one; do not widen `exclude` to get past a failure.
+Do not widen `exclude` to get past a failure; add a test or split the module so its logic becomes testable.
 
 ## How to write each kind
 

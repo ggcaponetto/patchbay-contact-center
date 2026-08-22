@@ -62,21 +62,37 @@ export type LiveKit = {
   deleteRoom(room: string): Promise<void>;
 };
 
+/** The two server-API clients {@link createLiveKit} talks to; tests inject fakes. */
+export type LiveKitClients = {
+  /** `RoomServiceClient` (or a fake): only `deleteRoom` is used. */
+  rooms: Pick<RoomServiceClient, 'deleteRoom'>;
+  /** `AgentDispatchClient` (or a fake): only `createDispatch` is used. */
+  dispatch: Pick<AgentDispatchClient, 'createDispatch'>;
+};
+
+/** Builds the real SDK clients against the HTTP(S) form of `LIVEKIT_URL`. */
+const sdkClients = (httpUrl: string, apiKey: string, apiSecret: string): LiveKitClients => ({
+  rooms: new RoomServiceClient(httpUrl, apiKey, apiSecret),
+  dispatch: new AgentDispatchClient(httpUrl, apiKey, apiSecret),
+});
+
 /**
  * Real LiveKit Cloud client built from `LIVEKIT_*` env vars.
  *
+ * @param clients - Factory for the server-API clients; defaults to the SDK ones. Tests pass
+ *   fakes so nothing talks to the network (token minting is local either way).
  * @returns A {@link LiveKit} backed by `livekit-server-sdk`.
  * @throws Error when `LIVEKIT_URL`, `LIVEKIT_API_KEY` or `LIVEKIT_API_SECRET` is missing.
  */
-export function createLiveKit(): LiveKit {
+export function createLiveKit(
+  clients: (httpUrl: string, apiKey: string, apiSecret: string) => LiveKitClients = sdkClients,
+): LiveKit {
   const url = process.env.LIVEKIT_URL ?? '';
   const apiKey = process.env.LIVEKIT_API_KEY ?? '';
   const apiSecret = process.env.LIVEKIT_API_SECRET ?? '';
   if (!url || !apiKey || !apiSecret) throw new Error('LIVEKIT_URL/API_KEY/API_SECRET are not set');
   // The server APIs are HTTP(S); clients connect over ws(s) to the same host.
-  const httpUrl = url.replace(/^ws/, 'http');
-  const rooms = new RoomServiceClient(httpUrl, apiKey, apiSecret);
-  const dispatch = new AgentDispatchClient(httpUrl, apiKey, apiSecret);
+  const { rooms, dispatch } = clients(url.replace(/^ws/, 'http'), apiKey, apiSecret);
   return {
     url,
     async createToken(req) {

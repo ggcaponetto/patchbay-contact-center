@@ -25,13 +25,21 @@ import { buildServer } from './server.ts';
 dotenv.config({ path: ['.env.local', '../../.env.local'] });
 process.env.NODE_ENV = 'test';
 
-const DATABASE_URL =
-  process.env.DATABASE_URL_TEST ?? process.env.DATABASE_URL ?? 'postgres://cc:cc@localhost:5432/cc';
+/** First non-empty of `DATABASE_URL_TEST`, `DATABASE_URL`, docker-compose default. */
+const DATABASE_URL = [
+  process.env.DATABASE_URL_TEST,
+  process.env.DATABASE_URL,
+  'postgres://cc:cc@localhost:5432/cc',
+].find(Boolean)!;
 
-/** True when a Postgres is reachable; DB-backed suites skip otherwise. */
-export async function dbAvailable(): Promise<boolean> {
+/**
+ * True when a Postgres is reachable; DB-backed suites skip otherwise.
+ *
+ * @param connectionString - Defaults to the test database (see module docs).
+ */
+export async function dbAvailable(connectionString = DATABASE_URL): Promise<boolean> {
   try {
-    const { db, close } = createDb(DATABASE_URL);
+    const { db, close } = createDb(connectionString);
     await db.execute(sql`select 1`);
     await close();
     return true;

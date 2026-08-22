@@ -2,11 +2,11 @@
 
 The worker is the voice AI of the contact center. It is a [LiveKit Agents for Node.js](https://docs.livekit.io/agents/) (SDK 1.7) process that connects to LiveKit Cloud, waits for _jobs_, and for each job joins the call's room as the participant `ai:<callId>`, talks to the customer, and reports everything back to the API over HTTP. It has no database and no websocket: the API is its only backend.
 
-One process handles many calls at once; every call is one `entry()` invocation in `src/main.ts`.
+One process handles many calls at once; every call is one invocation of the `entry()` function built by `createEntry()` in `src/worker.ts`. `src/main.ts` is only the process entry point: it loads `.env.local`, defines the agent with `createEntry()` and starts the LiveKit CLI.
 
 ## How a job reaches the worker
 
-The worker registers with the agent name `cc-agent` (`AGENT_NAME` in `src/main.ts`, mirrored in `apps/api/src/livekit.ts`). It is only started by **explicit dispatch**; LiveKit never auto-dispatches it into rooms. Two code paths in the API trigger it:
+The worker registers with the agent name `cc-agent` (`AGENT_NAME` in `src/worker.ts`, mirrored in `apps/api/src/livekit.ts`). It is only started by **explicit dispatch**; LiveKit never auto-dispatches it into rooms. Two code paths in the API trigger it:
 
 | Tenant routing mode | How the dispatch happens                                                                                                                                                                                                        | Where              |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
@@ -21,7 +21,7 @@ In both cases the dispatch carries a JSON string that parses as `DispatchMetadat
 sequenceDiagram
     autonumber
     participant LK as LiveKit Cloud
-    participant W as Worker (main.ts)
+    participant W as Worker (worker.ts)
     participant S as AgentSession
     participant API as API (/api/internal)
     participant C as Customer
@@ -125,14 +125,14 @@ While `escalateToHuman` is pending the worker says "One moment please, I am conn
 
 Everything runs on [LiveKit Inference](https://docs.livekit.io/agents/models/inference), so there are no provider API keys: the `LIVEKIT_*` credentials cover all of them.
 
-| Role               | Model                                                                    | Where to change                                                        |
-| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| STT                | `assemblyai/universal-3-5-pro`, English                                  | `STT_MODEL` in `src/main.ts` (used by the session and the transcriber) |
-| TTS                | `fishaudio/s2.1-pro`, fixed voice id                                     | `inference.TTS({...})` in `src/main.ts`                                |
-| LLM                | `google/gemma-4-31b-it`                                                  | `LLM_MODEL` in `src/agent.ts` (conversation and summary)               |
-| Turn detection     | LiveKit turn detector (`inference.TurnDetector`), adaptive interruptions | `turnHandling` in `src/main.ts`                                        |
-| Noise cancellation | ai-coustics `QuailVfS` via `@livekit/plugins-ai-coustics`                | `inputOptions.noiseCancellation` in `src/main.ts`                      |
-| Eval judge         | `openai/gpt-4.1-mini`                                                    | `judgeLlm` in `src/agent.integration.test.ts`                          |
+| Role               | Model                                                                    | Where to change                                                          |
+| ------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| STT                | `assemblyai/universal-3-5-pro`, English                                  | `STT_MODEL` in `src/worker.ts` (used by the session and the transcriber) |
+| TTS                | `fishaudio/s2.1-pro`, fixed voice id                                     | `inference.TTS({...})` in `defaultDeps()`, `src/worker.ts`               |
+| LLM                | `google/gemma-4-31b-it`                                                  | `LLM_MODEL` in `src/agent.ts` (conversation and summary)                 |
+| Turn detection     | LiveKit turn detector (`inference.TurnDetector`), adaptive interruptions | `turnHandling` in `defaultDeps()`, `src/worker.ts`                       |
+| Noise cancellation | ai-coustics `QuailVfS` via `@livekit/plugins-ai-coustics`                | `inputOptions()` in `defaultDeps()`, `src/worker.ts`                     |
+| Eval judge         | `openai/gpt-4.1-mini`                                                    | `judgeLlm` in `src/agent.integration.test.ts`                            |
 
 `expressive: true` on the session lets the LLM annotate its output with prosody hints for the TTS. Noise cancellation and expressive mode are LiveKit Cloud features.
 
@@ -196,6 +196,10 @@ it('asks for the order number before looking it up', { timeout: 30000 }, async (
 
 Per `AGENTS.md`, write the eval first and then iterate on the prompt or tool description until it passes. Multi-turn conversations are just consecutive `session.run` calls on the same session; `summarize()` can be tested on `session.history` afterwards (see "summarizes a conversation").
 
+## Unit tests
+
+Everything except the models themselves is covered by unit tests that need no credentials (`npm run test:unit`). `createEntry(deps)` takes every collaborator as a factory (`WorkerDeps`), so `worker.test.ts` drives a whole call with an `EventEmitter` room, a fake session and a spy API client: start order, transcript forwarding, both handoff modes, `escalate`/`endCall` and the shutdown callback. `defaultDeps()` is exercised with stub credentials; the inference constructors do not connect until a job runs.
+
 ## Transcriber
 
 `src/transcriber.ts` exists because a `voice.AgentSession` only transcribes the participant it is talking to. After a handoff the desk still needs a transcript of the human side (and, in `leave` mode, of the customer too), so `startTranscriber` subscribes to the raw remote audio tracks of the selected participants, pulls 16 kHz mono frames with `AudioStream` from `@livekit/rtc-node`, pushes them into `stt.stream()` and posts every `FINAL_TRANSCRIPT` to the API. It returns a stop function that the shutdown callback calls.
@@ -211,14 +215,19 @@ Limits to be aware of:
 
 ## Files
 
-| File                            | Purpose                                                                                                                                                             |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/main.ts`                   | Worker entry: parses dispatch metadata, builds the `AgentSession`, streams transcripts, handles the handoff and shutdown, starts the CLI (`dev`/`start`/`console`). |
-| `src/agent.ts`                  | `createAgent` (base prompt + tenant instructions, `escalateToHuman` and `endCall` tools), `summarize`, `LLM_MODEL`.                                                 |
-| `src/api.ts`                    | `ApiClient` for `POST /api/internal/calls/:id/{transcript,events,participants,escalate,status}`; logs instead of throwing.                                          |
-| `src/transcriber.ts`            | `startTranscriber`: STT over raw remote audio tracks after the handoff.                                                                                             |
-| `src/agent.integration.test.ts` | LLM-judge evals; skipped without LiveKit credentials.                                                                                                               |
-| `src/api.test.ts`               | Unit tests for `ApiClient` with a stubbed `fetch`.                                                                                                                  |
-| `package.json`                  | Scripts `dev`, `start`, `console`, `typecheck`; depends on `@cc/shared`, `@livekit/agents`, `@livekit/rtc-node`, `@livekit/plugins-ai-coustics`.                    |
+| File                            | Purpose                                                                                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main.ts`                   | Process entry: loads `.env.local`, `defineAgent({ entry: createEntry() })`, starts the CLI (`dev`/`start`/`console`).                                                                             |
+| `src/worker.ts`                 | Job logic: `createEntry(deps)` parses dispatch metadata, builds the `AgentSession`, streams transcripts, handles the handoff and shutdown; `defaultDeps()` wires the real models and `ApiClient`. |
+| `src/agent.ts`                  | `createAgent` (base prompt + tenant instructions, `escalateToHuman` and `endCall` tools), `summarize`, `LLM_MODEL`.                                                                               |
+| `src/api.ts`                    | `ApiClient` for `POST /api/internal/calls/:id/{transcript,events,participants,escalate,status}`; logs instead of throwing.                                                                        |
+| `src/transcriber.ts`            | `startTranscriber`: STT over raw remote audio tracks after the handoff.                                                                                                                           |
+| `src/agent.integration.test.ts` | LLM-judge evals; skipped without LiveKit credentials.                                                                                                                                             |
+| `src/api.test.ts`               | Unit tests for `ApiClient` with a stubbed `fetch`.                                                                                                                                                |
+| `src/worker.test.ts`            | Unit tests for the job logic with fake context, room, session and API (no credentials).                                                                                                           |
+| `src/agent.test.ts`             | Unit tests for the prompt, the tools' `execute` functions and `summarize` with a fake LLM.                                                                                                        |
+| `src/transcriber.test.ts`       | Unit tests for `startTranscriber` with a mocked `@livekit/rtc-node`.                                                                                                                              |
+| `src/main.test.ts`              | Smoke test of the entry point with `cli.runApp` stubbed.                                                                                                                                          |
+| `package.json`                  | Scripts `dev`, `start`, `console`, `typecheck`; depends on `@cc/shared`, `@livekit/agents`, `@livekit/rtc-node`, `@livekit/plugins-ai-coustics`.                                                  |
 
 Related: [`packages/shared`](../../packages/shared/) for the contracts, `apps/api/src/routes/internal.ts` for the server side of `ApiClient`, `apps/api/src/flow.ts` for escalation and dispatch.
