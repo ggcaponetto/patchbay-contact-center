@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["build/*.mjs", "docs/.vitepress/config.ts"],
+      "project": ["build/*.mjs", "*.ts"]
+    },
+    "packages/shared": { "project": ["src/**/*.ts"] },
+    "apps/agent": { "project": ["src/**/*.ts"] },
+    "apps/api": { "project": ["src/**/*.ts", "test/**/*.ts"] },
+    "apps/web": { "project": ["src/**/*.{ts,tsx}"] },
+    "apps/embed": { "project": ["src/**/*.ts"] }
+  }
+}

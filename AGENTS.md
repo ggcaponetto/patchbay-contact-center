@@ -1,16 +1,18 @@
 # AGENTS.md
 
-This is a LiveKit Agents project. LiveKit Agents is a Node.js SDK for building voice AI agents. This project is intended to be used with LiveKit Cloud. See @README.md for more about the rest of the LiveKit ecosystem.
+This is an AI-first contact center proof of concept built on LiveKit Cloud, organized as an npm-workspaces monorepo. See @README.md for the workspace layout, setup and quality gates.
 
 The following is a guide for working with this project.
 
 ## Project structure
 
-This Node.js project uses the `pnpm` package manager. You should always use `pnpm` to install dependencies, run the agent, and run tests.
+This project uses plain **npm workspaces** (`apps/*`, `packages/*`). Always use `npm` (never pnpm/yarn). Workspace scripts: `npm run -w apps/<name> <script>`.
 
-All app-level code is in the `src/` directory. In general, simple agents can be constructed with a single `main.ts` file. Additional files can be added, but you must retain `main.ts` as the entrypoint (see the associated Dockerfile for how this is deployed).
+- `apps/agent` is the LiveKit Agents worker; keep `src/main.ts` as its entrypoint (the Dockerfile depends on it).
+- `apps/api` (Fastify), `apps/web` (Vite + React + MUI), `apps/embed` (web component) and `packages/shared` (zod contracts) are described in the README.
+- Node runs TypeScript directly (type stripping): imports use explicit `.ts` extensions; no enums, namespaces or parameter properties.
 
-Be sure to maintain code formatting. You can use the prettier formatter and eslint to format and lint the code. Scripts are available in `package.json`, including `pnpm format` and `pnpm lint`.
+Quality gates are mandatory: run `npm run validate` before declaring work done. It runs Prettier, ESLint, `tsc`, knip, cspell, the LOC gate (`build/loc.mjs`, 50k hard budget / 20k POC target), vitest with 90% coverage thresholds on logic modules, and the builds. Add new words to `cspell.json` rather than disabling the check; do not add dependencies before they are used (knip fails otherwise).
 
 ## LiveKit Documentation
 
@@ -42,7 +44,7 @@ Voice AI agents are highly sensitive to excessive latency. For this reason, it's
 
 ## Testing
 
-When possible, add tests for agent behavior. Read the [documentation](https://docs.livekit.io/agents/start/testing/), and refer to existing test files with the `.test.ts` extension. Run tests with `pnpm test`.
+When possible, add tests for agent behavior. Read the [documentation](https://docs.livekit.io/agents/start/testing/), and refer to existing test files with the `.test.ts` extension. Run tests with `npm test`.
 
 Important: When modifying core agent behavior such as instructions, tool descriptions, and tasks/workflows/handoffs, never just guess what will work. Always use test-driven development (TDD) and begin by writing tests for the desired behavior. For instance, if you're planning to add a new tool, write one or more tests for the tool's behavior, then iterate on the tool until the tests pass correctly. This will ensure you are able to produce a working, reliable agent for the user.
 

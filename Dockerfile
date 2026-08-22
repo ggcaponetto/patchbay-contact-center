@@ -1,79 +1,31 @@
 # syntax=docker/dockerfile:1
-
-# Use the official Node.js v24 base image
-# We use the slim variant to keep the image size smaller while still having essential tools
+# Builds the AI agent worker (apps/agent) for LiveKit Cloud agent deployment.
 ARG NODE_VERSION=24
 FROM node:${NODE_VERSION}-slim AS base
-
-# Configure pnpm installation directory and ensure it is on PATH
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
 ENV HOME="/app"
-
-# Install ca-certificates (the system CA bundle used for TLS), then clean
-# the apt cache. Required by the LiveKit SDK: the native Rust core reads
-# the system trust store at runtime, which the slim base image doesn't ship.
-# --no-install-recommends keeps the image minimal.
+# ca-certificates: the LiveKit native core reads the system trust store at runtime.
 RUN apt-get update -qq && apt-get install --no-install-recommends -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Pin pnpm version for reproducible builds
-RUN npm install -g pnpm@10
-
-# --- Build stage ---
-# Install dependencies, build the project, and prepare production assets
 FROM base AS build
-
-# Create a new directory for our application code
-# And set it as the working directory
 WORKDIR /app
-
-# Copy just the dependency files first, for more efficient layer caching
-COPY package.json pnpm-lock.yaml ./
-
-# Install dependencies using pnpm
-# --frozen-lockfile ensures we use exact versions from pnpm-lock.yaml for reproducible builds
-RUN pnpm install --frozen-lockfile
-
-# Pre-download any ML models or files the agent needs
-# This runs before COPY . . so the download layer is cached across code-only changes.
-# The standalone CLI discovers installed @livekit/agents-plugin-* packages without
-# loading your agent code.
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/agent/package.json apps/agent/
+# Install only the agent workspace and what it depends on
+RUN npm ci --workspace apps/agent --include-workspace-root=false --ignore-scripts
+# Pre-download plugin models before copying sources so the layer is cached
 RUN npx livekit-agents download-files
+COPY tsconfig.base.json ./
+COPY packages/shared packages/shared
+COPY apps/agent apps/agent
+RUN npm prune --omit=dev --workspace apps/agent
 
-# Copy all remaining application files into the container
-# This includes source code, configuration files, and dependency specifications
-# (Excludes files specified in .dockerignore)
-COPY . .
-
-# Remove dev dependencies for a leaner production image
-RUN pnpm prune --prod
-
-# --- Production stage ---
 FROM base
-
-# Create a non-privileged user that the app will run under
-# See https://docs.docker.com/build/building/best-practices/#user
 ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/app" \
-    --shell "/sbin/nologin" \
-    --uid "${UID}" \
-    appuser
-
+RUN adduser --disabled-password --gecos "" --home "/app" --shell "/sbin/nologin" --uid "${UID}" appuser
 WORKDIR /app
-
-# Copy the built application with correct ownership in a single layer
-# This avoids expensive recursive chown operations on node_modules
 COPY --from=build --chown=appuser:appuser /app /app
-
 USER appuser
-
-# Set Node.js to production mode
 ENV NODE_ENV=production
-
-# Run the application
-# The "start" command tells the worker to connect to LiveKit and begin waiting for jobs.
-# Your package.json must contain a "start" script, such as `"start": "node src/main.ts start"`
-CMD [ "pnpm", "start" ]
+WORKDIR /app/apps/agent
+CMD ["npm", "start"]

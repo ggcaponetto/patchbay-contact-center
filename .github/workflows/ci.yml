@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, contact-center-poc]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Sonar blames new code against history; a shallow clone breaks that
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Formatting/dead-code/spelling/size gates are OS-independent; run once.
+      - run: npm run format:check
+        if: runner.os == 'Linux'
+      - run: npm run lint
+        if: runner.os == 'Linux'
+      - run: npm run knip
+        if: runner.os == 'Linux'
+      - run: npm run spell
+        if: runner.os == 'Linux'
+      - run: npm run loc
+        if: runner.os == 'Linux'
+      - run: npm run docs:build
+        if: runner.os == 'Linux'
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          # Agent evals need LiveKit Cloud credentials; they skip themselves when absent.
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+      - run: npm run build
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux' && env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+      - name: SonarQube scan
+        if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

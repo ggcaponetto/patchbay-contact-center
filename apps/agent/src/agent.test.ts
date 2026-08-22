@@ -1,25 +1,24 @@
-import { dedent, initializeLogger, voice } from '@livekit/agents';
-import * as openai from '@livekit/agents-plugin-openai';
+import { dedent, inference, initializeLogger, voice } from '@livekit/agents';
 import dotenv from 'dotenv';
 import { afterEach, beforeEach, describe, it } from 'vitest';
 import { createAgent } from './agent.ts';
 
-dotenv.config({ path: '.env.local' });
+dotenv.config({ path: ['.env.local', '../../.env.local'] });
+
+// The evals talk to LiveKit Inference; without Cloud credentials (e.g. CI
+// without secrets) they skip instead of failing.
+const hasCloud = Boolean(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET);
 
 // Initialize logger for testing.
 // You may wish to adjust the log level to print more or less information during test runs.
 initializeLogger({ pretty: true, level: 'warn' });
 
-describe('agent evaluation', () => {
+describe.skipIf(!hasCloud)('agent evaluation', () => {
   let session: voice.AgentSession;
-  let judgeLlm: openai.LLM;
+  let judgeLlm: inference.LLM;
 
   beforeEach(async () => {
-    // The judge runs on the same local Ollama model as the agent so tests need no cloud access
-    judgeLlm = openai.LLM.withOllama({
-      baseURL: process.env.LOCAL_LLM_URL ?? 'http://localhost:11434/v1',
-      model: process.env.LOCAL_LLM_MODEL ?? 'gemma4:e4b',
-    });
+    judgeLlm = new inference.LLM({ model: 'openai/gpt-4.1-mini' });
     session = new voice.AgentSession();
     await session.start({ agent: createAgent() });
   });

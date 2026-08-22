@@ -1,0 +1,19 @@
+{
+  "name": "@cc/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "dotenv": "^17.4.1",
+    "fastify": "^5.12.1"
+  }
+}

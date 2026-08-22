@@ -1,2 +1,10 @@
 .agents/
 .claude/
+node_modules/
+dist/
+coverage/
+docs/api/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+package-lock.json
+apps/api/drizzle/

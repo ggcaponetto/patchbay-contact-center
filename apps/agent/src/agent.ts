@@ -1,5 +1,4 @@
-import { Agent, dedent } from '@livekit/agents';
-import * as openai from '@livekit/agents-plugin-openai';
+import { Agent, dedent, inference } from '@livekit/agents';
 
 // Build a custom voice AI assistant with the functional `Agent.create` API
 export function createAgent() {
@@ -39,12 +38,8 @@ export function createAgent() {
       `,
 
     // A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-    // This uses a locally hosted model served by Ollama (https://ollama.com).
-    // To switch back to a hosted model, see https://docs.livekit.io/agents/models/llm/
-    llm: openai.LLM.withOllama({
-      baseURL: process.env.LOCAL_LLM_URL ?? 'http://localhost:11434/v1',
-      model: process.env.LOCAL_LLM_MODEL ?? 'gemma4:e4b',
-    }),
+    // See all available models at https://docs.livekit.io/agents/models/llm/
+    llm: new inference.LLM({ model: 'google/gemma-4-31b-it' }),
 
     // To use a realtime model instead of a voice pipeline, replace the LLM
     // with a RealtimeModel and remove the STT/TTS from the AgentSession

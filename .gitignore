@@ -223,3 +223,12 @@ ehthumbs.db
 
 # GitHub CLI
 .github/personal-instructions.md
+
+# Project
+dist/
+docs/api/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+.env.local
+.env.*.local
+.env.selfhosted.local.bak
