@@ -71,7 +71,7 @@ export default withMermaid(
     outDir: '.vitepress/dist',
     cacheDir: '.vitepress/cache',
     // A folder's README.md becomes its index page, so `/apps/api/` is apps/api/README.md.
-    rewrites: { ':path(.*)/README.md': ':path/index.md' },
+    rewrites: { 'README.md': 'index.md', ':path(.*)/README.md': ':path/index.md' },
     cleanUrls: true,
     ignoreDeadLinks: false,
     themeConfig: {
@@ -79,7 +79,7 @@ export default withMermaid(
         { text: 'Guide', link: '/docs/' },
         { text: 'Apps', link: '/apps/api/' },
         { text: 'API reference', link: '/docs/api/' },
-        { text: 'Repo', link: '/README' },
+        { text: 'Repo', link: '/' },
       ],
       sidebar: {
         '/docs/guide/': [{ text: 'Guide', items: guide }],
@@ -93,7 +93,7 @@ export default withMermaid(
           {
             text: 'Repository',
             items: [
-              { text: 'README', link: '/README' },
+              { text: 'README', link: '/' },
               { text: 'TODO', link: '/TODO' },
               { text: 'AGENTS.md', link: '/AGENTS' },
               { text: 'Contributing', link: '/CONTRIBUTING' },
