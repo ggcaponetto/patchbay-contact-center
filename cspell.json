@@ -44,6 +44,7 @@
     "typecheck",
     "typedoc",
     "uidx",
+    "unstub",
     "upsert",
     "vitepress",
     "vitest",

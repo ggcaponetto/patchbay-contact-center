@@ -12,7 +12,7 @@ import {
   slugify,
   updateSettings,
 } from '../src/services/tenants.ts';
-import { createUser, dbAvailable, freshDb, resetDb, testServer } from './helpers.ts';
+import { createUser, dbAvailable, fakeLiveKit, freshDb, resetDb, testServer } from './helpers.ts';
 
 const hasDb = await dbAvailable();
 
@@ -75,9 +75,18 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
   });
 
   it('needs a session resolver and reads ADMIN_EMAILS from the environment', async () => {
-    await expect(buildServer({ db })).rejects.toThrow(/getSession/);
+    const livekit = fakeLiveKit().livekit;
+    await expect(buildServer({ db, livekit })).rejects.toThrow(/getSession/);
+    await expect(
+      buildServer({ db, livekit, getSession: async () => null, internalSecret: '' }),
+    ).rejects.toThrow(/INTERNAL_API_SECRET/);
     process.env.ADMIN_EMAILS = ' Env@Example.com ,';
-    const envApp = await buildServer({ db, getSession: async () => envUser });
+    const { app: envApp } = await buildServer({
+      db,
+      livekit,
+      internalSecret: 's',
+      getSession: async () => envUser,
+    });
     const envUser = await createUser(db, 'env@example.com', '');
     await bootstrapUser(db, envUser, ['env@example.com']);
     const me = await envApp.inject({ url: '/api/me' });

@@ -16,19 +16,10 @@ import {
   setQueueMembers,
   updateSettings,
 } from '../services/tenants.ts';
+import { parseBody } from './util.ts';
 
-type Hook = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
+export type Hook = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
 export type AdminOpts = { db: Db; authenticate: Hook; adminEmails: string[] };
-
-/** Parses `body` with `schema`, replying 400 on failure. */
-function parseBody<T extends z.ZodType>(schema: T, body: unknown, reply: FastifyReply) {
-  const result = schema.safeParse(body);
-  if (!result.success) {
-    reply.code(400).send({ error: 'invalid_body', issues: result.error.issues });
-    return undefined;
-  }
-  return result.data as z.infer<T>;
-}
 
 /** Tenant administration: settings, members, invites, queues, embed keys. Supervisors only. */
 export const adminRoutes: FastifyPluginAsync<AdminOpts> = async (

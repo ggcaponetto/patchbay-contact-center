@@ -4,7 +4,15 @@ export default defineConfig({
   test: {
     projects: [
       { test: { name: 'shared', include: ['packages/shared/**/*.test.ts'] } },
-      { test: { name: 'api', include: ['apps/api/**/*.test.ts'], environment: 'node' } },
+      {
+        // suites share one Postgres and truncate it, so files must not run concurrently
+        test: {
+          name: 'api',
+          include: ['apps/api/**/*.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+        },
+      },
       // LLM-as-judge evals: need LiveKit Cloud credentials, skipped without them.
       { test: { name: 'agent', include: ['apps/agent/**/*.test.ts'], environment: 'node' } },
       { test: { name: 'embed', include: ['apps/embed/**/*.test.ts'], environment: 'jsdom' } },

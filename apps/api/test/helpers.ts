@@ -5,6 +5,7 @@ import { type SessionUser } from '../src/auth.ts';
 import { type Db, createDb } from '../src/db/client.ts';
 import { runMigrations } from '../src/db/migrate.ts';
 import { user } from '../src/db/schema.ts';
+import type { LiveKit } from '../src/livekit.ts';
 import { buildServer } from '../src/server.ts';
 
 dotenv.config({ path: ['.env.local', '../../.env.local'] });
@@ -47,13 +48,45 @@ export async function createUser(
   return { id, email, name };
 }
 
+/** Records LiveKit calls instead of talking to the cloud. */
+export function fakeLiveKit() {
+  const calls: { tokens: unknown[]; dispatched: string[]; deleted: string[] } = {
+    tokens: [],
+    dispatched: [],
+    deleted: [],
+  };
+  const livekit: LiveKit = {
+    url: 'wss://fake.livekit.cloud',
+    async createToken(req) {
+      calls.tokens.push(req);
+      return `token-for-${req.identity}`;
+    },
+    async dispatchAgent(room) {
+      calls.dispatched.push(room);
+    },
+    async deleteRoom(room) {
+      calls.deleted.push(room);
+    },
+  };
+  return { livekit, calls };
+}
+
+export const INTERNAL_SECRET = 'test-secret';
+
 /** Builds a server whose session is whatever `current` holds (switch users per request). */
 export async function testServer(db: Db, adminEmails: string[] = []) {
   const current: { user: SessionUser | null } = { user: null };
-  const app = await buildServer({ db, adminEmails, getSession: async () => current.user });
+  const lk = fakeLiveKit();
+  const { app, hub } = await buildServer({
+    db,
+    adminEmails,
+    livekit: lk.livekit,
+    internalSecret: INTERNAL_SECRET,
+    getSession: async () => current.user,
+  });
   const as = (u: SessionUser | null) => {
     current.user = u;
     return app;
   };
-  return { app, as };
+  return { app, as, hub, lk: lk.calls };
 }

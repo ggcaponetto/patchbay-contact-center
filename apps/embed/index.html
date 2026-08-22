@@ -4,9 +4,28 @@
     <meta charset="UTF-8" />
     <title>cc-call-button demo</title>
     <script type="module" src="/src/call-button.ts"></script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        padding: 2rem;
+      }
+    </style>
   </head>
   <body>
     <h1>Any website</h1>
-    <cc-call-button label="Call us"></cc-call-button>
+    <p>
+      Paste an embed key from the supervisor settings page into the <code>key</code> attribute below
+      (or append <code>?key=pk_…</code> to this URL).
+    </p>
+    <cc-call-button
+      key=""
+      queue="support"
+      api="http://localhost:4000"
+      label="Call us"
+    ></cc-call-button>
+    <script>
+      const key = new URLSearchParams(location.search).get('key');
+      if (key) document.querySelector('cc-call-button').setAttribute('key', key);
+    </script>
   </body>
 </html>
