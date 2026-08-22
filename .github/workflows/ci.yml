@@ -20,7 +20,16 @@ jobs:
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      DATABASE_URL: postgres://cc:cc@localhost:5432/cc
+      INTERNAL_API_SECRET: ci-secret
     steps:
+      # Service containers only exist on Linux runners; the API suites need Postgres and
+      # skip themselves elsewhere, so the coverage gate is enforced on Linux only.
+      - name: Start Postgres
+        if: runner.os == 'Linux'
+        run: |
+          docker run -d --name pg -e POSTGRES_USER=cc -e POSTGRES_PASSWORD=cc -e POSTGRES_DB=cc -p 5432:5432 postgres:17-alpine
+          for i in $(seq 1 30); do docker exec pg pg_isready -U cc && break; sleep 1; done
       - uses: actions/checkout@v5
         with:
           # Sonar blames new code against history; a shallow clone breaks that
@@ -45,11 +54,14 @@ jobs:
         if: runner.os == 'Linux'
       - run: npm run typecheck
       - run: npm test
+        if: runner.os == 'Linux'
         env:
           # Agent evals need LiveKit Cloud credentials; they skip themselves when absent.
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+      - run: npx vitest run --coverage.enabled=false
+        if: runner.os != 'Linux'
       - run: npm run build
       - name: Upload coverage to Codecov
         if: runner.os == 'Linux' && env.CODECOV_TOKEN != ''

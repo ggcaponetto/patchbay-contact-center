@@ -67,3 +67,39 @@ export function registerAuth(app: FastifyInstance, auth: Auth): GetSession {
       : null;
   };
 }
+
+/**
+ * Development-only bypass: every request is signed in as `email` (created and
+ * bootstrapped on first use), and the web client's session probe is answered
+ * locally. Never enabled in production.
+ */
+export async function devAuth(
+  app: FastifyInstance,
+  db: Db,
+  email: string,
+  adminEmails: string[],
+): Promise<GetSession> {
+  const { eq } = await import('drizzle-orm');
+  const { randomUUID } = await import('node:crypto');
+  let [row] = await db.select().from(schema.user).where(eq(schema.user.email, email));
+  if (!row) {
+    [row] = await db
+      .insert(schema.user)
+      .values({
+        id: randomUUID(),
+        email,
+        name: email.split('@')[0] ?? email,
+        updatedAt: new Date(),
+      })
+      .returning();
+    await bootstrapUser(db, { id: row!.id, email, name: row!.name }, adminEmails);
+  }
+  const user: SessionUser = { id: row!.id, email, name: row!.name };
+  app.get('/api/auth/get-session', async () => ({
+    session: { id: 'dev', userId: user.id, expiresAt: new Date(Date.now() + 864e5) },
+    user,
+  }));
+  app.post('/api/auth/sign-out', async () => ({ success: true }));
+  app.log.warn(`DEV_USER_EMAIL set: every request runs as ${email}`);
+  return async () => user;
+}

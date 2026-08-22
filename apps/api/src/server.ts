@@ -4,7 +4,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { type Auth, type GetSession, type SessionUser, registerAuth } from './auth.ts';
+import { type Auth, type GetSession, type SessionUser, devAuth, registerAuth } from './auth.ts';
 import type { Db } from './db/client.ts';
 import { Flow } from './flow.ts';
 import type { LiveKit } from './livekit.ts';
@@ -21,6 +21,8 @@ export type ServerDeps = {
   /** Real Better Auth instance; tests pass `getSession` instead. */
   auth?: Auth;
   getSession?: GetSession;
+  /** Dev-only: sign every request in as this email (see `devAuth`). */
+  devUserEmail?: string;
   adminEmails?: string[];
   internalSecret?: string;
 };
@@ -45,11 +47,15 @@ export async function buildServer(deps: ServerDeps) {
     await app.register(fastifyStatic, { root: embedDist, prefix: '/embed/', decorateReply: false });
   }
 
-  const getSession = deps.auth ? registerAuth(app, deps.auth) : deps.getSession;
-  if (!getSession) throw new Error('buildServer needs `auth` or `getSession`');
   const adminEmails = (deps.adminEmails ?? (process.env.ADMIN_EMAILS ?? '').split(','))
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+  const getSession = deps.auth
+    ? registerAuth(app, deps.auth)
+    : deps.devUserEmail
+      ? await devAuth(app, deps.db, deps.devUserEmail, adminEmails)
+      : deps.getSession;
+  if (!getSession) throw new Error('buildServer needs `auth`, `devUserEmail` or `getSession`');
 
   /** Resolves the signed-in user and the tenant selected by `x-tenant-id` (or the first one). */
   const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
