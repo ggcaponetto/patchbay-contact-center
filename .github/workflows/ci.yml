@@ -70,8 +70,11 @@ jobs:
           files: coverage/lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+      # Informational like Codecov: a Sonar-side problem (e.g. Automatic Analysis still
+      # enabled on sonarcloud.io) must not fail the build gate.
       - name: SonarQube scan
         if: runner.os == 'Linux' && env.SONAR_TOKEN != ''
+        continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
