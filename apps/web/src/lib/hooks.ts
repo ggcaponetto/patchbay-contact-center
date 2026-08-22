@@ -147,7 +147,26 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
     setState((s) => ({ ...s, muted }));
   }, [state.room, state.muted]);
 
-  return { ...state, audioRef, toggleMute };
+  /**
+   * Local side of putting the customer on hold: mute the microphone (the customer hears
+   * only the music) and stop subscribing to remote audio (the agent hears silence).
+   * Retrieve re-enables both.
+   */
+  const setHeld = useCallback(
+    async (held: boolean) => {
+      if (!state.room) return;
+      await state.room.localParticipant.setMicrophoneEnabled(!held);
+      for (const participant of state.room.remoteParticipants.values()) {
+        for (const publication of participant.trackPublications.values()) {
+          publication.setSubscribed(!held);
+        }
+      }
+      setState((s) => ({ ...s, muted: held }));
+    },
+    [state.room],
+  );
+
+  return { ...state, audioRef, toggleMute, setHeld };
 }
 
 /** Current hash route, re-rendering on navigation. */

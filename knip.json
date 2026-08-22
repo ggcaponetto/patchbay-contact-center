@@ -27,6 +27,10 @@
     },
     "apps/embed": {
       "project": ["src/**/*.ts"]
+    },
+    "apps/media": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"]
     }
   }
 }

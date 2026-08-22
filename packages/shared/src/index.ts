@@ -86,6 +86,10 @@ export const TenantSettings = z.object({
     .default([]),
   /** When true, wrap-up cannot be finished before a disposition was set. */
   dispositionRequired: z.boolean().default(false),
+  /** Desk reminder after a customer was on hold this long; `0` disables it. */
+  holdReminderSec: z.number().int().min(0).max(600).default(60),
+  /** Auto-answer: offers are accepted automatically after a zip tone at the desk. */
+  autoAnswer: z.boolean().default(false),
   /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
   notReadyReasons: z
     .array(z.string().min(1).max(40))
@@ -136,8 +140,16 @@ export type CallStatus = z.infer<typeof CallStatus>;
  *   `supervisor:<userId>`.
  * - `transcriber`: the same AI worker after a `leave` handoff; it no longer speaks and
  *   only produces transcript segments for the humans.
+ * - `media`: the media worker playing music on hold, identity `media:<callId>`.
  */
-export const ParticipantKind = z.enum(['customer', 'ai', 'human', 'supervisor', 'transcriber']);
+export const ParticipantKind = z.enum([
+  'customer',
+  'ai',
+  'human',
+  'supervisor',
+  'transcriber',
+  'media',
+]);
 /** Inferred type of {@link ParticipantKind}. */
 export type ParticipantKind = z.infer<typeof ParticipantKind>;
 
@@ -284,6 +296,25 @@ export const DispatchMetadata = z.object({
 });
 /** Inferred type of {@link DispatchMetadata}. */
 export type DispatchMetadata = z.infer<typeof DispatchMetadata>;
+
+/**
+ * A command from the API to the media worker (`apps/media`), carried on the
+ * cross-instance bus as `{ kind: 'media', command }`. The worker joins the call's room
+ * with the given token and plays the hold-music loop until told to stop (or the room
+ * closes under it).
+ */
+export const MediaCommand = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('moh.start'),
+    callId: z.string(),
+    roomName: z.string(),
+    token: z.string(),
+    url: z.string(),
+  }),
+  z.object({ action: z.literal('moh.stop'), callId: z.string() }),
+]);
+/** Inferred type of {@link MediaCommand}. */
+export type MediaCommand = z.infer<typeof MediaCommand>;
 
 /**
  * One line of transcript. Produced by the agent worker (`POST /api/internal/calls/:id/transcript`),

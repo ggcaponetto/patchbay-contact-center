@@ -16,6 +16,7 @@ import dotenv from 'dotenv';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { type SessionUser } from './auth.ts';
+import { LocalBus } from './bus.ts';
 import { type Db, createDb } from './db/client.ts';
 import { runMigrations } from './db/migrate.ts';
 import { user } from './db/schema.ts';
@@ -127,16 +128,18 @@ export async function testServer(
 ) {
   const current: { user: SessionUser | null } = { user: null };
   const lk = fakeLiveKit();
+  const bus = new LocalBus();
   const { app, hub, flow } = await buildServer({
     db,
     adminEmails,
     livekit: lk.livekit,
     internalSecret: INTERNAL_SECRET,
+    bus,
     getSession: async () => (resolve ? resolve() : current.user),
   });
   const as = (u: SessionUser | null) => {
     current.user = u;
     return app;
   };
-  return { app, as, hub, flow, lk: lk.calls };
+  return { app, as, hub, flow, lk: lk.calls, bus };
 }

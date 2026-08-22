@@ -246,6 +246,8 @@ export const call = pgTable(
     }),
     /** BCP 47 language tag of the customer, when known (language routing). */
     language: text('language'),
+    /** When the customer was put on hold (music plays), `null` while not held. */
+    heldAt: timestamp('held_at', { withTimezone: true }),
     /** Wrap-up (disposition) code the handling agent picked; see `TenantSettings.dispositions`. */
     dispositionCode: text('disposition_code'),
     /** Free-form tags agents attach during or after the call. */
@@ -264,7 +266,9 @@ export const callParticipant = pgTable('call_participant', {
   callId: text('call_id')
     .notNull()
     .references(() => call.id, { onDelete: 'cascade' }),
-  kind: text('kind').$type<'customer' | 'ai' | 'human' | 'supervisor' | 'transcriber'>().notNull(),
+  kind: text('kind')
+    .$type<'customer' | 'ai' | 'human' | 'supervisor' | 'transcriber' | 'media'>()
+    .notNull(),
   userId: text('user_id').references(() => user.id),
   identity: text('identity').notNull(),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),

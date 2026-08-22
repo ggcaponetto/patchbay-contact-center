@@ -1,0 +1,23 @@
+{
+  "name": "@cc/media",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "node src/index.ts",
+    "start": "node src/index.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@cc/shared": "^0.1.0",
+    "@livekit/rtc-node": "^0.13.31",
+    "dotenv": "^17.4.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

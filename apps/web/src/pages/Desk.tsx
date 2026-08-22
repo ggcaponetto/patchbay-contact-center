@@ -16,14 +16,31 @@ import {
   Typography,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
 import { StateBar } from '../components/StateBar.tsx';
-import { type CallDetail, type Me, api, post } from '../lib/api.ts';
+import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
 import { myPresence, secondsLeft } from '../lib/store.ts';
+
+/**
+ * The zip tone announcing an auto-answered call: a short 880 Hz beep via WebAudio.
+ * Silently does nothing where WebAudio is unavailable (tests).
+ */
+function zipTone(): void {
+  if (typeof AudioContext === 'undefined') return;
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = 880;
+  gain.gain.value = 0.2;
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.25);
+  osc.onended = () => void ctx.close();
+}
 
 /** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
@@ -44,7 +61,12 @@ type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
 export function Desk({ desk, me }: Props) {
   const { state, dispatch, send } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
+  const [heldAt, setHeldAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const settings = useQuery({
+    queryKey: ['desk-settings'],
+    queryFn: () => api<DeskSettings>('/desk/settings'),
+  });
   const now = useNow();
   const mine = myPresence(state, me.user.id);
   // Caller and call info for the ring dialog (page, language, priority).
@@ -53,6 +75,17 @@ export function Desk({ desk, me }: Props) {
     queryFn: () => api<CallDetail>(`/desk/calls/${state.offer!.callId}`),
     enabled: state.offer !== null,
   });
+
+  /** Hold / retrieve the customer; the server starts and stops the music. */
+  const toggleHold = async () => {
+    if (!active) return;
+    try {
+      await post(`/desk/calls/${active.callId}/${heldAt ? 'retrieve' : 'hold'}`);
+      setHeldAt(heldAt ? null : new Date().toISOString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   /** Accept the ringing offer: get a token, subscribe to the transcript, open the panel. */
   const accept = async () => {
@@ -82,9 +115,20 @@ export function Desk({ desk, me }: Props) {
     if (!active) return;
     const { callId } = active;
     setActive(null);
+    setHeldAt(null);
     // The server frees us into wrap-up (or straight to ready) and broadcasts it.
     await post(`/desk/calls/${callId}/leave`, { role: 'human' }).catch(() => undefined);
   }, [active]);
+
+  // Auto-answer: a zip tone, then the offer is accepted without a click.
+  const offerId = state.offer?.callId;
+  const autoAnswer = settings.data?.autoAnswer ?? false;
+  useEffect(() => {
+    if (!offerId || active || !autoAnswer) return;
+    zipTone();
+    const timer = setTimeout(() => void accept(), 600);
+    return () => clearTimeout(timer);
+  }, [offerId, active, autoAnswer]);
 
   return (
     <Stack spacing={2}>
@@ -103,6 +147,11 @@ export function Desk({ desk, me }: Props) {
           transcript={state.transcripts[active.callId] ?? []}
           onLeave={() => void leave()}
           extras={<CallNotes callId={active.callId} onError={setError} />}
+          hold={{
+            heldAt,
+            reminderAfterSec: settings.data?.holdReminderSec ?? 0,
+            onToggle: () => void toggleHold(),
+          }}
         />
       ) : (
         <Typography color="text.secondary">

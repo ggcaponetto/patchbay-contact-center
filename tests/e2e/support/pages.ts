@@ -134,7 +134,7 @@ export class SettingsPage {
     await expect(this.page.getByLabel('Who answers first')).toBeVisible();
   }
   async createKey(label: string, allowedOrigins = '') {
-    await this.page.getByLabel('Label').fill(label);
+    await this.page.getByLabel('Label', { exact: true }).fill(label);
     if (allowedOrigins)
       await this.page.getByLabel('Allowed origins (optional)').fill(allowedOrigins);
     await this.page.getByRole('button', { name: 'Create key' }).click();

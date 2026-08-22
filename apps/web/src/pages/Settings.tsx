@@ -135,6 +135,12 @@ function RoutingCard() {
             value={draft.acwSec}
             onChange={(e) => setDraft({ ...draft, acwSec: Number(e.target.value) })}
           />
+          <TextField
+            type="number"
+            label="Hold reminder (s, 0 = off)"
+            value={draft.holdReminderSec}
+            onChange={(e) => setDraft({ ...draft, holdReminderSec: Number(e.target.value) })}
+          />
         </Stack>
         <TextField
           label="Wrap-up codes (one per line: code | label; a / in the code groups)"
@@ -161,6 +167,15 @@ function RoutingCard() {
             <Checkbox
               checked={draft.dispositionRequired}
               onChange={(e) => setDraft({ ...draft, dispositionRequired: e.target.checked })}
+            />
+          }
+        />
+        <FormControlLabel
+          label="Auto-answer offers with a zip tone"
+          control={
+            <Checkbox
+              checked={draft.autoAnswer}
+              onChange={(e) => setDraft({ ...draft, autoAnswer: e.target.checked })}
             />
           }
         />

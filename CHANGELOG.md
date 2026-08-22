@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Hold / retrieve with music on hold (Phase 2): a new media worker (`apps/media`,
+  `@livekit/rtc-node`) joins the room over the Postgres bus and plays a synthesized loop
+  to the held customer; the desk shows the hold timer and a hold-too-long reminder
+  (`holdReminderSec`). Auto-answer with a zip tone (`autoAnswer` tenant setting).
+
 - Postgres-backed routing engine (Phase 1 Foundations): presence and ring offers move
   from process memory into `agent_presence` / `ring_offer`, so an API restart keeps them
   and several API instances share one engine (periodic `tick`, `FOR UPDATE SKIP LOCKED`).

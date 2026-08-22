@@ -60,7 +60,8 @@ export class Flow {
   readonly routing: Routing;
   private readonly waiters = new Map<string, Waiter>();
   private readonly db: Db;
-  private readonly livekit: LiveKit;
+  /** Token minting and room control; desk routes use it for the media worker's token. */
+  readonly livekit: LiveKit;
   private readonly hub: EventEmitter;
   private readonly bus: Bus;
 

@@ -150,6 +150,40 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     await srv.flow.routing.disconnect(boss.id);
   });
 
+  it('holds and retrieves the customer, telling the media worker over the bus', async () => {
+    const { callId } = await startCall();
+    const media: unknown[] = [];
+    srv.bus.subscribe((m) => m.kind === 'media' && media.push(m.command));
+    const post = (path: string) =>
+      srv.as(boss).inject({ method: 'POST', url: `/api/desk/calls/${callId}${path}` });
+
+    expect((await post('/retrieve')).json()).toEqual({ error: 'not_held' });
+    expect((await post('/hold')).json()).toEqual({ ok: true });
+    expect((await post('/hold')).json()).toEqual({ error: 'already_held' });
+    const held = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(held.heldAt).not.toBeNull();
+    expect((await post('/retrieve')).json()).toEqual({ ok: true });
+    const back = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(back.heldAt).toBeNull();
+    expect(back.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['hold', 'retrieve']),
+    );
+    await new Promise((r) => setTimeout(r, 0)); // LocalBus delivers on a microtask
+    expect(media).toEqual([
+      expect.objectContaining({
+        action: 'moh.start',
+        callId,
+        token: `token-for-media:${callId}`,
+        url: 'wss://fake.livekit.cloud',
+      }),
+      { action: 'moh.stop', callId },
+    ]);
+    // ended calls cannot be held
+    const { setCallStatus } = await import('../services/calls.ts');
+    await setCallStatus(db, callId, 'ended');
+    expect((await post('/hold')).json()).toEqual({ error: 'not_live' });
+  });
+
   it('treats a body-less leave as the human agent leaving', async () => {
     const { callId } = await startCall();
     const res = await srv

@@ -91,6 +91,8 @@ only guard; the "Auth" columns below name the permission (`member` = `calls:read
 | POST   | `/calls/:id/decline`     | member       | –                                                | `{ ok: true }`                          | 401, 403                                    |
 | POST   | `/calls/:id/join`        | supervisor   | `{ mode: 'listen' \| 'takeover' }`               | `{ token, url }`                        | 400, 404, 409 `call_over`                   |
 | POST   | `/calls/:id/leave`       | member       | `{ role? = 'human' \| 'supervisor' }`            | `{ ok: true }`                          | 400, 404                                    |
+| POST   | `/calls/:id/hold`        | calls:answer | –                                                | `{ ok: true }`                          | 404, 409 `not_live` / `already_held`        |
+| POST   | `/calls/:id/retrieve`    | calls:answer | –                                                | `{ ok: true }`                          | 404, 409 `not_held`                         |
 | POST   | `/calls/:id/note`        | calls:answer | `{ text }`                                       | `{ ok: true }`                          | 400, 404                                    |
 | POST   | `/calls/:id/tags`        | calls:answer | `{ tags: string[] }`                             | `{ ok: true }`                          | 400, 404                                    |
 | POST   | `/calls/:id/disposition` | calls:answer | `{ code, note? }`                                | `{ ok: true }`                          | 400 `unknown_code`, 404                     |

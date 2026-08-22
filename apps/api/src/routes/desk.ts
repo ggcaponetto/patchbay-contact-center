@@ -23,7 +23,14 @@ import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
-import { addEvent, callDetail, listCalls, setDisposition, setTags } from '../services/calls.ts';
+import {
+  addEvent,
+  callDetail,
+  listCalls,
+  setDisposition,
+  setHeld,
+  setTags,
+} from '../services/calls.ts';
 import { getTenant } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
 import { parseBody } from './util.ts';
@@ -84,6 +91,8 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         acwSec: tenant?.settings.acwSec ?? 0,
         dispositions: tenant?.settings.dispositions ?? [],
         dispositionRequired: tenant?.settings.dispositionRequired ?? false,
+        holdReminderSec: tenant?.settings.holdReminderSec ?? 0,
+        autoAnswer: tenant?.settings.autoAnswer ?? false,
       };
     },
   );
@@ -311,6 +320,69 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     if (!detail) reply.code(404).send({ error: 'not_found' });
     return detail;
   };
+
+  /**
+   * Puts the customer on hold: the media worker joins the room and plays music (only the
+   * customer keeps listening — the desk mutes itself and stops subscribing), `heldAt` is
+   * stamped for the hold timer. Retrieve reverses it.
+   */
+  app.post<P>(
+    '/calls/:id/hold',
+    {
+      preHandler: answer,
+      config: doc('Put the customer on hold (music plays)', 'calls:answer', {
+        errors: ['404 not_found', '409 not_live / already_held'],
+      }),
+    },
+    async (request, reply) => {
+      const detail = await withCall(request.params.id, request.ctx.tenantId, reply);
+      if (!detail) return undefined;
+      if (detail.status === 'ended') return reply.code(409).send({ error: 'not_live' });
+      if (detail.heldAt) return reply.code(409).send({ error: 'already_held' });
+      await setHeld(db, detail.id, true);
+      await addEvent(db, detail.id, 'hold', { userId: request.ctx.user.id });
+      const token = await flow.livekit.createToken({
+        room: detail.roomName,
+        identity: `media:${detail.id}`,
+        name: 'Music',
+        attributes: { role: 'media' },
+      });
+      await sockets.bus.publish({
+        kind: 'media',
+        command: {
+          action: 'moh.start',
+          callId: detail.id,
+          roomName: detail.roomName,
+          token,
+          url: flow.livekit.url,
+        },
+      });
+      return { ok: true };
+    },
+  );
+
+  /** Takes the customer off hold; the music stops. */
+  app.post<P>(
+    '/calls/:id/retrieve',
+    {
+      preHandler: answer,
+      config: doc('Retrieve the held customer (music stops)', 'calls:answer', {
+        errors: ['404 not_found', '409 not_held'],
+      }),
+    },
+    async (request, reply) => {
+      const detail = await withCall(request.params.id, request.ctx.tenantId, reply);
+      if (!detail) return undefined;
+      if (!detail.heldAt) return reply.code(409).send({ error: 'not_held' });
+      await setHeld(db, detail.id, false);
+      await addEvent(db, detail.id, 'retrieve', { userId: request.ctx.user.id });
+      await sockets.bus.publish({
+        kind: 'media',
+        command: { action: 'moh.stop', callId: detail.id },
+      });
+      return { ok: true };
+    },
+  );
 
   /** A free-form note on the call's timeline, visible on the call page. */
   app.post<P>(

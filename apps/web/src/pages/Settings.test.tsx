@@ -80,6 +80,8 @@ describe('Settings', () => {
         offerTimeoutSec: 45,
         humanFirstTimeoutSec: 60,
         acwSec: 15,
+        holdReminderSec: 60,
+        autoAnswer: false,
         dispositions: [],
         dispositionRequired: false,
         notReadyReasons: ['Break', 'Coffee'],

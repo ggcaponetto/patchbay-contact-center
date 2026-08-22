@@ -24,6 +24,8 @@ describe('TenantSettings', () => {
       acwSec: 30,
       dispositions: [],
       dispositionRequired: false,
+      holdReminderSec: 60,
+      autoAnswer: false,
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
     });

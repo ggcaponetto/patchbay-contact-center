@@ -28,6 +28,9 @@ export type CallRow = {
   startedAt: string;
   endedAt: string | null;
   aiSummary: string | null;
+  heldAt: string | null;
+  dispositionCode: string | null;
+  tags: string[];
 };
 
 /** A call with its children as returned by `GET /api/desk/calls/:id`. */

@@ -9,11 +9,12 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web,agent,embed -c blue,magenta,green,yellow \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:agent\" \"npm:dev:embed\"",
+    "dev": "concurrently -k -n api,web,agent,embed,media -c blue,magenta,green,yellow,cyan \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:agent\" \"npm:dev:embed\" \"npm:dev:media\"",
     "dev:agent": "npm run -w apps/agent dev",
     "dev:api": "npm run -w apps/api dev",
     "dev:web": "npm run -w apps/web dev",
     "dev:embed": "npm run -w apps/embed dev",
+    "dev:media": "npm run -w apps/media dev",
     "build": "npm run --workspaces --if-present build",
     "typecheck": "npm run --workspaces --if-present typecheck",
     "lint": "eslint .",

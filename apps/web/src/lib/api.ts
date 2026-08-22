@@ -42,6 +42,8 @@ export type DeskSettings = {
   acwSec: number;
   dispositions: { code: string; label: string }[];
   dispositionRequired: boolean;
+  holdReminderSec: number;
+  autoAnswer: boolean;
 };
 
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */
@@ -53,6 +55,8 @@ export type CallSummary = {
   endedAt: string | null;
   /** Written by the AI agent at the end of the call (or on escalation). */
   aiSummary: string | null;
+  /** When the customer was put on hold, `null` while not held. */
+  heldAt: string | null;
   /** Wrap-up code picked by the handling agent, or `null`. */
   dispositionCode: string | null;
   /** Free-form categorization tags. */

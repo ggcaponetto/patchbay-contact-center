@@ -153,6 +153,7 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       aiSummary: call.aiSummary,
+      heldAt: call.heldAt,
       dispositionCode: call.dispositionCode,
       tags: call.tags,
       customerMeta: call.customerMeta,
@@ -162,6 +163,14 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
     .where(eq(call.tenantId, tenantId))
     .orderBy(desc(call.startedAt))
     .limit(limit);
+}
+
+/** Marks the customer held (music on hold) or retrieved. */
+export async function setHeld(db: Db, id: string, held: boolean) {
+  await db
+    .update(call)
+    .set({ heldAt: held ? new Date() : null })
+    .where(eq(call.id, id));
 }
 
 /** Sets the wrap-up disposition code of a call. */

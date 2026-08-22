@@ -9,7 +9,7 @@ import { CallPanel, Transcript } from './CallPanel.tsx';
 const live = vi.hoisted(() => ({
   room: {} as RoomState & { audioRef: { current: null }; toggleMute: () => Promise<void> },
 }));
-vi.mock('../lib/hooks.ts', () => ({ useLiveRoom: () => live.room }));
+vi.mock('../lib/hooks.ts', () => ({ useLiveRoom: () => live.room, useNow: () => Date.now() }));
 
 const join = { token: 't', url: 'u', publish: true };
 const customer = { identity: 'customer:1', name: '', role: 'customer' };
@@ -23,6 +23,7 @@ describe('CallPanel', () => {
       peers: [],
       audioRef: { current: null },
       toggleMute: vi.fn(() => Promise.resolve()),
+      setHeld: vi.fn(() => Promise.resolve()),
     };
   });
   afterEach(cleanup);
@@ -71,12 +72,21 @@ describe('CallPanel', () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves automatically once connected without a customer', () => {
-    live.room.connected = true;
-    live.room.peers = [{ identity: 'ai:1', name: '', role: 'ai' }];
+  it('leaves only when a customer who was here left', () => {
     const onLeave = vi.fn();
-    render(<CallPanel join={join} title="Customer call" transcript={[]} onLeave={onLeave} />);
-    expect(onLeave).toHaveBeenCalledTimes(1);
+    // connected but the room is still filling up: no leave
+    live.room = { ...live.room, connected: true, peers: [] };
+    const { rerender } = render(
+      <CallPanel join={join} title="T" transcript={[]} onLeave={onLeave} />,
+    );
+    expect(onLeave).not.toHaveBeenCalled();
+    // the customer arrives, then hangs up: leave
+    live.room = { ...live.room, connected: true, peers: [customer] };
+    rerender(<CallPanel join={join} title="T" transcript={[]} onLeave={onLeave} />);
+    expect(onLeave).not.toHaveBeenCalled();
+    live.room = { ...live.room, connected: true, peers: [] };
+    rerender(<CallPanel join={join} title="T" transcript={[]} onLeave={onLeave} />);
+    expect(onLeave).toHaveBeenCalled();
   });
 });
 

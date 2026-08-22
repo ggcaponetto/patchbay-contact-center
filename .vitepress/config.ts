@@ -47,6 +47,7 @@ const apps = [
     ],
   },
   { text: 'AI agent', link: '/apps/agent/' },
+  { text: 'Media worker', link: '/apps/media/' },
   { text: 'Web desk', link: '/apps/web/' },
   { text: 'Embed button', link: '/apps/embed/' },
   {

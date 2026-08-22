@@ -15,7 +15,7 @@
  * @see apps/api/src/README.md
  * @packageDocumentation
  */
-import type { ServerMessage } from '@cc/shared';
+import type { MediaCommand, ServerMessage } from '@cc/shared';
 import { EventEmitter } from 'node:events';
 import pg from 'pg';
 
@@ -32,7 +32,9 @@ export type BusMessage =
   /** A ring cycle ended; the instance holding the escalation long-poll resolves it. */
   | { kind: 'offer'; callId: string; outcome: 'accepted' | 'nobody'; agentName?: string }
   /** Close every socket of a user (forced logout), wherever they are. */
-  | { kind: 'logout'; userId: string; by: string };
+  | { kind: 'logout'; userId: string; by: string }
+  /** Instruction for the media worker (hold music); see `MediaCommand` in `@cc/shared`. */
+  | { kind: 'media'; command: MediaCommand };
 
 /** What routing and the websocket need from a bus. */
 export type Bus = {

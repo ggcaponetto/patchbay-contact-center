@@ -97,6 +97,7 @@ npm run dev          # api + web + agent + embed together
 npm run dev:api      # http://localhost:4000  (set PORT / API_PORT if 4000 is taken)
 npm run dev:web      # http://localhost:3000  agent & supervisor desk
 npm run dev:agent    # registers the AI agent "cc-agent" with LiveKit Cloud
+npm run dev:media    # media worker: music on hold
 npm run dev:embed    # http://localhost:3001  demo page with the call button
 ```
 
@@ -112,6 +113,7 @@ walkthrough, env var reference and troubleshooting are in
 | ----------------- | ---------------------------------------------------------------------------------------------- |
 | `apps/api`        | Fastify API: Better Auth, LiveKit tokens & dispatch, routing, desk WebSocket, Drizzle/Postgres |
 | `apps/agent`      | LiveKit Agents worker on LiveKit Inference; escalation & hang-up tools, transcriber            |
+| `apps/media`      | Media worker: server-side audio (music on hold) over the Postgres bus                          |
 | `apps/web`        | Vite + React 19 + MUI desk for agents and supervisors                                          |
 | `apps/embed`      | `<cc-call-button>` web component, built to a single `call-button.js`                           |
 | `packages/shared` | zod contracts shared by every app (settings, statuses, WebSocket protocol)                     |
