@@ -110,6 +110,16 @@ describe('CallPage', () => {
     expect(screen.getByText('Listen in')).toBeTruthy();
   });
 
+  it('keeps stored rows the socket never saw and appends only new live segments', async () => {
+    // Opened mid-call: stored = [Hello]; live arrived later = [More, More] (said twice).
+    renderPage(
+      fakeDesk({ transcripts: { [detail.id]: [segment('More'), segment('More')] } }),
+      false,
+    );
+    expect(await screen.findByText('Hello')).toBeTruthy();
+    expect(screen.getAllByText('More')).toHaveLength(2);
+  });
+
   it('lets a supervisor take over, tolerating a failing leave', async () => {
     mocks.post
       .mockResolvedValueOnce({ token: 'tok', url: 'wss://lk' })

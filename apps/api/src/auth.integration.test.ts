@@ -63,6 +63,29 @@ describe.skipIf(!hasDb)('devAuth', () => {
     expect(signOut.json()).toEqual({ success: true });
   });
 
+  it('switches to another dev user through the cc_dev_user cookie', async () => {
+    const app = await devServer('dev@example.com', ['dev@example.com']);
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/invites',
+      payload: { email: 'agent@example.com', role: 'agent' },
+    });
+    const headers = { cookie: 'other=1; cc_dev_user=Agent%40example.com' };
+    const me = await app.inject({ url: '/api/me', headers });
+    // created on first use and bootstrapped: the pending invite became a membership
+    expect(me.json()).toMatchObject({
+      user: { email: 'agent@example.com', name: 'agent' },
+      isAdmin: false,
+      memberships: [{ role: 'agent' }],
+    });
+    const session = await app.inject({ url: '/api/auth/get-session', headers });
+    expect(session.json().user.email).toBe('agent@example.com');
+    // the default user is untouched and the row is reused on the next request
+    expect((await app.inject({ url: '/api/me' })).json().user.email).toBe('dev@example.com');
+    await app.inject({ url: '/api/me', headers });
+    expect(await db.select().from(user)).toHaveLength(2);
+  });
+
   it('reuses an existing user row without bootstrapping again', async () => {
     const existing = await createUser(db, 'old@example.com', 'Old Timer');
     const app = await devServer('old@example.com', ['old@example.com']);

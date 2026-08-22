@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- End-to-end test plan (`tests/e2e/TEST-PLAN.md`): one tagged Playwright test per feature,
+  three execution tiers (`smoke` / `core` / `cloud`), fixtures for several signed-in actors,
+  a dedicated `cc_e2e` database, CI jobs per tier and a nightly `E2E` workflow; `npm run
+e2e-plan` keeps plan and specs in sync (part of `validate`).
+- Dev auth: the `cc_dev_user` cookie selects another dev user per request (development only).
+
+### Fixed
+
+- Opening a call page directly crashed the desk (message sent on a connecting socket).
+- New calls now reach the dashboard and history live; the call page shows the queue key
+  and keeps transcript rows the socket never saw; switching tenant refetches every query;
+  the desk shows "(on a call)" after accepting.
+
 ## [0.1.0] — 2026-08-22
 
 First proof-of-concept release, working end to end against LiveKit Cloud.

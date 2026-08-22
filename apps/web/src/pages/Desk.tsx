@@ -40,8 +40,8 @@ type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
  * - `POST /api/desk/calls/:id/leave` (`role: 'human'`) when hanging up; a human leaving
  *   ends the call server-side.
  *
- * `myStatus` becomes `busy` only through the server's presence; the toggle never shows
- * it, hence the "(on a call)" hint.
+ * `myStatus` becomes `busy` when an offer is accepted (the server marks the presence
+ * busy at the same time); the toggle never shows it, hence the "(on a call)" hint.
  */
 export function Desk({ desk, me }: Props) {
   const { state, dispatch, send, setStatus } = desk;
@@ -59,6 +59,8 @@ export function Desk({ desk, me }: Props) {
       );
       send({ type: 'subscribe', callId: offer.callId });
       setActive({ callId: offer.callId, join: { ...joined, publish: true } });
+      // The server marked us busy on accept; mirror it so the "(on a call)" hint shows.
+      dispatch({ type: 'myStatus', status: 'busy' });
       dispatch({ type: 'offer.clear' });
       setError(null);
     } catch (err) {

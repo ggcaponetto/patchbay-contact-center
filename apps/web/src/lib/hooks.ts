@@ -30,6 +30,9 @@ import { initialState, parseRoute, reduce } from './store.ts';
 export function useDeskSocket(tenantId: string | undefined) {
   const [state, dispatch] = useReducer(reduce, initialState);
   const socketRef = useRef<WebSocket | null>(null);
+  // Messages sent before the socket is open (a call page loaded directly subscribes
+  // right away); flushed on `open`, so nothing is lost and nothing throws.
+  const pendingRef = useRef<ClientMessage[]>([]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -41,7 +44,10 @@ export function useDeskSocket(tenantId: string | undefined) {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(`${proto}://${location.host}/api/ws?tenantId=${tenantId}`);
       socketRef.current = ws;
-      ws.onopen = () => dispatch({ type: 'socket', connected: true });
+      ws.onopen = () => {
+        dispatch({ type: 'socket', connected: true });
+        for (const m of pendingRef.current.splice(0)) ws.send(JSON.stringify(m));
+      };
       ws.onmessage = (e) =>
         dispatch({ type: 'server', message: JSON.parse(String(e.data)) as ServerMessage });
       ws.onclose = () => {
@@ -57,8 +63,13 @@ export function useDeskSocket(tenantId: string | undefined) {
     };
   }, [tenantId]);
 
-  // Silently drops the message when the socket is not open (e.g. during a reconnect).
-  const send = useCallback((m: ClientMessage) => socketRef.current?.send(JSON.stringify(m)), []);
+  // Queues the message while the socket is connecting or reconnecting (sending on a
+  // CONNECTING socket throws); it goes out as soon as the next socket opens.
+  const send = useCallback((m: ClientMessage) => {
+    const ws = socketRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
+    else pendingRef.current.push(m);
+  }, []);
   const setStatus = useCallback(
     (status: AgentStatus) => {
       dispatch({ type: 'myStatus', status });

@@ -1,18 +1,22 @@
 /**
- * Starts the AI agent worker for the e2e run and waits until it has registered with
+ * Starts the AI agent worker for the `cloud` tier and waits until it has registered with
  * LiveKit Cloud. Playwright's `webServer` can only wait on a URL/port, which a worker
  * does not have, hence this global setup. The process is killed in the returned teardown.
+ * Nothing happens for the other tiers (they play the AI through `/api/internal`) or
+ * without `LIVEKIT_*` credentials.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { API_ORIGIN, HAS_CLOUD, INTERNAL_SECRET } from '../../playwright.config.ts';
+
+/** True when the CLI selected the `cloud` project (`--project cloud` / `--project=cloud`). */
+const cloudSelected = process.argv.some(
+  (a, i) => a === '--project=cloud' || (process.argv[i - 1] === '--project' && a === 'cloud'),
+);
 
 export default async function globalSetup(): Promise<() => void> {
-  if (!process.env.LIVEKIT_API_KEY) return () => undefined;
-  const env = {
-    ...process.env,
-    API_ORIGIN: 'http://localhost:4100',
-    INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET ?? 'e2e-secret',
-  };
+  if (!HAS_CLOUD || !cloudSelected) return () => undefined;
+  const env = { ...process.env, API_ORIGIN, INTERNAL_API_SECRET: INTERNAL_SECRET };
   // No shell: on Windows `kill()` would only stop the cmd.exe wrapper and leave the
   // worker running, and a stale worker then steals the next dispatch.
   const worker: ChildProcess = spawn(process.execPath, ['src/main.ts', 'dev'], {

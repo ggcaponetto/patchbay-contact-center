@@ -47,6 +47,8 @@ class FakeWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
+  static readonly OPEN = 1;
+  readyState = 0;
   send = vi.fn();
   close = vi.fn(() => this.onclose?.());
   constructor(url: string) {
@@ -75,8 +77,13 @@ describe('useDeskSocket', () => {
     const { result, unmount } = renderHook(() => useDeskSocket('t1'));
     const ws = FakeWebSocket.instances[0]!;
     expect(ws.url).toBe(`ws://${location.host}/api/ws?tenantId=t1`);
+    // Sent while still connecting: queued, not thrown, delivered on open.
+    act(() => result.current.send({ type: 'subscribe', callId: 'early' }));
+    expect(ws.send).not.toHaveBeenCalled();
+    ws.readyState = FakeWebSocket.OPEN;
     act(() => ws.onopen?.());
     expect(result.current.state.connected).toBe(true);
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'subscribe', callId: 'early' }));
     act(() =>
       ws.onmessage?.({
         data: JSON.stringify({ type: 'call.updated', callId: 'c', status: 'ai' }),

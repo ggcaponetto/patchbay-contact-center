@@ -21,7 +21,7 @@ import {
   Toolbar,
   Typography,
 } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { type Me, api, authClient, setTenant } from './lib/api.ts';
 import { useDeskSocket, useRoute } from './lib/hooks.ts';
@@ -90,16 +90,19 @@ function SignIn() {
  */
 function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') });
+  const qc = useQueryClient();
   const [tenantId, setTenantId] = useState('');
   const memberships = me.data?.memberships ?? [];
   const membership = memberships.find((m) => m.tenantId === tenantId) ?? memberships[0];
   // Keep the module-level tenant (api.ts) in sync with the selected membership.
+  // Every other query is tenant-scoped by the header, not by its key: refetch them all.
   useEffect(() => {
     if (membership) {
       setTenant(membership.tenantId);
       setTenantId(membership.tenantId);
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
     }
-  }, [membership]);
+  }, [membership, qc]);
   const route = useRoute();
   const desk = useDeskSocket(membership?.tenantId);
 

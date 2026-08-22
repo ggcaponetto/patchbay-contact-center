@@ -16,6 +16,7 @@
 import { type DispatchMetadata, roomNameFor } from '@cc/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
+import type { EventEmitter } from 'node:events';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
@@ -25,7 +26,7 @@ import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
 /** Plugin options for {@link publicRoutes}. */
-export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow };
+export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow; hub: EventEmitter };
 
 /** Body of `POST /calls`. `customerMeta` is opaque and forwarded to the AI agent. */
 const CreateCallBody = z.object({
@@ -40,7 +41,10 @@ const CreateCallBody = z.object({
  * `POST /calls` → `{ callId, roomName, token, url }`; errors: 400 `invalid_body`,
  * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`.
  */
-export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, livekit, flow }) => {
+export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
+  app,
+  { db, livekit, flow, hub },
+) => {
   app.post('/calls', async (request, reply) => {
     const body = parseBody(CreateCallBody, request.body, reply);
     if (!body) return undefined;
@@ -82,7 +86,10 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, li
       attributes: { role: 'customer' },
       ...(aiFirst ? { dispatchMetadata: JSON.stringify(metadata) } : {}),
     });
-    await setCallStatus(db, id, aiFirst ? 'ai' : 'waiting_human');
+    const status = aiFirst ? 'ai' : 'waiting_human';
+    await setCallStatus(db, id, status);
+    // Desks refetch their call lists on `call.updated`: this is how a new call shows up.
+    hub.emit('call.updated', { tenantId: resolved.key.tenantId, callId: id, status });
     if (!aiFirst) void flow.humanFirst(id, metadata);
     return { callId: id, roomName, token, url: livekit.url };
   });

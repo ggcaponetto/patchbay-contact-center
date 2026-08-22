@@ -8,49 +8,81 @@ This folder holds the suites that vitest does not run: browser end-to-end tests 
 | ----------- | ------------------------------------- | ---------------------------- | -------------------------------------------------------------------- | -------------------------- |
 | Unit        | `apps/**/*.test.ts(x)`, `packages/**` | vitest project `unit`        | Nothing                                                              | `npm run test:unit`        |
 | Integration | `apps/**/*.integration.test.ts`       | vitest project `integration` | Postgres (API), `LIVEKIT_*` (agent evals); skip themselves otherwise | `npm run test:integration` |
-| End-to-end  | `tests/e2e/*.spec.ts`                 | Playwright                   | Postgres; `LIVEKIT_*` + agent worker for `handoff.spec.ts`           | `npm run test:e2e`         |
+| End-to-end  | `tests/e2e/specs/**/*.spec.ts`        | Playwright, three tiers      | Postgres; `LIVEKIT_*` + agent worker for the `cloud` tier only       | `npm run test:e2e[:smoke   | :cloud | :all]` |
 | Load        | `tests/load/api.yml`, `seed.mjs`      | Artillery                    | A running API on `:4100` with `DEV_USER_EMAIL` set to an admin email | `npm run test:load`        |
 
-`npm test` = unit + integration with the coverage gate (part of `npm run validate`). E2E and load are opt-in and not part of `validate` or CI.
+`npm test` = unit + integration with the coverage gate (part of `npm run validate`). The e2e `smoke` and `core` tiers run in CI on every push and PR, `cloud` on `main` and nightly; load is opt-in.
 
 ## Folder layout
 
 ```
 tests/
-  tsconfig.json        # type-checks this folder and playwright.config.ts (lib: ES2022 + DOM)
+  tsconfig.json          # type-checks this folder and playwright.config.ts (lib: ES2022 + DOM)
   e2e/
-    global-setup.ts    # starts the agent worker, writes results/agent.log
-    desk.spec.ts       # sign-in, availability, dashboard, embed key (no Cloud needed)
-    handoff.spec.ts    # customer → AI through the real button (needs LIVEKIT_*)
-    report/            # Playwright HTML report (generated, git-ignored)
-    results/           # traces, agent.log (generated, git-ignored)
+    TEST-PLAN.md         # one row per feature → @E2E-nn tag, tier, spec, status (gated by `npm run e2e-plan`)
+    reset-db.ts          # creates/truncates the cc_e2e database before the API boots
+    global-setup.ts      # starts the agent worker for the `cloud` tier, writes results/agent.log
+    support/
+      fixtures.ts        # `test` with supervisor / actor / queueAgent / tenant / unique / ai / call
+      actors.ts          # newActor(browser, email): a context signed in as another dev user
+      api.ts             # admin(), desk(), createCall(), playAi(): HTTP helpers over the API
+      pages.ts           # DeskPage, DashboardPage, HistoryPage, CallPage, SettingsPage, EmbedButton
+    specs/
+      smoke/  embed/  desk/  supervisor/  settings/  history/  ai/   # one folder per area
+    report/              # Playwright HTML report (generated, git-ignored)
+    results/             # traces, agent.log (generated, git-ignored)
   load/
-    api.yml            # Artillery profile: HTTP + desk websocket scenarios
-    seed.mjs           # creates an embed key through the admin API, then runs Artillery
+    api.yml              # Artillery profile: HTTP + desk websocket scenarios
+    seed.mjs             # creates an embed key through the admin API, then runs Artillery
 ```
 
 ## Playwright (e2e)
 
-`playwright.config.ts` at the repo root loads `.env.local` and boots the whole stack itself on ports that do not collide with your dev servers:
+### Tiers and tags
 
-| Service    | Port | Started by                                             |
-| ---------- | ---- | ------------------------------------------------------ |
-| API        | 4100 | `webServer`: `node src/index.ts` in `apps/api`         |
-| Web desk   | 3100 | `webServer`: `npx vite` in `apps/web` (`WEB_PORT`)     |
-| Embed demo | 3101 | `webServer`: `npx vite --port 3101` in `apps/embed`    |
-| Agent      | —    | `global-setup.ts` (only when `LIVEKIT_API_KEY` is set) |
+Each test is tagged with a **tier**, an **area** and its **plan id**, e.g. `{ tag: ['@core', '@desk', '@E2E-09'] }`. The tiers are Playwright projects in `playwright.config.ts`:
 
-The servers receive `DEV_USER_EMAIL=e2e@example.com` and `ADMIN_EMAILS=e2e@example.com`, so the browser is signed in as a supervisor of a bootstrapped tenant without Google, plus `API_ORIGIN`/`WEB_ORIGIN` for the test ports and `INTERNAL_API_SECRET` (`e2e-secret` unless set). `reuseExistingServer` is `false`: stop anything already on those ports. The tests use the same Postgres as development (`DATABASE_URL`), so expect test tenants and calls to appear in your local database.
+| Project | Selects                 | Needs                                | When                                                    |
+| ------- | ----------------------- | ------------------------------------ | ------------------------------------------------------- |
+| `smoke` | `@smoke`                | Postgres                             | `npm run test:e2e:smoke` — under a minute, first CI job |
+| `core`  | everything but `@cloud` | Postgres                             | `npm run test:e2e` — every PR and push                  |
+| `cloud` | `@cloud`                | `LIVEKIT_*`; starts the agent worker | `npm run test:e2e:cloud` — `main`, nightly, on demand   |
 
-`global-setup.ts` spawns `node src/main.ts dev` in `apps/agent` without a shell, waits up to 60 s for the `registered worker` log line and pipes all worker output to `tests/e2e/results/agent.log`. Its teardown kills the whole process tree (`taskkill /t` on Windows), because a stale worker would steal the next dispatch.
+`npm run test:e2e:all` runs `core` then `cloud`; `npm run test:e2e:ui` opens the interactive runner. Filter further with `--grep @settings` or `--grep @E2E-22`. The `core` tier has no AI worker: the specs **play the AI** through `/api/internal/calls/:id/*` with the shared secret (`playAi()` in `support/api.ts` — join, speak, escalate, end), and dummy `LIVEKIT_*` values let the API mint tokens nobody connects with. What every test proves, and what is deliberately not covered, is in [TEST-PLAN.md](/tests/e2e/TEST-PLAN).
 
-Chromium runs with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`, so `getUserMedia` succeeds with a synthetic microphone and no permission prompt. Other settings: one worker, no retries, 90 s test timeout, 30 s expect timeout, `trace: retain-on-failure`, HTML report in `tests/e2e/report`.
+### Stack and ports
+
+`playwright.config.ts` loads `.env.local` and boots the whole stack on ports that do not collide with your dev servers:
+
+| Service    | Port | Started by                                                           |
+| ---------- | ---- | -------------------------------------------------------------------- |
+| API        | 4100 | `webServer`: `reset-db.ts` then `node src/index.ts` in `apps/api`    |
+| Web desk   | 3100 | `webServer`: `npx vite` in `apps/web` (`WEB_PORT`)                   |
+| Embed demo | 3101 | `webServer`: `npx vite --port 3101` in `apps/embed`                  |
+| Agent      | —    | `global-setup.ts`, only for the `cloud` project with `LIVEKIT_*` set |
+
+The API runs against **its own database** — `DATABASE_URL_E2E`, or `DATABASE_URL` with the database name replaced by `cc_e2e` — which `reset-db.ts` creates on first use and truncates before every run, so your development data is never touched. `reuseExistingServer` is `false`: stop anything already on those ports.
+
+### Actors
+
+The API runs with the dev-auth bypass (`DEV_USER_EMAIL=e2e@example.com`, also in `ADMIN_EMAILS`, so the default `page` is a supervisor of a bootstrapped tenant). A request can be another person by sending the `cc_dev_user=<email>` cookie (see `devAuth` in `apps/api/src/auth.ts`); the `actor(email)` fixture opens a browser context with that cookie, and `queueAgent(email)` additionally invites the person and puts them in the `support` queue so the routing rings them. Each actor has their own desk websocket, presence and ring dialog. Invite before the first request, or the person is "not a member".
+
+### Conventions
+
+- One `test()` per plan row; the title says what the user gets, the tags say where it runs.
+- Page objects in `support/pages.ts` own locators and multi-step actions; assertions stay in the spec.
+- Names that must be unique come from `unique('prefix')`; never hard-code labels that another test could create.
+- The `tenant` fixture ends every live call of the tenant on teardown, so dashboards start empty.
+- Chromium runs with `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`: `getUserMedia` succeeds with a silent synthetic microphone, so nothing can _talk_ to the AI — escalations in the `cloud` tier are triggered through the internal API, like the worker's tool would.
+- One worker, 90 s test timeout, 30 s expect timeout, one retry in CI, `trace: retain-on-failure`, HTML report in `tests/e2e/report`.
 
 Run:
 
 ```console
 npx playwright install chromium   # once
-npm run test:e2e
+npm run test:e2e:smoke            # < 1 min
+npm run test:e2e                  # core tier
+npm run test:e2e:cloud            # needs LIVEKIT_* in .env.local
 ```
 
 ## Artillery (load)
@@ -68,4 +100,4 @@ Start the API first, for example `PORT=4100 DEV_USER_EMAIL=<admin email> npm run
 - `npx playwright show-trace tests/e2e/results/<test-folder>/trace.zip` — step through a failed test with DOM snapshots and network.
 - `npx playwright test --headed` or `--ui` — watch the browser / use the interactive runner. `--debug` adds the inspector.
 - `tests/e2e/results/agent.log` — what the agent worker printed; look here when the AI never joins.
-- `npx playwright test tests/e2e/desk.spec.ts` — run one spec; add `-g "embed key"` to filter by title.
+- `npx playwright test tests/e2e/specs/desk/ring.spec.ts --project core` — run one spec; `--grep @E2E-10` runs one plan row.

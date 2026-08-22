@@ -25,6 +25,10 @@ loc:   5577  total (11% of the 50000 budget)
 
 The budget exists for solo-developer maintainability: the repo must stay small enough for one person to hold in their head. Raising `BUDGET` in `build/loc.mjs` is a product decision, not a fix for a failing gate — delete or simplify code instead.
 
+## `e2e-plan.mjs` — the test-plan gate
+
+`npm run e2e-plan` (part of `validate`) parses the coverage table of `tests/e2e/TEST-PLAN.md` and the `{ tag: [...] }` arrays of every spec under `tests/e2e/specs`, then checks that every `implemented` row has exactly one test tagged with its `@E2E-nn` id, every tagged test has a row, the tier tag matches the row, and each test carries exactly one tier and at least one area tag. A `planned` or `blocked` row with a test, or a test without a row, fails the build with the list of problems. No dependencies; runs in well under a second.
+
 ## `sast.mjs` — static security scan
 
 `npm run sast` runs `npm audit --omit=dev --audit-level=high` (blocking) and a full `npm audit` (advisory), then Semgrep with the community TypeScript/Node/secrets rulesets — the local `semgrep` binary when present, otherwise the `semgrep/semgrep` Docker image mounted on the checkout. Only ERROR-severity findings fail the run; the JSON and SARIF reports go to `reports/sast/`. Test files are excluded via `.semgrepignore`. Runs in `.github/workflows/sast.yml`.

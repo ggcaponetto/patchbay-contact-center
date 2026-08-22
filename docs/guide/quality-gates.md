@@ -5,7 +5,7 @@
 ## The `validate` pipeline
 
 ```console
-npm run format:check && npm run lint && npm run typecheck && npm run knip && npm run spell && npm run loc && npm test && npm run build && npm run docs:build
+npm run format:check && npm run lint && npm run typecheck && npm run knip && npm run spell && npm run loc && npm run e2e-plan && npm test && npm run build && npm run docs:build
 ```
 
 | Step       | Command                                            | What it checks                                                                                                                                                                                                                                                                                                                  |
@@ -16,6 +16,7 @@ npm run format:check && npm run lint && npm run typecheck && npm run knip && npm
 | Dead code  | `knip`                                             | Unused files, exports, dependencies and devDependencies, configured per workspace in `knip.json`.                                                                                                                                                                                                                               |
 | Spelling   | `cspell --no-progress "**"`                        | Unknown words in every non-ignored file. Project words live in `cspell.json`.                                                                                                                                                                                                                                                   |
 | Size       | `node build/loc.mjs`                               | Non-blank tracked source lines; fails above 50 000, warns above 20 000. See [Build scripts](/build/).                                                                                                                                                                                                                           |
+| Test plan  | `node build/e2e-plan.mjs`                          | `tests/e2e/TEST-PLAN.md` and the tagged Playwright specs agree: every implemented row has its test, every test has a row, tier and area tags are present. See [Build scripts](/build/).                                                                                                                                         |
 | Tests      | `vitest run --coverage`                            | Unit + integration projects and the 90% coverage threshold on logic modules. See [Testing](/docs/guide/testing).                                                                                                                                                                                                                |
 | Builds     | `npm run --workspaces --if-present build`          | Vite builds of `apps/web` and `apps/embed` (the API and agent have no build step).                                                                                                                                                                                                                                              |
 | Docs       | `typedoc` then `vitepress build .`                 | The API reference is generated into `docs/api` with `treatWarningsAsErrors` and `validation.notDocumented`, so every exported class, function, interface, type alias, variable and module needs a doc comment. VitePress then builds the site with `ignoreDeadLinks: false`, so every link in every markdown page must resolve. |
@@ -37,6 +38,7 @@ If a hook fails, fix the cause; do not use `--no-verify`.
 - `typecheck` and `build` run everywhere.
 - `npm test` with coverage runs on Linux, which has a Postgres container; the other runners run vitest without coverage and the DB suites skip.
 - Agent evals run only when the `LIVEKIT_*` repository secrets exist.
+- `e2e-smoke` → `e2e-core` run the Playwright tiers with Postgres only; `e2e-cloud` (real agent on LiveKit Cloud) runs on `main` when the secrets exist. The `E2E` workflow (`e2e-nightly.yml`) repeats `core` + `cloud` every night and on demand.
 
 **Codecov** (`codecov.yml`) receives `coverage/lcov.info` and **SonarQube** (`sonar-project.properties`) scans the checkout; both run only when their token secret is set and are informational — `fail_ci_if_error: false`, no quality gate blocks the workflow. The hard gate is vitest's 90% threshold.
 

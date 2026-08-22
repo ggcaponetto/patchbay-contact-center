@@ -48,9 +48,13 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     });
 
   it('creates an AI-first call with a dispatching customer token', async () => {
+    const updates: unknown[] = [];
+    srv.hub.on('call.updated', (e) => updates.push(e));
     const res = await startCall();
     expect(res.statusCode).toBe(200);
     const body = res.json();
+    // desks learn about the new call right away
+    expect(updates).toEqual([{ tenantId, callId: body.callId, status: 'ai' }]);
     expect(body.url).toBe('wss://fake.livekit.cloud');
     expect(body.roomName).toBe(`cc-${tenantId}-${body.callId}`);
     expect(srv.lk.tokens[0]).toMatchObject({

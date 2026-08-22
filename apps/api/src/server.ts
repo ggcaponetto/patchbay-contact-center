@@ -170,6 +170,7 @@ export async function buildServer(deps: ServerDeps) {
     db: deps.db,
     livekit: deps.livekit,
     flow,
+    hub,
   });
   await app.register(internalRoutes, {
     prefix: '/api/internal',

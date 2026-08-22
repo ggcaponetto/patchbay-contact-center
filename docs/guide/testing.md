@@ -2,14 +2,14 @@
 
 ## Taxonomy
 
-| Kind        | Files                                       | Runner                                | Needs                                                                                           | Command                    |
-| ----------- | ------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------- |
-| Unit        | `*.test.ts` / `*.test.tsx` next to the code | vitest project `unit`                 | Nothing external                                                                                | `npm run test:unit`        |
-| Integration | `*.integration.test.ts` next to the code    | vitest project `integration` (serial) | Postgres (API suites) and/or LiveKit Cloud credentials (agent evals); skip themselves otherwise | `npm run test:integration` |
-| End-to-end  | `tests/e2e/*.spec.ts`                       | Playwright (Chromium)                 | Postgres; `LIVEKIT_*` for the handoff spec, which also starts the agent worker                  | `npm run test:e2e`         |
-| Load        | `tests/load/api.yml` + `seed.mjs`           | Artillery                             | A running API on port 4100 with `DEV_USER_EMAIL` set to an admin                                | `npm run test:load`        |
+| Kind        | Files                                       | Runner                                   | Needs                                                                                           | Command                    |
+| ----------- | ------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------- |
+| Unit        | `*.test.ts` / `*.test.tsx` next to the code | vitest project `unit`                    | Nothing external                                                                                | `npm run test:unit`        |
+| Integration | `*.integration.test.ts` next to the code    | vitest project `integration` (serial)    | Postgres (API suites) and/or LiveKit Cloud credentials (agent evals); skip themselves otherwise | `npm run test:integration` |
+| End-to-end  | `tests/e2e/specs/**/*.spec.ts`              | Playwright, tiers `smoke`/`core`/`cloud` | Postgres; `LIVEKIT_*` + the agent worker for the `cloud` tier only                              | `npm run test:e2e`         |
+| Load        | `tests/load/api.yml` + `seed.mjs`           | Artillery                                | A running API on port 4100 with `DEV_USER_EMAIL` set to an admin                                | `npm run test:load`        |
 
-`npm test` runs unit + integration with the coverage gate and is part of `npm run validate`. E2E and load are opt-in and never run in CI. `npm run test:watch` runs vitest in watch mode. See also [tests/README.md](/tests/).
+`npm test` runs unit + integration with the coverage gate and is part of `npm run validate`. The e2e `smoke` and `core` tiers run in CI on every push and pull request, the `cloud` tier on `main` and nightly; load is opt-in. `npm run test:watch` runs vitest in watch mode. See also [tests/README.md](/tests/) and the [e2e test plan](/tests/e2e/TEST-PLAN).
 
 ## What each suite proves
 
@@ -25,7 +25,7 @@
 - `apps/api/src/routes/calls.integration.test.ts`, `admin.integration.test.ts`: public/desk/internal/admin endpoints, auth and role checks.
 - `apps/agent/src/agent.integration.test.ts`: the LLM evals (below). These talk to LiveKit Inference and skip without `LIVEKIT_API_KEY`.
 
-**End-to-end** — the real browser against the real stack: `desk.spec.ts` (sign-in via dev auth, availability, dashboard, embed key creation) and `handoff.spec.ts` (customer presses the button, the AI is dispatched by LiveKit Cloud and joins, the desk sees the call, hang up).
+**End-to-end** — the real browser against the real stack, one test per feature of the [test plan](/tests/e2e/TEST-PLAN): the embedded button and its error states, presence and the ring cycle (accept, decline, timeout, queue membership) with several signed-in actors, the in-call panel and hang-up, live transcript and call detail, history, supervisor listen-in / take-over and role gates, every settings card (routing, team invites, queues, embed keys), multi-tenancy — all without LiveKit Cloud (`core` tier, the AI is played through the internal API) — plus the `cloud` tier: the real agent answering, both handoff modes, human-first fallback and the customer hanging up.
 
 **Load** — `api.yml` ramps 2 → 20 arrivals/s for 30 s then sustains 20/s for 30 s across three scenarios (create call, desk reads, websocket presence) and fails when p95 latency exceeds 300 ms or the error rate 1%.
 
@@ -103,7 +103,36 @@ await result.expect
 
 Follow TDD for prompt and tool changes (see `AGENTS.md`): write the eval first, then iterate on instructions until it passes.
 
-**E2E** — a Playwright spec under `tests/e2e`. The config boots API, web and embed servers on 4100/3100/3101 with the dev auth user `e2e@example.com`; `globalSetup` starts the agent worker when `LIVEKIT_API_KEY` is set. Use `test.skip(!process.env.LIVEKIT_API_KEY, …)` for anything that needs the AI.
+**E2E** — a Playwright spec under `tests/e2e/specs/<area>/`, importing `test` from `../../support/fixtures.ts`. Every test is tagged with its tier, area and plan id, and the plan row must exist (`npm run e2e-plan`):
+
+```ts
+import { DeskPage, desk, expect, test } from '../../support/fixtures.ts';
+
+test(
+  'a declined offer moves on to the next available agent',
+  { tag: ['@core', '@desk', '@E2E-10'] },
+  async ({ queueAgent, unique, tenant, call, ai }) => {
+    const first = await queueAgent(`${unique('first')}@example.com`); // invited, signed in, in the queue
+    const second = await queueAgent(`${unique('second')}@example.com`);
+    for (const a of [first, second]) {
+      const d = new DeskPage(a.page);
+      await d.goto();
+      await d.setAvailable();
+    }
+    const { callId } = await call(tenant.key); // what the embedded button does
+    const agent = ai(callId); // the AI worker, played over /api/internal
+    await agent.join();
+    const outcome = agent.escalate(); // long-poll, resolved by the desk
+    await new DeskPage(first.page).expectRinging();
+    await new DeskPage(first.page).decline();
+    await new DeskPage(second.page).expectRinging();
+    await new DeskPage(second.page).accept();
+    expect(await outcome).toEqual({ outcome: 'accepted', agentName: second.name });
+  },
+);
+```
+
+The config boots API (against the `cc_e2e` database), web and embed servers on 4100/3100/3101 with the dev auth user `e2e@example.com` as supervisor; other people are browser contexts carrying the `cc_dev_user` cookie (`actor(email)`). `global-setup.ts` starts the agent worker only for the `cloud` project; `cloud` specs also guard with `test.skip(!HAS_CLOUD, …)`. Tiers, fixtures, page objects and conventions: [tests/README.md](/tests/).
 
 ## CI behavior
 
@@ -111,6 +140,7 @@ Follow TDD for prompt and tool changes (see `AGENTS.md`): write the eval first, 
 
 - **Linux** starts a `postgres:17-alpine` container, then runs every gate including `npm test` (with the coverage threshold and, when the repository secrets exist, the agent evals) and uploads `coverage/lcov.info` to Codecov and SonarQube.
 - **Windows and macOS** have no service containers; they run `typecheck`, `npx vitest run --coverage.enabled=false` (DB suites skip themselves) and `build`. Formatting, lint, knip, cspell, LOC and docs gates run once, on Linux.
+- `e2e-smoke` then `e2e-core` run the Playwright tiers on every push and PR (Postgres only); `e2e-cloud` runs on `main` when the `LIVEKIT_*` secrets exist, and the `E2E` workflow repeats `core` + `cloud` nightly.
 
 ## LLM-as-judge evals
 

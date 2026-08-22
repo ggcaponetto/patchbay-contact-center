@@ -61,7 +61,7 @@ This starts `postgres:17-alpine` on `localhost:5432` with user, password and dat
 2. Add the authorized redirect URI `http://localhost:3000/api/auth/callback/google`. The redirect goes to the **web** origin because the Vite dev server proxies `/api` to the API; that keeps the session cookie first-party.
 3. Put the client id and secret in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, set `ADMIN_EMAILS` to your Google account and a random `BETTER_AUTH_SECRET`.
 
-No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `ADMIN_EMAILS`) and every request is signed in as that user. The API logs a warning when the bypass is active.
+No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `ADMIN_EMAILS`) and every request is signed in as that user. The API logs a warning when the bypass is active. While it is, a request carrying a `cc_dev_user=<email>` cookie runs as that other user instead (created and bootstrapped on first use) — handy for trying the agent side of a handoff in a second browser profile, and how the end-to-end suite plays several people.
 
 ## Run the four dev servers
 

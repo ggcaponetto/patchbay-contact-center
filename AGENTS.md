@@ -54,6 +54,18 @@ When possible, add tests for agent behavior. Read the [documentation](https://do
 
 Important: When modifying core agent behavior such as instructions, tool descriptions, and tasks/workflows/handoffs, never just guess what will work. Always use test-driven development (TDD) and begin by writing tests for the desired behavior. For instance, if you're planning to add a new tool, write one or more tests for the tool's behavior, then iterate on the tool until the tests pass correctly. This will ensure you are able to produce a working, reliable agent for the user.
 
+## End-to-end test plan (update it on every product iteration)
+
+`tests/e2e/TEST-PLAN.md` is the source of truth for feature coverage: one row per meaningful user-facing behavior, linked by an `@E2E-nn` tag to the Playwright test that proves it. `npm run e2e-plan` (in `validate`) fails when the plan and `tests/e2e/specs` drift, so treat the plan as part of the product:
+
+- **Add** a user-facing behavior (a route, a desk screen or action, an embed state, an AI behavior, a setting) → add a row with the next free id **and** a tagged test in the same change.
+- **Change** a behavior → update the row's wording and the test.
+- **Remove** a behavior → delete its row and its test (do not leave a dead row or a skipped test).
+- Cannot test it yet (needs a product change, real audio, credentials) → add the row with status `planned` or `blocked: <why>` so the gap is visible; move it to `implemented` when the test lands.
+- Keep the "Not covered on purpose" section honest: list known bugs and missing features from `TODO.md` there instead of writing tests that assert broken behavior.
+
+Tiers and tags: every test carries exactly one tier — `@smoke` (boot + one happy path per app, < 1 min), `@core` (everything that runs without LiveKit Cloud; the AI is played through `/api/internal`), `@cloud` (real agent worker, real rooms) — plus an area tag (`@embed`, `@desk`, `@supervisor`, `@settings`, `@history`, `@ai`) and its plan id. Put shared steps in `tests/e2e/support` (fixtures, actors, API helpers, page objects), never in a spec. Another signed-in person is `await actor(email)` (the `cc_dev_user` cookie); an agent who gets rung is `await queueAgent(email)`. Run `npm run test:e2e:smoke` while iterating, `npm run test:e2e` before a PR, `npm run test:e2e:cloud` when touching the agent or the handoff. Details: `tests/README.md`, `docs/guide/testing.md`.
+
 ## Feature parity with Python SDK
 
 The Node.js SDK for LiveKit Agents has most, but not all, of the same features available in Python SDK for LiveKit Agents. You should always check the documentation for feature availability, and avoid using features that are not available in the Node.js SDK.

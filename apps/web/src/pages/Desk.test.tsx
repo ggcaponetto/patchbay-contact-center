@@ -88,6 +88,7 @@ describe('Desk', () => {
     render(<Desk desk={desk} me={me} />);
     await userEvent.click(screen.getByText('Accept'));
     expect(post).toHaveBeenCalledWith('/desk/calls/c1/accept');
+    expect(desk.dispatch).toHaveBeenCalledWith({ type: 'myStatus', status: 'busy' });
     expect(desk.send).toHaveBeenCalledWith({ type: 'subscribe', callId: 'c1' });
     expect(desk.dispatch).toHaveBeenCalledWith({ type: 'offer.clear' });
     expect(await screen.findByText('Customer call')).toBeTruthy();

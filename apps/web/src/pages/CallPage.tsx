@@ -51,18 +51,33 @@ export function CallPage({ id, desk, supervisor }: Props) {
     await post(`/desk/calls/${id}/leave`, { role }).catch(() => undefined);
   }, [id, joined]);
 
-  // Transcript merge. The API persists every segment it broadcasts, so after a re-fetch
-  // the stored rows already contain the first N live segments we received over the
-  // socket. Both lists are append-only and in the same order, so the live tail after
-  // `stored.length` is exactly what the fetch has not caught up with yet.
+  // Transcript merge. The API persists every segment it broadcasts, so the stored rows
+  // overlap with the live segments received over the socket — but only partially when
+  // the page was opened mid-call (stored has segments live never saw) or when live
+  // segments arrived after the last fetch. Each live segment cancels one identical
+  // stored row; what remains is the tail the fetch has not caught up with yet.
   const stored = (detail.data?.transcript ?? []).map((t) => ({
     speaker: t.speaker as 'ai',
     identity: t.identity,
     text: t.text,
   }));
   const liveSegments = state.transcripts[id] ?? [];
-  // Stored rows already include live segments that arrived before the last fetch.
-  const transcript = [...stored, ...liveSegments.slice(stored.length)];
+  const seen = new Map<string, number>();
+  for (const t of stored)
+    seen.set(
+      `${t.identity}
+${t.text}`,
+      (seen.get(`${t.identity}
+${t.text}`) ?? 0) + 1,
+    );
+  const tail = liveSegments.filter((s) => {
+    const k = `${s.identity}
+${s.text}`;
+    const n = seen.get(k) ?? 0;
+    if (n > 0) seen.set(k, n - 1);
+    return n === 0;
+  });
+  const transcript = [...stored, ...tail];
 
   return (
     <Stack spacing={2}>

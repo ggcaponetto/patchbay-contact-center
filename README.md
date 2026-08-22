@@ -16,7 +16,7 @@ Postgres for the next LLM to act on.
 [![codecov](https://codecov.io/gh/ggcaponetto/livekit-playground/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/livekit-playground)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ggcaponetto_livekit-playground)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=ncloc)](https://sonarcloud.io/summary/overall?id=ggcaponetto_livekit-playground)
-[![E2E: Playwright](https://img.shields.io/badge/e2e-playwright-2EAD33?logo=playwright&logoColor=white)](tests/README.md)
+[![E2E](https://github.com/ggcaponetto/livekit-playground/actions/workflows/e2e-nightly.yml/badge.svg)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/e2e-nightly.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ggcaponetto/livekit-playground/blob/main/LICENSE)
 [![Node ≥ 24](https://img.shields.io/badge/node-%E2%89%A5%2024-brightgreen)](https://nodejs.org)
 [![LiveKit Agents](https://img.shields.io/badge/LiveKit%20Agents-1.7-0A84FF)](https://docs.livekit.io/agents/)
@@ -128,7 +128,9 @@ Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so ther
 | `npm test`                 | unit + integration tests with the 90 % coverage gate (integration needs Postgres)      |
 | `npm run test:unit`        | unit tests only — `*.test.ts` next to the sources, no services needed                  |
 | `npm run test:integration` | `*.integration.test.ts` — Postgres routes/flow, LLM-as-judge agent evals               |
-| `npm run test:e2e`         | Playwright against the real stack incl. LiveKit Cloud (opt-in)                         |
+| `npm run test:e2e`         | Playwright `core` tier against the real stack, AI played via the internal API          |
+| `npm run test:e2e:smoke`   | the `@smoke` subset, under a minute; `test:e2e:cloud` drives the real agent (LiveKit)  |
+| `npm run e2e-plan`         | checks `tests/e2e/TEST-PLAN.md` against the tagged specs (part of `validate`)          |
 | `npm run test:load`        | Artillery HTTP + WebSocket profile against a running API on :4100 (opt-in)             |
 | `npm run sast`             | static security scan: `npm audit` (prod deps) + Semgrep via Docker                     |
 | `npm run dast`             | dynamic security scan: boots the API, OWASP ZAP baseline via Docker (needs Postgres)   |
@@ -140,8 +142,11 @@ Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so ther
 
 Every push runs `validate` on Linux, Windows and macOS: Prettier, ESLint, `tsc` per
 workspace, [knip](https://knip.dev) (dead code and dependencies), cspell, the LOC gate,
-vitest with **90 % coverage** on logic modules, the Vite builds, and the docs build —
-where typedoc **fails on any undocumented export** and VitePress fails on dead links.
+the e2e test-plan gate, vitest with **90 % coverage** on logic modules, the Vite builds,
+and the docs build — where typedoc **fails on any undocumented export** and VitePress
+fails on dead links. Playwright runs the `smoke` and `core` end-to-end tiers on every
+push and PR, and the `cloud` tier (real AI agent on LiveKit Cloud) on `main` and nightly;
+one test per feature, tracked in [tests/e2e/TEST-PLAN.md](tests/e2e/TEST-PLAN.md).
 Husky runs Prettier + typecheck on commit and `validate` on push. On `main`, two more
 workflows run the **SAST** (`npm audit` + Semgrep) and **DAST** (OWASP ZAP baseline against
 the booted API) scanners — the same `npm run sast` / `npm run dast` you can run locally with

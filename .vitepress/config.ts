@@ -48,7 +48,11 @@ const apps = [
   { text: 'AI agent', link: '/apps/agent/' },
   { text: 'Web desk', link: '/apps/web/' },
   { text: 'Embed button', link: '/apps/embed/' },
-  { text: 'Tests', link: '/tests/' },
+  {
+    text: 'Tests',
+    link: '/tests/',
+    items: [{ text: 'E2E test plan', link: '/tests/e2e/TEST-PLAN' }],
+  },
   { text: 'Build scripts', link: '/build/' },
 ];
 

@@ -162,7 +162,8 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
 export async function callDetail(db: Db, tenantId: string, id: string) {
   const row = await getCall(db, id);
   if (!row || row.tenantId !== tenantId) return undefined;
-  const [participants, transcript, events] = await Promise.all([
+  const [[q], participants, transcript, events] = await Promise.all([
+    db.select({ key: queue.key }).from(queue).where(eq(queue.id, row.queueId)),
     db.select().from(callParticipant).where(eq(callParticipant.callId, id)),
     db
       .select()
@@ -171,5 +172,5 @@ export async function callDetail(db: Db, tenantId: string, id: string) {
       .orderBy(transcriptSegment.createdAt),
     db.select().from(callEvent).where(eq(callEvent.callId, id)).orderBy(callEvent.at),
   ]);
-  return { ...row, participants, transcript, events };
+  return { ...row, queueKey: q?.key ?? '', participants, transcript, events };
 }

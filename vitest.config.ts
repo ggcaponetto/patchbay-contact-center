@@ -16,6 +16,9 @@ const IGNORE = ['**/node_modules/**', '**/dist/**', 'tests/**'];
 
 export default defineConfig({
   test: {
+    // React pages drive real user events under jsdom and share the CPU with the agent
+    // evals in `npm test`; 5 s was enough alone but flaky in the full run.
+    testTimeout: 15_000,
     projects: [
       {
         test: {
