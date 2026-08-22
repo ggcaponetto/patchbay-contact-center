@@ -1,3 +1,23 @@
+/**
+ * Authentication: Better Auth (Google OAuth) plus a development bypass.
+ *
+ * Every authenticated route and the websocket go through one function type,
+ * {@link GetSession}: "given request headers, who is this?". `server.ts` obtains it in one
+ * of two ways:
+ *
+ * - {@link registerAuth}: mounts the real Better Auth handler on `/api/auth/*` (sign-in,
+ *   callback, session, sign-out) and resolves sessions from the cookie it sets.
+ * - {@link devAuth}: no Google, no cookies; every request is the configured dev user.
+ *
+ * Tests bypass both and hand `buildServer` their own resolver.
+ *
+ * First-login bootstrap: Better Auth's `user.create.after` hook calls
+ * `bootstrapUser` (services/tenants.ts), which turns pending invites into memberships and
+ * gives `ADMIN_EMAILS` users a tenant of their own.
+ *
+ * @see apps/api/src/README.md
+ * @packageDocumentation
+ */
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { fromNodeHeaders } from 'better-auth/node';
@@ -6,10 +26,28 @@ import type { Db } from './db/client.ts';
 import * as schema from './db/schema.ts';
 import { bootstrapUser } from './services/tenants.ts';
 
+/** The subset of the user row the rest of the API needs. Stored on `request.ctx.user`. */
 export type SessionUser = { id: string; email: string; name: string };
+
+/**
+ * Resolves the signed-in user from raw request headers (cookie), or `null` when there is
+ * no valid session. Works for HTTP requests and websocket upgrades alike.
+ */
 export type GetSession = (headers: Record<string, unknown>) => Promise<SessionUser | null>;
 
-/** Better Auth instance: Google OAuth, Drizzle/Postgres, first-login bootstrap. */
+/**
+ * Better Auth instance: Google OAuth, Drizzle/Postgres, first-login bootstrap.
+ *
+ * Reads `WEB_ORIGIN`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+ * `ADMIN_EMAILS` from the environment. The base URL is the *web* origin because the web
+ * app proxies `/api` to this server, so browsers only ever talk to `WEB_ORIGIN`. Better
+ * Auth derives the OAuth redirect URI from it (`<baseURL>/api/auth/callback/google`); the
+ * Google OAuth client must list that exact URI.
+ *
+ * @param db - Drizzle client; Better Auth stores `user`, `session`, `account` and
+ *   `verification` rows through it (tables defined in `db/schema.ts`).
+ * @returns The configured Better Auth instance (`auth.handler`, `auth.api.getSession`).
+ */
 export function createAuth(db: Db) {
   const adminEmails = (process.env.ADMIN_EMAILS ?? '').split(',').filter(Boolean);
   return betterAuth({
@@ -28,6 +66,7 @@ export function createAuth(db: Db) {
     databaseHooks: {
       user: {
         create: {
+          // Runs once per new user, right after Google sign-in created the row.
           after: async (u) => {
             await bootstrapUser(db, { id: u.id, email: u.email, name: u.name }, adminEmails);
           },
@@ -37,9 +76,21 @@ export function createAuth(db: Db) {
   });
 }
 
+/** Type of the object returned by {@link createAuth}. */
 export type Auth = ReturnType<typeof createAuth>;
 
-/** Mounts the Better Auth handler on `/api/auth/*` and returns a session resolver. */
+/**
+ * Mounts the Better Auth handler on `/api/auth/*` and returns a session resolver.
+ *
+ * Better Auth speaks the Fetch API (`Request` / `Response`), Fastify does not, so the
+ * route handler translates: it rebuilds a `Request` from the Fastify request (URL, method,
+ * headers, JSON body), lets Better Auth handle it, then copies status, headers (including
+ * `set-cookie`) and body back onto the reply.
+ *
+ * @param app - Fastify instance to mount the route on.
+ * @param auth - Instance from {@link createAuth}.
+ * @returns A {@link GetSession} that asks Better Auth to validate the session cookie.
+ */
 export function registerAuth(app: FastifyInstance, auth: Auth): GetSession {
   app.route({
     method: ['GET', 'POST'],
@@ -72,6 +123,17 @@ export function registerAuth(app: FastifyInstance, auth: Auth): GetSession {
  * Development-only bypass: every request is signed in as `email` (created and
  * bootstrapped on first use), and the web client's session probe is answered
  * locally. Never enabled in production.
+ *
+ * Why it is safe only in development: the returned resolver ignores headers entirely, so
+ * anyone who can reach the port is that user. `index.ts` only passes `DEV_USER_EMAIL`
+ * when `NODE_ENV !== 'production'`. The two `/api/auth/*` stubs exist so the web desk's
+ * Better Auth client (`getSession`, `signOut`) keeps working unchanged.
+ *
+ * @param app - Fastify instance to mount the stub auth routes on.
+ * @param db - Used to find or create the user row.
+ * @param email - The user every request runs as.
+ * @param adminEmails - Forwarded to `bootstrapUser` so the dev user can get its own tenant.
+ * @returns A {@link GetSession} that always resolves the same user.
  */
 export async function devAuth(
   app: FastifyInstance,

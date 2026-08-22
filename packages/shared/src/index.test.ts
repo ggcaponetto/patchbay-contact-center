@@ -1,3 +1,8 @@
+/**
+ * Unit tests for the shared contracts: defaults of `TenantSettings`, JSON round-trip of
+ * `DispatchMetadata`, accept/reject of websocket messages and the room-name helper.
+ * Extend them whenever a schema gains a field or an enum value.
+ */
 import { describe, expect, it } from 'vitest';
 import {
   ClientMessage,

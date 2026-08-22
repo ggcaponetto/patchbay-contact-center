@@ -1,10 +1,36 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["packages/shared/src/index.ts"],
+  "entryPointStrategy": "expand",
+  "entryPoints": [
+    "packages/shared/src",
+    "apps/api/src",
+    "apps/agent/src",
+    "apps/embed/src",
+    "apps/web/src"
+  ],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/testing.ts", "**/main.tsx"],
   "tsconfig": "tsconfig.typedoc.json",
   "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme"],
   "out": "docs/api",
-  "docsRoot": "docs",
+  "docsRoot": ".",
   "readme": "none",
-  "excludePrivate": true
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "treatWarningsAsErrors": true,
+  "validation": {
+    "notExported": false,
+    "invalidLink": true,
+    "notDocumented": true
+  },
+  "requiredToBeDocumented": [
+    "Class",
+    "Function",
+    "Interface",
+    "Method",
+    "Module",
+    "TypeAlias",
+    "Variable",
+    "Enum",
+    "EnumMember"
+  ]
 }

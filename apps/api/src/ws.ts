@@ -1,3 +1,23 @@
+/**
+ * Desk websocket (`/api/ws`): the push channel from the API to signed-in agents and
+ * supervisors. REST is used for anything that returns data (accepting an offer returns a
+ * LiveKit token); the socket carries only what must arrive unprompted.
+ *
+ * Message contracts are the zod schemas `ClientMessage` / `ServerMessage` in `@cc/shared`.
+ *
+ * Server → client: `presence`, `call.offer`, `call.offer.cancelled`, `call.updated`,
+ * `transcript`. Client → server: `status`, `subscribe`, `offer.decline`.
+ *
+ * Sources of outgoing messages:
+ *
+ * - `Routing` sends `call.offer` / `call.offer.cancelled` to one user via `Flow`'s
+ *   `sendToUser`, which is {@link DeskSockets.toUser}.
+ * - The event hub: `presence` and `call.updated` are broadcast to the tenant,
+ *   `transcript` only to sockets that `subscribe`d to that call.
+ *
+ * @see apps/api/src/README.md
+ * @packageDocumentation
+ */
 import {
   type CallStatus,
   ClientMessage,
@@ -13,25 +33,39 @@ import type { Db } from './db/client.ts';
 import type { Flow } from './flow.ts';
 import { membershipsOf, queuesOfUser } from './services/tenants.ts';
 
+/** One open desk socket. A user may have several (tabs); presence is per user. */
 type Conn = { socket: WebSocket; userId: string; tenantId: string; subscribed: Set<string> };
 
-/** Fan-out of server messages to connected desks; also what `Flow` uses to ring agents. */
+/**
+ * Fan-out of server messages to connected desks; also what `Flow` uses to ring agents.
+ *
+ * Pure bookkeeping over a `Set<Conn>`; it does not know about authentication or routing.
+ */
 export class DeskSockets {
   private readonly conns = new Set<Conn>();
 
+  /** Registers an authenticated connection. */
   add(conn: Conn): void {
     this.conns.add(conn);
   }
+  /**
+   * Unregisters a connection.
+   * @returns `true` while the same user still has another socket open, so the caller
+   *   knows whether to drop the user's presence.
+   */
   remove(conn: Conn): boolean {
     this.conns.delete(conn);
     return [...this.conns].some((c) => c.userId === conn.userId);
   }
+  /** Sends to every socket of one user (offers, cancellations). */
   toUser(userId: string, message: ServerMessage): void {
     this.each((c) => c.userId === userId, message);
   }
+  /** Sends to every socket of a tenant (presence, call status changes). */
   toTenant(tenantId: string, message: ServerMessage): void {
     this.each((c) => c.tenantId === tenantId, message);
   }
+  /** Sends to sockets that subscribed to the call (live transcript). */
   toSubscribers(callId: string, message: ServerMessage): void {
     this.each((c) => c.subscribed.has(callId), message);
   }
@@ -41,6 +75,7 @@ export class DeskSockets {
   }
 }
 
+/** Dependencies of {@link registerWs}; `server.ts` provides them. */
 export type WsDeps = {
   db: Db;
   getSession: GetSession;
@@ -49,7 +84,23 @@ export type WsDeps = {
   sockets: DeskSockets;
 };
 
-/** `/api/ws`: presence, ring offers, live call updates and transcripts for the desk. */
+/**
+ * `/api/ws`: presence, ring offers, live call updates and transcripts for the desk.
+ *
+ * Connection lifecycle:
+ *
+ * 1. Upgrade. The session cookie is resolved with `getSession`; `?tenantId=` picks the
+ *    membership (first one otherwise). No session or membership: close `4401`.
+ * 2. The connection is registered, the user's queue keys are loaded, and presence starts
+ *    as `away` until the client sends `status`.
+ * 3. Client messages are parsed with `ClientMessage`; invalid JSON or unknown shapes are
+ *    silently dropped.
+ * 4. On close the connection is removed; presence is dropped only when the user has no
+ *    other socket left (which also moves any offer ringing them to the next agent).
+ *
+ * @param app - Fastify instance; the `@fastify/websocket` plugin is registered here.
+ * @param deps - See {@link WsDeps}.
+ */
 export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<void> {
   const { db, getSession, flow, hub, sockets } = deps;
   await app.register(websocket);
@@ -77,7 +128,8 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
 
   app.get('/api/ws', { websocket: true }, async (socket, request) => {
     // Buffer client messages until the session is resolved; `ws` drops messages
-    // that arrive while no listener is attached.
+    // that arrive while no listener is attached. A desk typically sends `status`
+    // immediately after `open`, before the `await`s below have finished.
     const inbox: { early: string[]; handle?: (raw: string) => void } = { early: [] };
     socket.on('message', (raw) =>
       inbox.handle ? inbox.handle(String(raw)) : inbox.early.push(String(raw)),
@@ -99,6 +151,7 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       subscribed: new Set(),
     };
     sockets.add(conn);
+    // Queue membership is read once per connection; reconnect after changing queues.
     const queues = (await queuesOfUser(db, membership.tenantId, user.id)).map((q) => q.key);
     const presence = (status: 'available' | 'busy' | 'away') =>
       flow.routing.setPresence({
@@ -137,6 +190,7 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
           break;
       }
     };
+    // Replay whatever arrived while we were authenticating, in order.
     inbox.early.forEach(inbox.handle);
   });
 }

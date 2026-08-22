@@ -6,5 +6,9 @@ coverage/
 docs/api/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+.vitepress/cache/
+.vitepress/dist/
 package-lock.json
 apps/api/drizzle/
+tests/e2e/report/
+tests/e2e/results/

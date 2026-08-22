@@ -1,4 +1,20 @@
-/** Pure UI state for the call button; the custom element renders from it. */
+/**
+ * Pure state machine of the call button. No DOM, no LiveKit: the custom element in
+ * `call-button.ts` feeds it {@link CallEvent}s and renders whatever {@link CallState}
+ * comes back, which keeps the tricky ordering questions (who joined when, what a click
+ * means in each state) unit-testable in `state.test.ts`.
+ */
+
+/**
+ * Pure UI state for the call button; the custom element renders from it.
+ *
+ * - `idle`: nothing happening, the call button is shown.
+ * - `connecting`: `POST /api/public/calls` and `Room.connect` in progress.
+ * - `waiting`: in the room, nobody to talk to yet (`since` = connect time, ms epoch).
+ * - `in_call`: an AI or human peer is present; `with` is the label shown to the customer.
+ * - `ended`: hung up or disconnected; a click starts a new call.
+ * - `error`: something failed (mic denied, bad key, origin refused); a click retries.
+ */
 export type CallState =
   | { kind: 'idle' }
   | { kind: 'connecting' }
@@ -7,6 +23,10 @@ export type CallState =
   | { kind: 'ended' }
   | { kind: 'error'; message: string };
 
+/**
+ * Inputs of {@link reduce}. `peer_joined` is also dispatched for attribute changes and
+ * for participants already present at connect time, so it may repeat for the same peer.
+ */
 export type CallEvent =
   | { type: 'click' }
   | { type: 'connected'; at: number }
@@ -22,6 +42,10 @@ export type CallEvent =
 export const peerLabel = (role: string, name: string | undefined): string =>
   role === 'human' ? `Agent ${name ?? ''}`.trim() : 'AI assistant';
 
+/**
+ * Transition function. Events that make no sense in the current state return the same
+ * object (callers may rely on identity to skip re-rendering).
+ */
 export function reduce(state: CallState, event: CallEvent): CallState {
   switch (event.type) {
     case 'click':
@@ -31,6 +55,7 @@ export function reduce(state: CallState, event: CallEvent): CallState {
     case 'connected':
       return state.kind === 'connecting' ? { kind: 'waiting', since: event.at } : state;
     case 'peer_joined':
+      // Transcribers and other customers are not conversation partners.
       if (event.role !== 'ai' && event.role !== 'human') return state;
       if (state.kind === 'waiting') {
         return {
@@ -48,11 +73,14 @@ export function reduce(state: CallState, event: CallEvent): CallState {
       }
       return state;
     case 'peer_left':
+      // Ignored on purpose: the room's `Disconnected` event is what ends a call. A human
+      // leaving ends the call server-side, the AI leaving after a handoff must not.
       return state;
     case 'toggle_mute':
       return state.kind === 'in_call' ? { ...state, muted: !state.muted } : state;
     case 'hangup':
     case 'disconnected':
+      // Do not clobber an error message with "Call ended" when cleanup disconnects.
       return state.kind === 'idle' || state.kind === 'error' ? state : { kind: 'ended' };
     case 'error':
       return { kind: 'error', message: event.message };
@@ -79,6 +107,7 @@ export function statusText(state: CallState, now: number): string {
   }
 }
 
+/** `m:ss` for a duration in milliseconds; negative input yields `0:00`. */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(total / 60);

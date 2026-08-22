@@ -1,3 +1,18 @@
+/**
+ * `/api/public`: the unauthenticated surface used by the embeddable call button.
+ *
+ * A website embeds the button with a tenant's public embed key (`pk_...`). Pressing it
+ * calls `POST /api/public/calls`, which is the birth of every call: the row is created,
+ * the room name is derived, and the customer receives a LiveKit token. Depending on the
+ * tenant's `routingMode` the AI is dispatched immediately (`ai-first`) or the humans are
+ * rung first (`human-first`, see `Flow.humanFirst`).
+ *
+ * Security relies on two things only: the embed key must exist, and the request's
+ * `Origin` must be in the key's allow-list (an empty list allows any origin).
+ *
+ * @see apps/api/src/routes/README.md
+ * @packageDocumentation
+ */
 import { type DispatchMetadata, roomNameFor } from '@cc/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -9,15 +24,22 @@ import { addEvent, addParticipant, createCall, setCallStatus } from '../services
 import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
+/** Plugin options for {@link publicRoutes}. */
 export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow };
 
+/** Body of `POST /calls`. `customerMeta` is opaque and forwarded to the AI agent. */
 const CreateCallBody = z.object({
   embedKey: z.string().min(1),
   queue: z.string().min(1).default('support'),
   customerMeta: z.record(z.string(), z.unknown()).default({}),
 });
 
-/** Unauthenticated endpoints used by the embeddable call button. */
+/**
+ * Unauthenticated endpoints used by the embeddable call button.
+ *
+ * `POST /calls` → `{ callId, roomName, token, url }`; errors: 400 `invalid_body`,
+ * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`.
+ */
 export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, livekit, flow }) => {
   app.post('/calls', async (request, reply) => {
     const body = parseBody(CreateCallBody, request.body, reply);
@@ -44,6 +66,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, li
       origin: request.headers.origin ?? null,
     });
 
+    // Same payload whether the AI starts now (token room config) or later (dispatch API).
     const metadata: DispatchMetadata = {
       callId: id,
       tenantId: tenant.id,

@@ -1,3 +1,12 @@
+/**
+ * Root of the agent desk.
+ *
+ * {@link App} is a session gate: spinner while Better Auth resolves the session, the
+ * Google sign-in screen without a session, otherwise the `Shell`. The `Shell` loads
+ * `GET /api/me`, picks a tenant (first membership, or the one chosen in the selector),
+ * opens the desk websocket through `useDeskSocket` and renders the page selected by the
+ * hash route. Supervisors get two extra tabs (Dashboard, Settings).
+ */
 import {
   Alert,
   AppBar,
@@ -22,6 +31,11 @@ import { Desk } from './pages/Desk.tsx';
 import { History } from './pages/History.tsx';
 import { Settings } from './pages/Settings.tsx';
 
+/**
+ * Session gate. Renders a spinner while the session is loading, `SignIn` when there is
+ * none and the tenant-aware `Shell` otherwise. Uses `authClient.useSession()` which
+ * calls `GET /api/auth/get-session`.
+ */
 export function App() {
   const session = authClient.useSession();
   if (session.isPending)
@@ -34,10 +48,15 @@ export function App() {
   return <Shell />;
 }
 
+/** Full-viewport centring helper for the loading and sign-in screens. */
 function Centered({ children }: { children: React.ReactNode }) {
   return <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>{children}</Box>;
 }
 
+/**
+ * Sign-in screen. The only provider is Google (`authClient.signIn.social`); the API
+ * redirects back to `/` once Better Auth has created the session cookie.
+ */
 function SignIn() {
   return (
     <Centered>
@@ -60,11 +79,21 @@ function SignIn() {
   );
 }
 
+/**
+ * Signed-in frame: app bar with tabs, tenant selector, sign-out, and the current page.
+ *
+ * - Loads `GET /api/me`; with no membership the user is told to ask for an invite.
+ * - The selected membership drives `setTenant` (the `x-tenant-id` header of every API
+ *   call) and the websocket tenant, so switching tenant reconnects the socket.
+ * - Pages receive the `desk` object from `useDeskSocket` as a prop; there is no context.
+ * - The call page lives under the History tab (route `#/calls/<id>`).
+ */
 function Shell() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/me') });
   const [tenantId, setTenantId] = useState('');
   const memberships = me.data?.memberships ?? [];
   const membership = memberships.find((m) => m.tenantId === tenantId) ?? memberships[0];
+  // Keep the module-level tenant (api.ts) in sync with the selected membership.
   useEffect(() => {
     if (membership) {
       setTenant(membership.tenantId);

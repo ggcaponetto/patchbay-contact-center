@@ -1,18 +1,49 @@
+/**
+ * Tenant domain: tenants, memberships, invites, queues, embed keys.
+ *
+ * Plain async functions over the Drizzle client; no Fastify, no LiveKit. Routes in
+ * `routes/admin.ts` call them almost one-to-one, `auth.ts` uses `bootstrapUser` on first
+ * sign-in, `routes/public.ts` uses `resolveEmbedKey` / `originAllowed`, and `ws.ts` uses
+ * `membershipsOf` / `queuesOfUser`.
+ *
+ * Every function takes the tenant id explicitly and scopes its query to it, so a
+ * supervisor can never reach another tenant's rows by guessing ids.
+ *
+ * @see apps/api/src/services/README.md
+ * @packageDocumentation
+ */
 import { TenantSettings, defaultTenantSettings } from '@cc/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.ts';
 import { embedKey, invite, membership, queue, queueMember, tenant, user } from '../db/schema.ts';
 
+/** Role of a user inside one tenant. Same values as `MembershipRole` in `@cc/shared`. */
 export type Role = 'agent' | 'supervisor';
 
+/**
+ * Lower-cases and replaces every non-alphanumeric run with `-`; `'tenant'` if nothing is left.
+ * Used for tenant slugs and queue keys.
+ *
+ * @example
+ * ```ts
+ * slugify('VIP Sales!'); // 'vip-sales'
+ * ```
+ */
 export const slugify = (name: string): string =>
   name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'tenant';
 
-/** Creates a tenant with a default `support` queue and makes `userId` its supervisor. */
+/**
+ * Creates a tenant with a default `support` queue and makes `userId` its supervisor.
+ *
+ * The slug is `<slugified name>-<first 6 chars of the id>` so two tenants with the same
+ * name do not collide. Settings start as `defaultTenantSettings()`.
+ *
+ * @returns The inserted tenant row.
+ */
 export async function createTenant(db: Db, name: string, userId: string) {
   const id = randomUUID();
   const [row] = await db
@@ -36,6 +67,16 @@ export async function createTenant(db: Db, name: string, userId: string) {
 /**
  * Runs on first sign-in. Admin emails get a tenant of their own when none exists
  * for them; pending invites for the email become memberships.
+ *
+ * Rules, in order:
+ * 1. Every open invite (`acceptedAt IS NULL`) for the email becomes a membership with the
+ *    invited role and is marked accepted. `onConflictDoNothing` makes re-runs harmless.
+ * 2. If the user still has no membership and the email is in `adminEmails`, a personal
+ *    tenant is created with the user as supervisor.
+ *
+ * Idempotent: calling it again for the same user changes nothing.
+ *
+ * @param adminEmails - Raw values from `ADMIN_EMAILS`; trimmed and lower-cased here.
  */
 export async function bootstrapUser(
   db: Db,
@@ -60,6 +101,7 @@ export async function bootstrapUser(
   }
 }
 
+/** Tenants the user belongs to, with role, name and slug (what `/api/me` returns). */
 export async function membershipsOf(db: Db, userId: string) {
   return db
     .select({
@@ -73,11 +115,23 @@ export async function membershipsOf(db: Db, userId: string) {
     .where(eq(membership.userId, userId));
 }
 
+/**
+ * The tenant row with its `settings` parsed through `TenantSettings`, so missing keys
+ * get their defaults and callers never see raw JSON.
+ */
 export async function getTenant(db: Db, tenantId: string) {
   const [row] = await db.select().from(tenant).where(eq(tenant.id, tenantId));
   return row ? { ...row, settings: TenantSettings.parse(row.settings) } : undefined;
 }
 
+/**
+ * Shallow-merges `patch` over the current settings, validates the result and stores it.
+ *
+ * @param patch - Already validated by the route (`TenantSettings.partial()`); nested
+ *   objects such as `aiAgent` are replaced whole, not deep-merged.
+ * @returns The new settings, or `undefined` for an unknown tenant.
+ * @throws ZodError if the merged object is invalid.
+ */
 export async function updateSettings(db: Db, tenantId: string, patch: unknown) {
   const current = await getTenant(db, tenantId);
   if (!current) return undefined;
@@ -86,6 +140,7 @@ export async function updateSettings(db: Db, tenantId: string, patch: unknown) {
   return settings;
 }
 
+/** Members of the tenant with their user details and role. */
 export async function listMembers(db: Db, tenantId: string) {
   return db
     .select({ userId: user.id, name: user.name, email: user.email, role: membership.role })
@@ -94,6 +149,12 @@ export async function listMembers(db: Db, tenantId: string) {
     .where(eq(membership.tenantId, tenantId));
 }
 
+/**
+ * Creates or refreshes an invite. One invite per (tenant, email): inviting again
+ * updates the role and re-opens it (`acceptedAt = null`).
+ *
+ * @returns The invite row.
+ */
 export async function createInvite(db: Db, tenantId: string, email: string, role: Role) {
   const [row] = await db
     .insert(invite)
@@ -106,10 +167,12 @@ export async function createInvite(db: Db, tenantId: string, email: string, role
   return row!;
 }
 
+/** All invites of the tenant, accepted or not. */
 export async function listInvites(db: Db, tenantId: string) {
   return db.select().from(invite).where(eq(invite.tenantId, tenantId));
 }
 
+/** Queues of the tenant, each with `memberIds` (user ids). */
 export async function listQueues(db: Db, tenantId: string) {
   const rows = await db.select().from(queue).where(eq(queue.tenantId, tenantId));
   const members = await db
@@ -123,6 +186,10 @@ export async function listQueues(db: Db, tenantId: string) {
   }));
 }
 
+/**
+ * Creates a queue; `key` is slugified. Keys are unique per tenant.
+ * @throws on a duplicate key (unique index `queue_tenant_key_uidx`).
+ */
 export async function createQueue(db: Db, tenantId: string, key: string, name: string) {
   const [row] = await db
     .insert(queue)
@@ -131,6 +198,11 @@ export async function createQueue(db: Db, tenantId: string, key: string, name: s
   return row!;
 }
 
+/**
+ * Replaces the member list of a queue (delete all, insert given).
+ *
+ * @returns `false` when the queue does not belong to the tenant.
+ */
 export async function setQueueMembers(
   db: Db,
   tenantId: string,
@@ -158,6 +230,10 @@ export async function queuesOfUser(db: Db, tenantId: string, userId: string) {
     .where(and(eq(queueMember.userId, userId), eq(queue.tenantId, tenantId)));
 }
 
+/**
+ * Creates an embed key with a random public key (`pk_` + 32 hex chars).
+ * The public key is not secret: it is embedded in third-party websites.
+ */
 export async function createEmbedKey(
   db: Db,
   tenantId: string,
@@ -177,10 +253,15 @@ export async function createEmbedKey(
   return row!;
 }
 
+/** Embed keys of the tenant. */
 export async function listEmbedKeys(db: Db, tenantId: string) {
   return db.select().from(embedKey).where(eq(embedKey.tenantId, tenantId));
 }
 
+/**
+ * Deletes an embed key of the tenant.
+ * @returns `false` when nothing matched.
+ */
 export async function deleteEmbedKey(db: Db, tenantId: string, id: string) {
   const rows = await db
     .delete(embedKey)
@@ -189,7 +270,14 @@ export async function deleteEmbedKey(db: Db, tenantId: string, id: string) {
   return rows.length > 0;
 }
 
-/** Resolves a public embed key to its tenant and the queue to use. */
+/**
+ * Resolves a public embed key to its tenant and the queue to use.
+ *
+ * @param publicKey - The `pk_...` value from the embed snippet.
+ * @param queueKey - Queue key requested by the embed (defaults to `support` in the route).
+ * @returns `{ key, queue, tenant }` (tenant settings parsed) or `undefined` if the key is
+ *   unknown or the queue does not exist in that tenant.
+ */
 export async function resolveEmbedKey(db: Db, publicKey: string, queueKey: string) {
   const [k] = await db.select().from(embedKey).where(eq(embedKey.publicKey, publicKey));
   if (!k) return undefined;
@@ -202,6 +290,9 @@ export async function resolveEmbedKey(db: Db, publicKey: string, queueKey: strin
   return { key: k, queue: q, tenant: t };
 }
 
-/** Origin check for embed requests: empty allow-list means any origin. */
+/**
+ * Origin check for embed requests: empty allow-list means any origin.
+ * Compares the raw `Origin` header, so entries must be exact origins (scheme + host + port).
+ */
 export const originAllowed = (allowed: string[], origin: string | undefined): boolean =>
   allowed.length === 0 || (origin !== undefined && allowed.includes(origin));

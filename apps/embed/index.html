@@ -24,8 +24,12 @@
       label="Call us"
     ></cc-call-button>
     <script>
-      const key = new URLSearchParams(location.search).get('key');
-      if (key) document.querySelector('cc-call-button').setAttribute('key', key);
+      // `?key=pk_…&api=http://localhost:4100` overrides the attributes for quick testing.
+      const params = new URLSearchParams(location.search);
+      const el = document.querySelector('cc-call-button');
+      for (const name of ['key', 'api', 'queue']) {
+        if (params.get(name)) el.setAttribute(name, params.get(name));
+      }
     </script>
   </body>
 </html>

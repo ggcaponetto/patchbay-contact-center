@@ -1,3 +1,17 @@
+/**
+ * Behavioral evals of the contact-center agent (LLM-as-judge).
+ *
+ * Each test drives the agent through a text-only `voice.AgentSession` with
+ * `session.run({ userInput })`, then asserts on the produced events: tool calls are
+ * checked exactly, while the wording of replies is graded by a judge LLM against an
+ * `intent`. The tool side effects are `vi.fn` stubs, so no API or LiveKit room is needed.
+ *
+ * Requires LiveKit Cloud credentials (`LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`) for
+ * LiveKit Inference; the whole suite skips itself when they are missing. Runs under the
+ * `integration` vitest project (`npm run test:integration`).
+ *
+ * @see apps/agent/README.md (section "Evals") for how to add a new test.
+ */
 import { inference, initializeLogger, voice } from '@livekit/agents';
 import dotenv from 'dotenv';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

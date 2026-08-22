@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Db } from '../src/db/client.ts';
-import { buildServer } from '../src/server.ts';
+import type { Db } from '../db/client.ts';
+import { buildServer } from '../server.ts';
 import {
   bootstrapUser,
   createInvite,
@@ -11,8 +11,8 @@ import {
   resolveEmbedKey,
   slugify,
   updateSettings,
-} from '../src/services/tenants.ts';
-import { createUser, dbAvailable, fakeLiveKit, freshDb, resetDb, testServer } from './helpers.ts';
+} from '../services/tenants.ts';
+import { createUser, dbAvailable, fakeLiveKit, freshDb, resetDb, testServer } from '../testing.ts';
 
 const hasDb = await dbAvailable();
 

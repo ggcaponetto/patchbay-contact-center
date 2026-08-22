@@ -1,6 +1,6 @@
 import type { ServerMessage } from '@cc/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Routing } from '../src/routing.ts';
+import { Routing } from './routing.ts';
 
 describe('Routing', () => {
   const sent: { to: string; msg: ServerMessage }[] = [];

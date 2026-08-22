@@ -1,7 +1,7 @@
 import type { ServerMessage } from '@cc/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import type { Db } from '../src/db/client.ts';
+import type { Db } from './db/client.ts';
 import {
   bootstrapUser,
   createEmbedKey,
@@ -10,7 +10,7 @@ import {
   listQueues,
   setQueueMembers,
   updateSettings,
-} from '../src/services/tenants.ts';
+} from './services/tenants.ts';
 import {
   INTERNAL_SECRET,
   createUser,
@@ -18,7 +18,7 @@ import {
   freshDb,
   resetDb,
   testServer,
-} from './helpers.ts';
+} from './testing.ts';
 
 const hasDb = await dbAvailable();
 

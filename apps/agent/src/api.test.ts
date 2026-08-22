@@ -1,3 +1,7 @@
+/**
+ * Unit tests for `ApiClient`: `fetch` is stubbed, so they check the URLs, headers and
+ * bodies sent to the API's internal endpoints and the never-throw error policy.
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient } from './api.ts';
 

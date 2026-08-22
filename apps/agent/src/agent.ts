@@ -1,23 +1,55 @@
+/**
+ * The AI agent definition: prompt, LLM and the two tools the model can call.
+ *
+ * This file is deliberately free of LiveKit room / API wiring so that it can be driven
+ * by the evals in `agent.integration.test.ts`: side effects are injected through
+ * {@link AgentActions} and `main.ts` supplies the real implementations.
+ *
+ * Place in the flow: `main.ts` calls {@link createAgent} once per job and passes the
+ * result to `voice.AgentSession.start`; at shutdown it calls {@link summarize} to produce
+ * the call summary stored by the API.
+ *
+ * @see apps/agent/README.md
+ * @packageDocumentation
+ */
 import { Agent, dedent, inference, llm, tool } from '@livekit/agents';
 import { z } from 'zod';
 
+/**
+ * LiveKit Inference model id used for both the conversation and the end-of-call summary.
+ * Change it here (or pass `llmModel` to {@link createAgent}) to try another model.
+ */
 export const LLM_MODEL = 'google/gemma-4-31b-it';
 
 /** What the contact-center tools do when the LLM calls them; injected so tests can observe. */
 export type AgentActions = {
-  /** Ask the API to route the call to a human. Returns what the AI should tell the caller. */
+  /**
+   * Ask the API to route the call to a human. Returns what the AI should tell the caller.
+   *
+   * In production this awaits the escalation long-poll, so it may take tens of seconds;
+   * the agent's tool call stays pending meanwhile.
+   */
   escalate(input: { reason: string; summary: string }): Promise<string>;
-  /** End the call after the goodbye. */
+  /** End the call after the goodbye (production schedules `ctx.shutdown`). */
   endCall(): Promise<void>;
 };
 
+/** Options for {@link createAgent}. */
 export type AgentOptions = {
   /** Tenant-specific instructions appended to the base prompt. */
   instructions?: string;
+  /** Side effects of the tools. */
   actions: AgentActions;
+  /** LiveKit Inference model id; defaults to {@link LLM_MODEL}. */
   llmModel?: string;
 };
 
+/**
+ * Prompt shared by every tenant. Tenant text from `TenantSettings.aiAgent.instructions`
+ * is appended under a "Company instructions" heading. Rules are phrased for a voice
+ * channel (short plain-text replies, spelled-out numbers) and tell the model exactly when
+ * to call each tool and to repeat the tool result verbatim.
+ */
 const baseInstructions = dedent`
   You are the first point of contact for a company's customer service line, speaking with a caller by voice.
 
@@ -51,7 +83,27 @@ const baseInstructions = dedent`
   - Protect privacy and minimize sensitive data.
 `;
 
-/** Builds the contact-center voice agent with its escalation and hang-up tools. */
+/**
+ * Builds the contact-center voice agent with its escalation and hang-up tools.
+ *
+ * Tools:
+ * - `escalateToHuman(reason, summary)`: delegates to `actions.escalate` and returns its
+ *   string, which is the sentence the model must say next.
+ * - `endCall()`: delegates to `actions.endCall` and returns a fixed instruction to say
+ *   goodbye; the actual hang-up is the action's job.
+ *
+ * STT, TTS and turn detection are **not** configured here; they live on the
+ * `AgentSession` in `main.ts`, so this agent also runs in text-only test sessions.
+ *
+ * @returns An `Agent` ready for `session.start({ agent })`.
+ * @example
+ * ```ts
+ * const agent = createAgent({
+ *   instructions: 'The company is Acme Bikes.',
+ *   actions: { escalate: async () => 'Say a colleague is joining.', endCall: async () => {} },
+ * });
+ * ```
+ */
 export function createAgent({ instructions, actions, llmModel = LLM_MODEL }: AgentOptions) {
   return Agent.create({
     instructions: instructions
@@ -89,7 +141,17 @@ export function createAgent({ instructions, actions, llmModel = LLM_MODEL }: Age
   });
 }
 
-/** Summarizes a conversation in two or three sentences using the given LLM. */
+/**
+ * Summarizes a conversation in two or three sentences using the given LLM.
+ *
+ * Only user and assistant messages are used (tool calls and system prompts are dropped)
+ * and rendered as `Caller:` / `Agent:` lines. Called from the shutdown callback in
+ * `main.ts`; the result is stored on the call and shown on the desk.
+ *
+ * @param model - Any LLM, normally `new inference.LLM({ model: LLM_MODEL })`.
+ * @param history - `session.history` of the finished call.
+ * @returns The summary, or `''` when there were no messages at all.
+ */
 export async function summarize(model: llm.LLM, history: llm.ChatContext): Promise<string> {
   const lines = history.items
     .filter((item): item is llm.ChatMessage => item instanceof llm.ChatMessage)

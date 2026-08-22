@@ -1,3 +1,9 @@
+/**
+ * `#/desk`: the page every agent lives on. Availability toggle, the incoming-call
+ * dialog with its countdown and, once accepted, the {@link CallPanel} for the active
+ * call. State comes from the desk websocket (`desk.state`), joining happens over REST
+ * because the accept call returns a LiveKit token.
+ */
 import type { AgentStatus } from '@cc/shared';
 import {
   Alert,
@@ -19,15 +25,31 @@ import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
 import { secondsLeft } from '../lib/store.ts';
 
+/** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
 
-/** The agent's workplace: availability toggle, incoming offers, the active call. */
+/**
+ * The agent's workplace: availability toggle, incoming offers, the active call.
+ *
+ * Uses:
+ * - WS `status` (via `desk.setStatus`) when the Available/Away toggle changes.
+ * - WS `call.offer` / `call.offer.cancelled` (already reduced into `state.offer`).
+ * - `POST /api/desk/calls/:id/accept` to answer; returns `{ token, url }`.
+ * - WS `subscribe` so live transcript segments of the call start arriving.
+ * - WS `offer.decline` to pass the call to the next agent.
+ * - `POST /api/desk/calls/:id/leave` (`role: 'human'`) when hanging up; a human leaving
+ *   ends the call server-side.
+ *
+ * `myStatus` becomes `busy` only through the server's presence; the toggle never shows
+ * it, hence the "(on a call)" hint.
+ */
 export function Desk({ desk, me }: Props) {
   const { state, dispatch, send, setStatus } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const now = useNow();
 
+  /** Accept the ringing offer: get a token, subscribe to the transcript, open the panel. */
   const accept = async () => {
     const offer = state.offer;
     if (!offer) return;
@@ -40,6 +62,7 @@ export function Desk({ desk, me }: Props) {
       dispatch({ type: 'offer.clear' });
       setError(null);
     } catch (err) {
+      // 409 `not_ringing_you` / `call_over`: the offer moved on or the caller hung up.
       setError(`Could not accept: ${err instanceof Error ? err.message : String(err)}`);
       dispatch({ type: 'offer.clear' });
     }
@@ -48,6 +71,8 @@ export function Desk({ desk, me }: Props) {
     if (state.offer) send({ type: 'offer.decline', callId: state.offer.callId });
     dispatch({ type: 'offer.clear' });
   };
+  // Hang up: drop the panel first (disconnects the room), then tell the API and go back
+  // to Available so the next call can ring. Failures of `/leave` are ignored on purpose.
   const leave = useCallback(async () => {
     if (!active) return;
     const { callId } = active;

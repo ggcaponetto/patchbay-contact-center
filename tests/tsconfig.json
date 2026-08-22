@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.base.json",
+  "include": ["./**/*.ts", "../playwright.config.ts"],
+  "exclude": ["./e2e/report", "./e2e/results"],
+  "compilerOptions": { "lib": ["ES2022", "DOM"] }
+}

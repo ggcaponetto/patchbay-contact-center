@@ -1,71 +1,225 @@
+/**
+ * Shared contracts of the contact-center POC.
+ *
+ * Everything that crosses a process boundary (API ⇄ AI agent worker, API ⇄ web desk,
+ * API ⇄ embed button) is described here as a zod schema. Each schema is exported twice
+ * under the same name: the runtime validator (`const`) and the inferred TypeScript type
+ * (`type`), so callers write `TenantSettings.parse(json)` and `const s: TenantSettings`.
+ *
+ * Zod (v4) is used instead of plain interfaces because the data really does arrive as
+ * untrusted JSON: tenant settings come from the database, dispatch metadata travels
+ * through a LiveKit job, websocket frames come from a browser. Parsing at the boundary
+ * also applies the defaults declared below, which is how older rows keep working after a
+ * new optional field is added.
+ *
+ * There is no build step: `@cc/shared` resolves straight to this source file.
+ *
+ * @see packages/shared/README.md for producer/consumer tables and the evolution rules.
+ * @packageDocumentation
+ */
 import { z } from 'zod';
 
-/** Who answers first when a customer calls. */
+/**
+ * Who answers first when a customer calls. Stored in {@link TenantSettings}, read by the
+ * API when it creates a call.
+ *
+ * - `ai-first`: the customer token carries an agent dispatch, so the AI worker joins the
+ *   room immediately and humans are only offered the call when the AI escalates.
+ * - `human-first`: the API rings the queue's available human agents first and only
+ *   dispatches the AI (via the AgentDispatch API) when nobody picks up within
+ *   {@link TenantSettings.humanFirstTimeoutSec}.
+ */
 export const RoutingMode = z.enum(['ai-first', 'human-first']);
+/** Inferred type of {@link RoutingMode}. */
 export type RoutingMode = z.infer<typeof RoutingMode>;
 
-/** What the AI agent does once a human agent joined the room. */
+/**
+ * What the AI agent does once a human agent joined the room. Applied by the agent worker
+ * (`apps/agent/src/main.ts`, `onHumanJoined`).
+ *
+ * - `leave`: the AI closes its voice session, re-labels its participant as `transcriber`
+ *   and keeps transcribing both the customer and the human so the desk transcript
+ *   continues. The AI never speaks again on that call.
+ * - `listen`: the AI mutes its audio output but keeps its session (and therefore its
+ *   conversation history) alive, transcribing the customer through the session and the
+ *   human through an extra transcriber.
+ */
 export const HandoffBehavior = z.enum(['leave', 'listen']);
+/** Inferred type of {@link HandoffBehavior}. */
 export type HandoffBehavior = z.infer<typeof HandoffBehavior>;
 
-/** Per-tenant configuration, stored as JSON on the tenant row. */
+/**
+ * Per-tenant configuration, stored as JSON on the tenant row.
+ *
+ * Produced by the web desk settings page (supervisors), validated and persisted by the
+ * API, and shipped to the AI worker inside {@link DispatchMetadata} so the agent never
+ * needs a database connection. Every field has a default, so `TenantSettings.parse({})`
+ * is a valid configuration (see {@link defaultTenantSettings}).
+ *
+ * @example
+ * ```ts
+ * const settings = TenantSettings.parse({ routingMode: 'human-first' });
+ * settings.handoff.aiBehavior; // 'leave' (default)
+ * ```
+ */
 export const TenantSettings = z.object({
+  /** Who answers first; see {@link RoutingMode}. Default `ai-first`. */
   routingMode: RoutingMode.default('ai-first'),
+  /** Handoff policy; `aiBehavior` defaults to `leave`. See {@link HandoffBehavior}. */
   handoff: z.object({ aiBehavior: HandoffBehavior.default('leave') }).prefault({}),
   /** In human-first mode, how long to ring humans before falling back to the AI. */
   humanFirstTimeoutSec: z.number().int().min(5).max(300).default(30),
   /** How long a single agent's offer rings before moving to the next agent. */
   offerTimeoutSec: z.number().int().min(5).max(120).default(20),
+  /** Prompt material for the AI agent; both strings are appended to the built-in base prompt. */
   aiAgent: z
     .object({
+      /** Tenant-specific instructions (company facts, tone, policies). Max 8000 chars. */
       instructions: z.string().max(8000).default(''),
+      /** Instruction used to generate the very first AI utterance of a call. */
       greeting: z.string().max(500).default('Greet the caller and ask how you can help.'),
     })
     .prefault({}),
 });
+/** Inferred type of {@link TenantSettings}. */
 export type TenantSettings = z.infer<typeof TenantSettings>;
+/** A fresh settings object with every default applied (used for new tenants and tests). */
 export const defaultTenantSettings = (): TenantSettings => TenantSettings.parse({});
 
+/**
+ * Lifecycle of a call, as stored on the call row and broadcast to desks through the
+ * `call.updated` {@link ServerMessage}. Owned by the API; the agent only ever sends
+ * `ended` (via `POST /api/internal/calls/:id/status`).
+ *
+ * - `ringing`: the row was just created and no routing decision has been made yet (the
+ *   API moves on to `ai` or `waiting_human` within the same request).
+ * - `ai`: the AI agent is handling the call.
+ * - `waiting_human`: human agents are being rung, either because the AI escalated or
+ *   because the tenant is human-first. The customer is on hold or still talking to the AI.
+ * - `human`: a human agent accepted and joined the room.
+ * - `ended`: terminal. The LiveKit room is deleted and the summary (if any) is stored.
+ */
 export const CallStatus = z.enum(['ringing', 'ai', 'waiting_human', 'human', 'ended']);
+/** Inferred type of {@link CallStatus}. */
 export type CallStatus = z.infer<typeof CallStatus>;
 
+/**
+ * Kinds of participants in a call. Used as the `role` attribute on LiveKit participants
+ * ({@link ParticipantAttributes}), as the `speaker` of a {@link TranscriptSegmentInput}
+ * and as the `kind` column of the participants table.
+ *
+ * - `customer`: the caller, identity `customer:<callId>`, joins from the embed button.
+ * - `ai`: the AI agent worker, identity `ai:<callId>`, while it is speaking.
+ * - `human`: a desk agent who accepted the call (or a supervisor taking over),
+ *   identity `human:<userId>`.
+ * - `supervisor`: a desk user listening in without publishing audio, identity
+ *   `supervisor:<userId>`.
+ * - `transcriber`: the same AI worker after a `leave` handoff; it no longer speaks and
+ *   only produces transcript segments for the humans.
+ */
 export const ParticipantKind = z.enum(['customer', 'ai', 'human', 'supervisor', 'transcriber']);
+/** Inferred type of {@link ParticipantKind}. */
 export type ParticipantKind = z.infer<typeof ParticipantKind>;
 
-/** Attributes set on LiveKit participants so every peer knows who is who. */
+/**
+ * Attributes set on LiveKit participants so every peer knows who is who.
+ *
+ * The API bakes them into access tokens; the agent sets them on itself with
+ * `localParticipant.setAttributes`. The agent reads `role` of remote participants to
+ * detect a human joining and to pick which tracks to transcribe.
+ */
 export const ParticipantAttributes = z.object({
+  /** See {@link ParticipantKind}. */
   role: ParticipantKind,
+  /** Desk user id; only present for `human` and `supervisor`. */
   userId: z.string().optional(),
+  /** Name shown in the desk UI; only present for `human` and `supervisor`. */
   displayName: z.string().optional(),
 });
+/** Inferred type of {@link ParticipantAttributes}. */
 export type ParticipantAttributes = z.infer<typeof ParticipantAttributes>;
 
+/**
+ * Presence of a desk user, chosen in the web desk and sent with the `status`
+ * {@link ClientMessage}. Only `available` agents are offered calls.
+ *
+ * - `available`: ready to take calls.
+ * - `busy`: on a call (set by the API when an offer is accepted) or manually unavailable.
+ * - `away`: logged in but not taking calls.
+ */
 export const AgentStatus = z.enum(['available', 'busy', 'away']);
+/** Inferred type of {@link AgentStatus}. */
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+/**
+ * Role of a user inside a tenant (membership row), checked by the API's desk routes.
+ *
+ * - `agent`: can take calls.
+ * - `supervisor`: can additionally edit {@link TenantSettings}, manage queues and
+ *   listen in on / take over calls.
+ */
 export const MembershipRole = z.enum(['agent', 'supervisor']);
+/** Inferred type of {@link MembershipRole}. */
 export type MembershipRole = z.infer<typeof MembershipRole>;
 
-/** Job metadata the API passes to the AI agent worker when dispatching it. */
+/**
+ * Job metadata the API passes to the AI agent worker when dispatching it.
+ *
+ * Serialized with `JSON.stringify` into either the customer's token room configuration
+ * (ai-first) or an explicit AgentDispatch call (human-first fallback); the worker parses
+ * it back from `ctx.job.metadata`. It carries everything the agent needs so the worker
+ * stays stateless and has no database access.
+ */
 export const DispatchMetadata = z.object({
+  /** Call id, also the suffix of the `ai:<callId>` / `customer:<callId>` identities. */
   callId: z.string(),
+  /** Tenant that owns the call. */
   tenantId: z.string(),
+  /** Key of the queue the call came in on (for example `support`). */
   queueKey: z.string(),
+  /** Snapshot of the tenant settings at dispatch time. */
   settings: TenantSettings,
+  /** Free-form data the embed button attached to the call (page URL, user id, ...). */
   customerMeta: z.record(z.string(), z.unknown()).default({}),
 });
+/** Inferred type of {@link DispatchMetadata}. */
 export type DispatchMetadata = z.infer<typeof DispatchMetadata>;
 
+/**
+ * One line of transcript. Produced by the agent worker (`POST /api/internal/calls/:id/transcript`),
+ * stored by the API and fanned out to subscribed desks inside the `transcript`
+ * {@link ServerMessage}.
+ */
 export const TranscriptSegmentInput = z.object({
+  /** Who said it; see {@link ParticipantKind}. */
   speaker: ParticipantKind,
+  /** LiveKit identity of the speaker. */
   identity: z.string(),
+  /** Final transcript text; interim results are never sent. */
   text: z.string().min(1),
+  /** Optional start offset in milliseconds from the start of the call (not set by the current agent). */
   startMs: z.number().int().nonnegative().optional(),
+  /** Optional end offset in milliseconds from the start of the call (not set by the current agent). */
   endMs: z.number().int().nonnegative().optional(),
 });
+/** Inferred type of {@link TranscriptSegmentInput}. */
 export type TranscriptSegmentInput = z.infer<typeof TranscriptSegmentInput>;
 
-/** Messages from the API to a desk client over the websocket. */
+/**
+ * Messages from the API to a desk client over the websocket, discriminated on `type`.
+ * Parsed by the web desk store; the agent never sees them.
+ *
+ * - `call.offer`: this agent is being rung for a call. `reason` and `summary` are present
+ *   when the AI escalated; `expiresAt` (ISO date) is when the offer moves on to the next
+ *   agent. The desk accepts over REST (it needs a LiveKit token back) or declines with
+ *   the `offer.decline` {@link ClientMessage}.
+ * - `call.offer.cancelled`: the offer above is no longer for this agent (timed out,
+ *   someone else took it or the call ended).
+ * - `call.updated`: the call's {@link CallStatus} changed.
+ * - `presence`: full list of the tenant's online agents and their {@link AgentStatus};
+ *   sent whenever anyone's presence changes.
+ * - `transcript`: a new {@link TranscriptSegmentInput} for a call the desk subscribed to.
+ */
 export const ServerMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('call.offer'),
@@ -90,16 +244,39 @@ export const ServerMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('transcript'), callId: z.string(), segment: TranscriptSegmentInput }),
 ]);
+/** Inferred type of {@link ServerMessage}. */
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
-/** Messages from a desk client to the API over the websocket. */
+/**
+ * Messages from a desk client to the API over the websocket, discriminated on `type`.
+ *
+ * - `status`: set my {@link AgentStatus} (for example `available` when ready to take calls).
+ * - `offer.decline`: pass on the `call.offer` I was sent; the API rings the next agent.
+ * - `subscribe`: start receiving `transcript` messages for `callId` (used when viewing
+ *   or joining a call).
+ *
+ * Accepting an offer is deliberately **not** a websocket message: it happens over REST
+ * because the response carries the LiveKit token to join the room.
+ */
 export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('status'), status: AgentStatus }),
   // Accepting happens over REST because it returns a LiveKit token.
   z.object({ type: z.literal('offer.decline'), callId: z.string() }),
   z.object({ type: z.literal('subscribe'), callId: z.string() }),
 ]);
+/** Inferred type of {@link ClientMessage}. */
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
-/** Builds the LiveKit room name for a call. */
+/**
+ * Builds the LiveKit room name for a call. Used by the API when creating the call; the
+ * agent receives the room from LiveKit and never computes it.
+ *
+ * @param tenantId - Owning tenant id.
+ * @param callId - Call id.
+ * @returns `cc-<tenantId>-<callId>`.
+ * @example
+ * ```ts
+ * roomNameFor('t1', 'c1'); // 'cc-t1-c1'
+ * ```
+ */
 export const roomNameFor = (tenantId: string, callId: string): string => `cc-${tenantId}-${callId}`;

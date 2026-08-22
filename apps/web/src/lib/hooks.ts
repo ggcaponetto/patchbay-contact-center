@@ -1,15 +1,40 @@
+/**
+ * React hooks of the agent desk.
+ *
+ * - {@link useDeskSocket}: owns the websocket to `/api/ws` and the reduced `DeskState`
+ *   (see `store.ts`); every page gets its return value as the `desk` prop.
+ * - {@link useLiveRoom}: wraps a `livekit-client` `Room` (connect, microphone, remote
+ *   audio playback, peer list, mute) for the in-call view.
+ * - {@link useRoute}: current hash route.
+ * - {@link useNow}: a one-second ticker for countdowns and durations.
+ */
 import type { AgentStatus, ClientMessage, ServerMessage } from '@cc/shared';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { initialState, parseRoute, reduce } from './store.ts';
 
-/** Desk websocket: reconnects on close, exposes the reduced state and a sender. */
+/**
+ * Desk websocket: reconnects on close, exposes the reduced state and a sender.
+ *
+ * Opens `ws(s)://<host>/api/ws?tenantId=…` (proxied to the API in dev). Every frame is a
+ * `ServerMessage` and goes straight into {@link reduce}. If the socket closes for any
+ * reason (API restart, network blip) it is reopened after two seconds, forever, until
+ * the component unmounts or `tenantId` changes. The server treats a fresh connection as
+ * a fresh presence, so after a reconnect the agent is `away` again server-side even
+ * though `state.myStatus` still shows the last choice.
+ *
+ * @param tenantId the tenant to connect for; `undefined` keeps the socket closed.
+ * @returns `state` (`DeskState`), the raw `dispatch`, `send` for `ClientMessage`s
+ * and `setStatus` (updates the local state and tells the server).
+ */
 export function useDeskSocket(tenantId: string | undefined) {
   const [state, dispatch] = useReducer(reduce, initialState);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!tenantId) return;
+    // `closed` distinguishes a deliberate close (cleanup) from a dropped connection:
+    // only the latter schedules a reconnect.
     let closed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
@@ -32,6 +57,7 @@ export function useDeskSocket(tenantId: string | undefined) {
     };
   }, [tenantId]);
 
+  // Silently drops the message when the socket is not open (e.g. during a reconnect).
   const send = useCallback((m: ClientMessage) => socketRef.current?.send(JSON.stringify(m)), []);
   const setStatus = useCallback(
     (status: AgentStatus) => {
@@ -43,14 +69,29 @@ export function useDeskSocket(tenantId: string | undefined) {
   return { state, dispatch, send, setStatus };
 }
 
+/** What {@link useLiveRoom} knows about the LiveKit room. */
 export type RoomState = {
+  /** The `livekit-client` room once connected, for advanced use. */
   room: Room | null;
   connected: boolean;
+  /** Local microphone muted (only meaningful when publishing). */
   muted: boolean;
+  /** Remote participants with the `role` attribute set by the API/agent (`customer`, `ai`, ...). */
   peers: { identity: string; name: string; role: string }[];
 };
 
-/** Joins a LiveKit room with the given token, plays remote audio, exposes mute/leave. */
+/**
+ * Joins a LiveKit room with the given token, plays remote audio, exposes mute/leave.
+ *
+ * Connects when `join` becomes non-null and disconnects on unmount or when `join`
+ * changes identity, so callers should keep the object stable (state, not a literal).
+ * With `publish: true` the microphone is enabled right after connecting (agent / take
+ * over); with `false` the desk only listens (supervisor listen-in). Every subscribed
+ * remote audio track is attached as an `<audio>` element inside the node referenced by
+ * `audioRef`, so the component must render `<div ref={audioRef} />` somewhere.
+ *
+ * @param join token + LiveKit URL from `POST /api/desk/calls/:id/accept` or `/join`.
+ */
 export function useLiveRoom(join: { token: string; url: string; publish: boolean } | null) {
   const [state, setState] = useState<RoomState>({
     room: null,
@@ -73,6 +114,7 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
     room
       .on(RoomEvent.ParticipantConnected, refresh)
       .on(RoomEvent.ParticipantDisconnected, refresh)
+      // Attributes can arrive after the participant (the AI sets its own), hence refresh.
       .on(RoomEvent.ParticipantAttributesChanged, refresh)
       .on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === Track.Kind.Audio) audioRef.current?.append(track.attach());
@@ -90,6 +132,7 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
     };
   }, [join]);
 
+  /** Toggles the local microphone; no-op before the room is connected. */
   const toggleMute = useCallback(async () => {
     if (!state.room) return;
     const muted = !state.muted;

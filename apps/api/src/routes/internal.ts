@@ -1,3 +1,18 @@
+/**
+ * `/api/internal`: endpoints for the AI agent worker (`apps/agent`).
+ *
+ * The worker has no database of its own. Everything it learns while on a call
+ * (transcript lines, events, who joined, the final summary) comes here, and when it wants
+ * a human it long-polls `POST /calls/:id/escalate`. Authentication is a shared secret in
+ * the `x-internal-secret` header, checked by a plugin-level `preHandler` so every route in
+ * this file is covered. Never expose this prefix to browsers.
+ *
+ * Live data reaches the desks through the event hub: `transcript` and `call.updated`
+ * are emitted here and turned into websocket messages by `ws.ts`.
+ *
+ * @see apps/api/src/routes/README.md
+ * @packageDocumentation
+ */
 import { CallStatus, TranscriptSegmentInput } from '@cc/shared';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { EventEmitter } from 'node:events';
@@ -15,14 +30,21 @@ import {
 } from '../services/calls.ts';
 import { parseBody } from './util.ts';
 
+/** Plugin options for {@link internalRoutes}. */
 export type InternalOpts = {
   db: Db;
+  /** Expected value of the `x-internal-secret` header. */
   secret: string;
   hub: EventEmitter;
   flow: Flow;
 };
 
-/** Endpoints called by the AI agent worker, protected by a shared secret header. */
+/**
+ * Endpoints called by the AI agent worker, protected by a shared secret header.
+ *
+ * All routes are under `/calls/:id` and answer 404 `not_found` for unknown calls and
+ * 401 `unauthenticated` for a wrong secret.
+ */
 export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
   app,
   { db, secret, hub, flow },
@@ -34,6 +56,7 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return undefined;
   });
 
+  /** Loads the call or sends 404; handlers return `undefined` when it did. */
   const withCall = async (id: string, reply: FastifyReply) => {
     const row = await getCall(db, id);
     if (!row) {
@@ -43,10 +66,12 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return row;
   };
 
+  /** The call row (status, room name, customer metadata). */
   app.get<{ Params: { id: string } }>('/calls/:id', async (request, reply) =>
     withCall(request.params.id, reply),
   );
 
+  /** Stores one transcript segment and pushes it to subscribed desks. Returns the row. */
   app.post<{ Params: { id: string } }>('/calls/:id/transcript', async (request, reply) => {
     const row = await withCall(request.params.id, reply);
     if (!row) return undefined;
@@ -57,6 +82,7 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return seg;
   });
 
+  /** Appends a free-form timeline event (`ai.joined`, `tool.called`, ...). */
   app.post<{ Params: { id: string } }>('/calls/:id/events', async (request, reply) => {
     const row = await withCall(request.params.id, reply);
     if (!row) return undefined;
@@ -70,6 +96,7 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return { ok: true };
   });
 
+  /** Records the AI (or transcriber) joining, or with `left: true`, leaving the room. */
   app.post<{ Params: { id: string } }>('/calls/:id/participants', async (request, reply) => {
     const row = await withCall(request.params.id, reply);
     if (!row) return undefined;
@@ -88,7 +115,11 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return { ok: true };
   });
 
-  /** Long-poll: resolves once a human accepted or nobody could take the call. */
+  /**
+   * Long-poll: resolves once a human accepted or nobody could take the call.
+   * The response is `Flow`'s `Outcome`; the worker must use an HTTP timeout longer than
+   * `ringSec` times the number of agents it expects to be rung.
+   */
   app.post<{ Params: { id: string } }>('/calls/:id/escalate', async (request, reply) => {
     const row = await withCall(request.params.id, reply);
     if (!row) return undefined;
@@ -105,6 +136,11 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
     return flow.escalate(row.id, body.reason, body.summary, body.ringSec);
   });
 
+  /**
+   * Sets the status (and optionally the AI summary). `ended` goes through `Flow.end`
+   * so the room is deleted and ringing stops; other statuses are written directly.
+   * Returns the updated call row.
+   */
   app.post<{ Params: { id: string } }>('/calls/:id/status', async (request, reply) => {
     const row = await withCall(request.params.id, reply);
     if (!row) return undefined;

@@ -181,7 +181,6 @@ dist
 temp
 
 # typedoc
-docs
 
 # direnv
 .direnv
@@ -227,11 +226,16 @@ ehthumbs.db
 # Project
 dist/
 docs/api/
-docs/.vitepress/cache/
-docs/.vitepress/dist/
+.vitepress/cache/
+.vitepress/dist/
 .env.local
 .env.*.local
 .env.selfhosted.local.bak
 
 # local run logs
 *.log
+
+# test artifacts
+tests/e2e/report/
+tests/e2e/results/
+tests/load/.env.load

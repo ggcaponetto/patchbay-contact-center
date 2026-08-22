@@ -1,5 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["packages/shared/src/**/*", "apps/api/src/**/*"],
-  "exclude": ["**/node_modules", "**/*.test.ts"]
+  "include": [
+    "packages/shared/src/**/*",
+    "apps/api/src/**/*",
+    "apps/agent/src/**/*",
+    "apps/embed/src/**/*",
+    "apps/web/src/**/*"
+  ],
+  "exclude": ["**/node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "types": ["vite/client", "node"]
+  }
 }

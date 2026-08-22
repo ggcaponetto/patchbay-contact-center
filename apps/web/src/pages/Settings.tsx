@@ -1,3 +1,7 @@
+/**
+ * `#/settings` (supervisors only): four independent cards, each with its own queries
+ * and mutations against `/api/admin/*`. Mutations invalidate the query they affect.
+ */
 import { type TenantSettings } from '@cc/shared';
 import {
   Button,
@@ -27,7 +31,10 @@ import {
   put,
 } from '../lib/api.ts';
 
-/** Supervisor settings: routing & AI behavior, team, queues, embed keys. */
+/**
+ * Supervisor settings: routing & AI behavior, team, queues, embed keys.
+ * Pure layout; see `RoutingCard`, `TeamCard`, `QueuesCard` and `EmbedCard`.
+ */
 export function Settings() {
   return (
     <Grid container spacing={2}>
@@ -47,6 +54,11 @@ export function Settings() {
   );
 }
 
+/**
+ * Edits the tenant's `TenantSettings` (routing mode, handoff behavior, timeouts, AI
+ * prompt). `GET /api/admin/tenant` seeds a local draft; Save sends
+ * `PATCH /api/admin/tenant/settings` and invalidates `['tenant']`.
+ */
 function RoutingCard() {
   const qc = useQueryClient();
   const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
@@ -130,6 +142,10 @@ function RoutingCard() {
   );
 }
 
+/**
+ * Members and pending invites. `GET /api/admin/members`, `GET /api/admin/invites`,
+ * `POST /api/admin/invites { email, role }`. Invites are matched by Google email at sign-in.
+ */
 function TeamCard() {
   const qc = useQueryClient();
   const members = useQuery({
@@ -196,6 +212,11 @@ function TeamCard() {
   );
 }
 
+/**
+ * Queues and which agents are rung for each. `GET /api/admin/queues`,
+ * `POST /api/admin/queues { key, name }` (key = name for now) and
+ * `PUT /api/admin/queues/:id/members { userIds }` on every checkbox change.
+ */
 function QueuesCard() {
   const qc = useQueryClient();
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api<Queue[]>('/admin/queues') });
@@ -269,6 +290,12 @@ function QueuesCard() {
   );
 }
 
+/**
+ * Embed keys for the website call button. `GET/POST/DELETE /api/admin/embed-keys`.
+ * For each key a ready-to-paste snippet is shown; it uses the desk's own origin as the
+ * API origin, which is right in dev (Vite proxies `/api` and `/embed`) and whenever the
+ * desk is served by the API.
+ */
 function EmbedCard() {
   const qc = useQueryClient();
   const keys = useQuery({
@@ -319,6 +346,7 @@ function EmbedCard() {
             fullWidth
             size="small"
             multiline
+            label="Embed snippet"
             slotProps={{ input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: 12 } } }}
             value={`<script src="${apiOrigin}/embed/call-button.js"></script>\n<cc-call-button key="${k.publicKey}" queue="${queueKey}" api="${apiOrigin}" label="Call us"></cc-call-button>`}
             sx={{ mt: 1 }}

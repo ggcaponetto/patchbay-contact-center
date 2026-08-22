@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Db } from '../src/db/client.ts';
-import { createEmbedKey, createTenant, updateSettings } from '../src/services/tenants.ts';
+import type { Db } from '../db/client.ts';
+import { createEmbedKey, createTenant, updateSettings } from '../services/tenants.ts';
 import {
   INTERNAL_SECRET,
   createUser,
@@ -8,7 +8,7 @@ import {
   freshDb,
   resetDb,
   testServer,
-} from './helpers.ts';
+} from '../testing.ts';
 
 const hasDb = await dbAvailable();
 

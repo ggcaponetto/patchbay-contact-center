@@ -1,3 +1,7 @@
+/**
+ * `#/calls/<id>`: one call in detail. Agents see the transcript, AI summary and event
+ * log; supervisors can additionally listen in or take over while the call is live.
+ */
 import { Button, Chip, Grid, Paper, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
@@ -6,9 +10,22 @@ import { type CallDetail, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { statusColor, statusLabel } from '../lib/store.ts';
 
+/** Props of {@link CallPage}: the call id from the route and the supervisor flag from the membership. */
 type Props = { id: string; desk: ReturnType<typeof useDeskSocket>; supervisor: boolean };
 
-/** One call: transcript, events, and (for supervisors) listen-in / take-over while live. */
+/**
+ * One call: transcript, events, and (for supervisors) listen-in / take-over while live.
+ *
+ * Uses:
+ * - `GET /api/desk/calls/:id` (query key includes `callsVersion`, so every
+ *   `call.updated` frame re-fetches the detail).
+ * - WS `subscribe` on mount so `transcript` frames for this call are reduced into
+ *   `state.transcripts[id]`.
+ * - `POST /api/desk/calls/:id/join` with `mode: 'listen' | 'takeover'` (supervisors);
+ *   listen does not publish the microphone, take-over does.
+ * - `POST /api/desk/calls/:id/leave` with `role: 'supervisor'` (listen) or `'human'`
+ *   (take-over; ends the call).
+ */
 export function CallPage({ id, desk, supervisor }: Props) {
   const { state, send } = desk;
   const detail = useQuery({
@@ -20,6 +37,7 @@ export function CallPage({ id, desk, supervisor }: Props) {
   );
   useEffect(() => send({ type: 'subscribe', callId: id }), [id, send]);
 
+  // Prefer the status pushed over the socket; the fetched row may be a few ms behind.
   const status = state.callStatus[id] ?? detail.data?.status;
   const live = status !== undefined && status !== 'ended';
   const join = async (mode: 'listen' | 'takeover') => {
@@ -33,6 +51,10 @@ export function CallPage({ id, desk, supervisor }: Props) {
     await post(`/desk/calls/${id}/leave`, { role }).catch(() => undefined);
   }, [id, joined]);
 
+  // Transcript merge. The API persists every segment it broadcasts, so after a re-fetch
+  // the stored rows already contain the first N live segments we received over the
+  // socket. Both lists are append-only and in the same order, so the live tail after
+  // `stored.length` is exactly what the fetch has not caught up with yet.
   const stored = (detail.data?.transcript ?? []).map((t) => ({
     speaker: t.speaker as 'ai',
     identity: t.identity,

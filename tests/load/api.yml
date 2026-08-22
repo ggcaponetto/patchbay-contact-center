@@ -1,0 +1,42 @@
+# Artillery load profile for the API (HTTP + desk websocket). Run `npm run test:load`,
+# which seeds a tenant/embed key first and exports LOAD_EMBED_KEY. Opt-in, never in CI.
+config:
+  target: 'http://localhost:4100'
+  phases:
+    - duration: 30
+      arrivalRate: 2
+      rampTo: 20
+      name: ramp
+    - duration: 30
+      arrivalRate: 20
+      name: sustain
+  ensure:
+    thresholds:
+      - http.response_time.p95: 300
+    maxErrorRate: 1
+scenarios:
+  - name: customer starts a call
+    weight: 5
+    flow:
+      - post:
+          url: '/api/public/calls'
+          json:
+            embedKey: '{{ $processEnvironment.LOAD_EMBED_KEY }}'
+            queue: 'support'
+            customerMeta: { page: 'load-test' }
+          expect:
+            - statusCode: 200
+  - name: desk reads history
+    weight: 3
+    flow:
+      - get:
+          url: '/api/me'
+      - get:
+          url: '/api/desk/calls'
+  - name: desk presence over websocket
+    weight: 2
+    engine: ws
+    flow:
+      - connect: 'ws://localhost:4100/api/ws'
+      - send: '{"type":"status","status":"available"}'
+      - think: 5

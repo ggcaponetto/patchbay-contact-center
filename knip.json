@@ -2,13 +2,30 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["build/*.mjs", "docs/.vitepress/config.ts"],
-      "project": ["build/*.mjs", "*.ts"]
+      "entry": [
+        "build/*.mjs",
+        ".vitepress/config.ts",
+        "playwright.config.ts",
+        "tests/e2e/*.ts",
+        "tests/load/*.mjs"
+      ],
+      "project": ["build/*.mjs", "*.ts", ".vitepress/*.ts", "tests/**/*.{ts,mjs}"]
     },
-    "packages/shared": { "project": ["src/**/*.ts"] },
-    "apps/agent": { "project": ["src/**/*.ts"] },
-    "apps/api": { "project": ["src/**/*.ts", "test/**/*.ts"] },
-    "apps/web": { "project": ["src/**/*.{ts,tsx}"] },
-    "apps/embed": { "project": ["src/**/*.ts"] }
+    "packages/shared": {
+      "project": ["src/**/*.ts"]
+    },
+    "apps/agent": {
+      "project": ["src/**/*.ts"]
+    },
+    "apps/api": {
+      "entry": ["src/testing.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "apps/web": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "apps/embed": {
+      "project": ["src/**/*.ts"]
+    }
   }
 }

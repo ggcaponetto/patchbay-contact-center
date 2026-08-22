@@ -1,3 +1,23 @@
+/**
+ * Composition root: builds the Fastify app from injected dependencies.
+ *
+ * `buildServer` is the single place where the moving parts meet:
+ *
+ * - the in-process event hub (`EventEmitter`) that internal routes and `Flow` publish to,
+ * - {@link DeskSockets}, the fan-out to connected desk websockets,
+ * - {@link Flow}, the call-routing orchestrator (which owns a `Routing` instance),
+ * - the `authenticate` preHandler that turns a session into `request.ctx`,
+ * - the four route groups (`/api/admin`, `/api/desk`, `/api/public`, `/api/internal`)
+ *   and the `/api/ws` websocket.
+ *
+ * It never listens: `index.ts` does that in production, tests call `app.inject()` or
+ * `app.listen({ port: 0 })`. Because every external dependency (database, LiveKit,
+ * session lookup) comes in through {@link ServerDeps}, tests swap in fakes without mocking
+ * modules (see `testing.ts`).
+ *
+ * @see apps/api/README.md
+ * @packageDocumentation
+ */
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -15,27 +35,66 @@ import { publicRoutes } from './routes/public.ts';
 import { membershipsOf } from './services/tenants.ts';
 import { DeskSockets, registerWs } from './ws.ts';
 
+/**
+ * Everything {@link buildServer} needs from the outside world.
+ *
+ * Exactly one of `auth`, `devUserEmail` or `getSession` must be provided; they are three
+ * ways of answering "who is making this request?":
+ *
+ * - `auth`: the real Better Auth instance (production and normal development).
+ * - `devUserEmail`: every request is signed in as this email (local development without Google).
+ * - `getSession`: an arbitrary resolver, used by tests to switch users per request.
+ */
 export type ServerDeps = {
   db: Db;
   livekit: LiveKit;
   /** Real Better Auth instance; tests pass `getSession` instead. */
   auth?: Auth;
+  /** Custom session resolver (tests). Ignored when `auth` or `devUserEmail` is set. */
   getSession?: GetSession;
   /** Dev-only: sign every request in as this email (see `devAuth`). */
   devUserEmail?: string;
+  /** Emails allowed to create tenants; defaults to the `ADMIN_EMAILS` env var. */
   adminEmails?: string[];
+  /** Shared secret for `/api/internal`; defaults to the `INTERNAL_API_SECRET` env var. */
   internalSecret?: string;
 };
 
+/**
+ * Per-request context filled by the `authenticate` preHandler.
+ *
+ * `tenantId` is `''` when the user has no membership at all; route hooks turn that into a
+ * 403 (`no_tenant`). `role` is the user's role in that tenant.
+ */
 type Ctx = { user: SessionUser; tenantId: string; role: 'agent' | 'supervisor' };
 
 declare module 'fastify' {
   interface FastifyRequest {
+    /** Set by the `authenticate` preHandler; only defined on authenticated routes. */
     ctx: Ctx;
   }
 }
 
-/** Builds the Fastify instance (not listening, so tests can `inject()`) and its event hub. */
+/**
+ * Builds the Fastify instance (not listening, so tests can `inject()`) and its event hub.
+ *
+ * Registration order: CORS and `/api/health` first, then the static embed bundle (only if
+ * `apps/embed/dist` exists), the auth handler, `/api/me`, the route groups and finally the
+ * websocket. Route groups are Fastify plugins that receive their dependencies as plugin
+ * options, so each file lists exactly what it uses.
+ *
+ * @param deps - See {@link ServerDeps}.
+ * @returns `app` (Fastify), `hub` (the event bus) and `flow` (the routing orchestrator),
+ *   so tests can listen for events or inspect presence directly.
+ * @throws Error when no auth strategy is given or `INTERNAL_API_SECRET` is empty; the API
+ *   must never start with an unauthenticated internal surface.
+ *
+ * @example
+ * ```ts
+ * const { app } = await buildServer({ db, livekit, getSession: async () => user, internalSecret: 's' });
+ * const res = await app.inject({ method: 'GET', url: '/api/me' });
+ * ```
+ */
 export async function buildServer(deps: ServerDeps) {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
   app.decorateRequest('ctx');
@@ -57,7 +116,11 @@ export async function buildServer(deps: ServerDeps) {
       : deps.getSession;
   if (!getSession) throw new Error('buildServer needs `auth`, `devUserEmail` or `getSession`');
 
-  /** Resolves the signed-in user and the tenant selected by `x-tenant-id` (or the first one). */
+  /**
+   * Resolves the signed-in user and the tenant selected by `x-tenant-id` (or the first one).
+   * Replies 401 when there is no session; otherwise fills `request.ctx` and returns
+   * `undefined` so the route handler runs. Route files wrap this to add role checks.
+   */
   const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
     const user = await getSession(request.headers);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
