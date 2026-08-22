@@ -70,10 +70,14 @@ function RoutingCard() {
   // The reason codes are edited as free text (commas would vanish while typing if the
   // field were bound to the parsed array) and parsed into the draft on every change.
   const [reasonsText, setReasonsText] = useState('');
+  const [dispositionsText, setDispositionsText] = useState('');
   useEffect(() => {
     if (tenant.data) {
       setDraft(tenant.data.settings);
       setReasonsText(tenant.data.settings.notReadyReasons.join(', '));
+      setDispositionsText(
+        tenant.data.settings.dispositions.map((d) => `${d.code} | ${d.label}`).join('\n'),
+      );
     }
   }, [tenant.data]);
   const save = useMutation({
@@ -132,6 +136,34 @@ function RoutingCard() {
             onChange={(e) => setDraft({ ...draft, acwSec: Number(e.target.value) })}
           />
         </Stack>
+        <TextField
+          label="Wrap-up codes (one per line: code | label; a / in the code groups)"
+          multiline
+          minRows={2}
+          value={dispositionsText}
+          onChange={(e) => {
+            setDispositionsText(e.target.value);
+            setDraft({
+              ...draft,
+              dispositions: e.target.value
+                .split('\n')
+                .map((line) => {
+                  const [code, label] = line.split('|').map((p) => p.trim());
+                  return code ? { code, label: label || code } : null;
+                })
+                .filter((d): d is { code: string; label: string } => d !== null),
+            });
+          }}
+        />
+        <FormControlLabel
+          label="Disposition required before finishing wrap-up"
+          control={
+            <Checkbox
+              checked={draft.dispositionRequired}
+              onChange={(e) => setDraft({ ...draft, dispositionRequired: e.target.checked })}
+            />
+          }
+        />
         <TextField
           label="Not-ready reason codes (comma separated)"
           value={reasonsText}

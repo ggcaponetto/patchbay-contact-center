@@ -15,7 +15,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { useLiveRoom } from '../lib/hooks.ts';
 
 /**
@@ -35,6 +35,8 @@ type Props = {
   transcript: TranscriptSegmentInput[];
   /** Called on Hang up / Stop listening and when the customer leaves; the parent posts `/leave`. */
   onLeave: () => void;
+  /** Extra controls below the peers (notes, tags, hold — the parent decides). */
+  extras?: ReactNode;
 };
 
 /**
@@ -45,7 +47,7 @@ type Props = {
  * {@link Transcript} and a hidden container where remote audio elements are attached.
  * No API calls of its own; the parent owns accept/join/leave.
  */
-export function CallPanel({ join, title, transcript, onLeave }: Props) {
+export function CallPanel({ join, title, transcript, onLeave, extras }: Props) {
   const room = useLiveRoom(join);
   // The customer leaving ends the call for us as well: once connected, if no peer carries
   // the `customer` role any more we call `onLeave` so the agent is not stuck in an empty
@@ -78,6 +80,7 @@ export function CallPanel({ join, title, transcript, onLeave }: Props) {
           <Chip key={p.identity} label={`${p.role}${p.name ? `: ${p.name}` : ''}`} />
         ))}
       </Stack>
+      {extras}
       <Transcript segments={transcript} />
       <div ref={room.audioRef} />
     </Paper>

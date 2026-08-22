@@ -23,7 +23,7 @@ import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
-import { callDetail, listCalls } from '../services/calls.ts';
+import { addEvent, callDetail, listCalls, setDisposition, setTags } from '../services/calls.ts';
 import { getTenant } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
 import { parseBody } from './util.ts';
@@ -36,6 +36,12 @@ type P = { Params: { id: string } };
 /** Body of the supervisor's force-state route: an agent state request, or log the agent out. */
 const ForceStateBody = z.union([AgentStateRequest, z.object({ state: z.literal('logged_out') })]);
 const JoinBody = z.object({ mode: z.enum(['listen', 'takeover']) });
+const NoteBody = z.object({ text: z.string().min(1).max(2000) });
+const TagsBody = z.object({ tags: z.array(z.string().min(1).max(40)).max(20) });
+const DispositionBody = z.object({
+  code: z.string().min(1).max(60),
+  note: z.string().max(2000).optional(),
+});
 const LeaveBody = z.object({ role: z.enum(['human', 'supervisor']).default('human') });
 const TokenResponse = z.object({ token: z.string(), url: z.string() });
 const doc = (
@@ -76,6 +82,8 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       return {
         notReadyReasons: tenant?.settings.notReadyReasons ?? [],
         acwSec: tenant?.settings.acwSec ?? 0,
+        dispositions: tenant?.settings.dispositions ?? [],
+        dispositionRequired: tenant?.settings.dispositionRequired ?? false,
       };
     },
   );
@@ -141,12 +149,20 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       preHandler: answer,
       config: doc('Finish wrap-up early', 'calls:answer', {
         response: AgentPresence,
-        errors: ['409 not_in_acw'],
+        errors: ['409 not_in_acw / disposition_required'],
       }),
     },
     async (request, reply) => {
       const me = await mine(request.ctx.user.id, request.ctx.tenantId);
       if (me?.state !== 'acw') return reply.code(409).send({ error: 'not_in_acw' });
+      // Mandatory wrap-up codes: the call worked on must carry a disposition first.
+      const tenant = await getTenant(db, request.ctx.tenantId);
+      if (tenant?.settings.dispositionRequired && me.callId) {
+        const worked = await callDetail(db, request.ctx.tenantId, me.callId);
+        if (worked && !worked.dispositionCode) {
+          return reply.code(409).send({ error: 'disposition_required' });
+        }
+      }
       await flow.routing.setState(request.ctx.user.id, 'ready');
       return mine(request.ctx.user.id, request.ctx.tenantId);
     },
@@ -285,6 +301,86 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         return reply.code(404).send({ error: 'not_found' });
       }
       await flow.leave(id, request.ctx.user, body.role);
+      return { ok: true };
+    },
+  );
+
+  /** Loads the call of this tenant or answers 404; helper for the annotation routes. */
+  const withCall = async (id: string, tenantId: string, reply: Parameters<typeof parseBody>[2]) => {
+    const detail = await callDetail(db, tenantId, id);
+    if (!detail) reply.code(404).send({ error: 'not_found' });
+    return detail;
+  };
+
+  /** A free-form note on the call's timeline, visible on the call page. */
+  app.post<P>(
+    '/calls/:id/note',
+    {
+      preHandler: answer,
+      config: doc('Add a note to the call', 'calls:answer', {
+        body: NoteBody,
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(NoteBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      await addEvent(db, request.params.id, 'note', {
+        text: body.text,
+        userId: request.ctx.user.id,
+        name: request.ctx.user.name,
+      });
+      return { ok: true };
+    },
+  );
+
+  /** Replaces the call's tags (categorization during or after the call). */
+  app.post<P>(
+    '/calls/:id/tags',
+    {
+      preHandler: answer,
+      config: doc('Replace the tags of the call', 'calls:answer', {
+        body: TagsBody,
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(TagsBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      await setTags(db, request.params.id, body.tags);
+      return { ok: true };
+    },
+  );
+
+  /**
+   * Sets the wrap-up disposition. The code must be one of the tenant's
+   * `dispositions`; with `dispositionRequired`, `POST /acw/done` refuses until it is set.
+   */
+  app.post<P>(
+    '/calls/:id/disposition',
+    {
+      preHandler: answer,
+      config: doc('Set the wrap-up disposition code of the call', 'calls:answer', {
+        body: DispositionBody,
+        errors: ['400 unknown_code', '404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(DispositionBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      const tenant = await getTenant(db, request.ctx.tenantId);
+      if (!tenant?.settings.dispositions.some((d) => d.code === body.code)) {
+        return reply.code(400).send({ error: 'unknown_code' });
+      }
+      await setDisposition(db, request.params.id, body.code);
+      await addEvent(db, request.params.id, 'disposition', {
+        code: body.code,
+        userId: request.ctx.user.id,
+        ...(body.note ? { note: body.note } : {}),
+      });
       return { ok: true };
     },
   );

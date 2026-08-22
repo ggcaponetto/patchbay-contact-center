@@ -80,6 +80,8 @@ describe('Settings', () => {
         offerTimeoutSec: 45,
         humanFirstTimeoutSec: 60,
         acwSec: 15,
+        dispositions: [],
+        dispositionRequired: false,
         notReadyReasons: ['Break', 'Coffee'],
         aiAgent: { greeting: 'Say hi', instructions: 'Be nice' },
       }),

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +9,10 @@ import { type DeskState, initialState } from '../lib/store.ts';
 import { Desk } from './Desk.tsx';
 
 const post = vi.hoisted(() => vi.fn());
-vi.mock('../lib/api.ts', () => ({ post }));
+const api = vi.hoisted(() =>
+  vi.fn(async () => ({ customerMeta: {}, language: null, priority: 0 })),
+);
+vi.mock('../lib/api.ts', () => ({ post, api }));
 // The state bar has its own tests (StateBar.test.tsx); here it only needs to render.
 vi.mock('../components/StateBar.tsx', () => ({
   StateBar: ({ me }: { me?: { state: string } }) => <span>state:{me?.state ?? 'offline'}</span>,
@@ -64,27 +68,63 @@ describe('Desk', () => {
   afterEach(cleanup);
 
   it('shows the state bar with my presence and the matching hint', () => {
-    const { rerender } = render(<Desk desk={fakeDesk(mine('not_ready'))} me={me} />);
+    const { rerender } = render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={fakeDesk(mine('not_ready'))} me={me} />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText('state:not_ready')).toBeTruthy();
     expect(screen.getByText(/Set yourself to Ready/)).toBeTruthy();
-    rerender(<Desk desk={fakeDesk(mine('ready'))} me={me} />);
+    rerender(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={fakeDesk(mine('ready'))} me={me} />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText(/Waiting for calls/)).toBeTruthy();
-    rerender(<Desk desk={fakeDesk({})} me={me} />);
+    rerender(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={fakeDesk({})} me={me} />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText('state:offline')).toBeTruthy();
   });
 
   it('ignores Accept once the offer is gone', async () => {
     const desk = fakeDesk({ offer });
-    const { rerender } = render(<Desk desk={desk} me={me} />);
+    const { rerender } = render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={desk} me={me} />
+      </QueryClientProvider>,
+    );
     // The dialog is still mounted while its exit transition runs; a click must be a no-op.
-    rerender(<Desk desk={fakeDesk({})} me={me} />);
+    rerender(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={fakeDesk({})} me={me} />
+      </QueryClientProvider>,
+    );
     await userEvent.click(screen.getByText('Accept'));
     expect(post).not.toHaveBeenCalled();
   });
 
   it('declines an offer', async () => {
     const desk = fakeDesk({ offer });
-    render(<Desk desk={desk} me={me} />);
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={desk} me={me} />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText(/Incoming call · support/)).toBeTruthy();
     expect(screen.getByText('refund')).toBeTruthy();
     expect(screen.getByText('angry')).toBeTruthy();
@@ -97,7 +137,13 @@ describe('Desk', () => {
   it('accepts an offer, shows the call and leaves', async () => {
     post.mockResolvedValueOnce({ token: 'tok', url: 'wss://lk' }).mockResolvedValueOnce({});
     const desk = fakeDesk({ offer, transcripts: {} });
-    render(<Desk desk={desk} me={me} />);
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={desk} me={me} />
+      </QueryClientProvider>,
+    );
     await userEvent.click(screen.getByText('Accept'));
     expect(post).toHaveBeenCalledWith('/desk/calls/c1/accept');
     expect(desk.send).toHaveBeenCalledWith({ type: 'subscribe', callId: 'c1' });
@@ -115,7 +161,13 @@ describe('Desk', () => {
       .mockResolvedValueOnce({ token: 'tok', url: 'wss://lk' })
       .mockRejectedValueOnce(new Error('x'));
     const desk = fakeDesk({ offer });
-    render(<Desk desk={desk} me={me} />);
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={desk} me={me} />
+      </QueryClientProvider>,
+    );
     await userEvent.click(screen.getByText('Accept'));
     await userEvent.click(await screen.findByText('Leave'));
     await act(async () => {});
@@ -125,7 +177,13 @@ describe('Desk', () => {
   it('reports a failed accept and clears the offer', async () => {
     post.mockRejectedValueOnce(new Error('not_ringing_you'));
     const desk = fakeDesk({ offer });
-    render(<Desk desk={desk} me={me} />);
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <Desk desk={desk} me={me} />
+      </QueryClientProvider>,
+    );
     await userEvent.click(screen.getByText('Accept'));
     expect(await screen.findByText('Could not accept: not_ringing_you')).toBeTruthy();
     expect(desk.dispatch).toHaveBeenCalledWith({ type: 'offer.clear' });

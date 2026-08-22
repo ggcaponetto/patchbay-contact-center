@@ -34,7 +34,12 @@ const renderBar = (me: AgentPresence | undefined, onError = vi.fn()) => {
 
 describe('StateBar', () => {
   beforeEach(() => {
-    mocks.api.mockReset().mockResolvedValue({ notReadyReasons: ['Break', 'Lunch'], acwSec: 30 });
+    mocks.api.mockReset().mockResolvedValue({
+      notReadyReasons: ['Break', 'Lunch'],
+      acwSec: 30,
+      dispositions: [{ code: 'billing/refund', label: 'Refund' }],
+      dispositionRequired: true,
+    });
     mocks.post.mockReset().mockResolvedValue({});
   });
   afterEach(cleanup);
@@ -88,9 +93,14 @@ describe('StateBar', () => {
     expect(onError).toHaveBeenCalledWith('on_call');
   });
 
-  it('shows the wrap-up countdown with Extend and Done', async () => {
+  it('shows the wrap-up countdown with disposition, Extend and Done', async () => {
     renderBar(presence({ state: 'acw', callId: 'c1', acwUntil: '2026-01-01T00:01:25Z' }));
     expect(screen.getByText('Wrap-up: 25s left')).toBeTruthy();
+    await userEvent.click(await screen.findByLabelText('Disposition'));
+    await userEvent.click(await screen.findByText('billing · Refund'));
+    expect(mocks.post).toHaveBeenCalledWith('/desk/calls/c1/disposition', {
+      code: 'billing/refund',
+    });
     await userEvent.click(screen.getByRole('button', { name: 'Extend' }));
     expect(mocks.post).toHaveBeenCalledWith('/desk/acw/extend');
     await userEvent.click(screen.getByRole('button', { name: 'Done' }));

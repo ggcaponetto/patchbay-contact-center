@@ -153,6 +153,8 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       aiSummary: call.aiSummary,
+      dispositionCode: call.dispositionCode,
+      tags: call.tags,
       customerMeta: call.customerMeta,
     })
     .from(call)
@@ -160,6 +162,16 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
     .where(eq(call.tenantId, tenantId))
     .orderBy(desc(call.startedAt))
     .limit(limit);
+}
+
+/** Sets the wrap-up disposition code of a call. */
+export async function setDisposition(db: Db, id: string, code: string) {
+  await db.update(call).set({ dispositionCode: code }).where(eq(call.id, id));
+}
+
+/** Replaces the tag list of a call. */
+export async function setTags(db: Db, id: string, tags: string[]) {
+  await db.update(call).set({ tags }).where(eq(call.id, id));
 }
 
 /**

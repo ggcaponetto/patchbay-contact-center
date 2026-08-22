@@ -246,6 +246,10 @@ export const call = pgTable(
     }),
     /** BCP 47 language tag of the customer, when known (language routing). */
     language: text('language'),
+    /** Wrap-up (disposition) code the handling agent picked; see `TenantSettings.dispositions`. */
+    dispositionCode: text('disposition_code'),
+    /** Free-form tags agents attach during or after the call. */
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
     customerMeta: jsonb('customer_meta').$type<Record<string, unknown>>().default({}).notNull(),
     startedAt: timestamp('started_at').defaultNow().notNull(),
     endedAt: timestamp('ended_at'),

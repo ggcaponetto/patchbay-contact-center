@@ -15,10 +15,12 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
 import { StateBar } from '../components/StateBar.tsx';
-import { type Me, post } from '../lib/api.ts';
+import { type CallDetail, type Me, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
 import { myPresence, secondsLeft } from '../lib/store.ts';
@@ -45,6 +47,12 @@ export function Desk({ desk, me }: Props) {
   const [error, setError] = useState<string | null>(null);
   const now = useNow();
   const mine = myPresence(state, me.user.id);
+  // Caller and call info for the ring dialog (page, language, priority).
+  const offered = useQuery({
+    queryKey: ['call', state.offer?.callId],
+    queryFn: () => api<CallDetail>(`/desk/calls/${state.offer!.callId}`),
+    enabled: state.offer !== null,
+  });
 
   /** Accept the ringing offer: get a token, subscribe to the transcript, open the panel. */
   const accept = async () => {
@@ -94,6 +102,7 @@ export function Desk({ desk, me }: Props) {
           title="Customer call"
           transcript={state.transcripts[active.callId] ?? []}
           onLeave={() => void leave()}
+          extras={<CallNotes callId={active.callId} onError={setError} />}
         />
       ) : (
         <Typography color="text.secondary">
@@ -105,6 +114,13 @@ export function Desk({ desk, me }: Props) {
       <Dialog open={state.offer !== null && !active}>
         <DialogTitle>Incoming call · {state.offer?.queueKey}</DialogTitle>
         <DialogContent>
+          {offered.data && (
+            <Typography gutterBottom color="text.secondary">
+              {String(offered.data.customerMeta['page'] ?? '')}
+              {offered.data.language ? ` · ${offered.data.language}` : ''}
+              {offered.data.priority ? ` · priority ${offered.data.priority}` : ''}
+            </Typography>
+          )}
           {state.offer?.reason && (
             <Typography gutterBottom>
               <b>Reason:</b> {state.offer.reason}

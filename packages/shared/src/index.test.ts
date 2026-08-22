@@ -22,6 +22,8 @@ describe('TenantSettings', () => {
       humanFirstTimeoutSec: 30,
       offerTimeoutSec: 20,
       acwSec: 30,
+      dispositions: [],
+      dispositionRequired: false,
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
     });

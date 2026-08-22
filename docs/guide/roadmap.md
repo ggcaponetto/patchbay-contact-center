@@ -71,7 +71,7 @@ Each phase adds contracts to `packages/shared`, routes to the API (all public, p
 - **RBAC + API keys**: permissions per route (`contact:transfer`, `agent:force-state`, …), roles as permission sets, API keys for integrations with the same permission model.
 - **OpenAPI** generated from the zod contracts; webhooks for `contact.*` and `agent.*` events.
 
-### 2. Agent call control
+### 2. Agent call control — in progress
 
 Answer/reject, auto-answer + zip tone, hold/retrieve with music and hold timer, mute, consult (multi-party), swap, complete as transfer / conference / drop, blind and attended transfer to agent / queue / supervisor, recording control, notes/tags/categorization, dispositions (single and multi-level, mandatory/optional), ACW (timed, extendable, auto-exit), caller/call info, speed dials and colleague presence, RONA.
 

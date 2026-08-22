@@ -37,7 +37,12 @@ export type Me = {
 };
 
 /** `GET /api/desk/settings`: the tenant settings the Desk page needs (any member). */
-export type DeskSettings = { notReadyReasons: string[]; acwSec: number };
+export type DeskSettings = {
+  notReadyReasons: string[];
+  acwSec: number;
+  dispositions: { code: string; label: string }[];
+  dispositionRequired: boolean;
+};
 
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */
 export type CallSummary = {
@@ -48,6 +53,16 @@ export type CallSummary = {
   endedAt: string | null;
   /** Written by the AI agent at the end of the call (or on escalation). */
   aiSummary: string | null;
+  /** Wrap-up code picked by the handling agent, or `null`. */
+  dispositionCode: string | null;
+  /** Free-form categorization tags. */
+  tags: string[];
+  /** How the contact came in (`voice` for now). */
+  channel: string;
+  /** Routing priority; higher first. */
+  priority: number;
+  /** Customer language (BCP 47), when known. */
+  language: string | null;
   /** Free-form data sent by the embed button, e.g. `{ page, userAgent }`. */
   customerMeta: Record<string, unknown>;
 };

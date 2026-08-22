@@ -92,6 +92,64 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     await srv.flow.routing.disconnect(boss.id);
   });
 
+  it('stores notes, tags and dispositions, and gates wrap-up on the mandatory code', async () => {
+    const { updateSettings } = await import('../services/tenants.ts');
+    const me = await srv.as(boss).inject({ url: '/api/me' });
+    const tenantId = me.json().memberships[0].tenantId as string;
+    await updateSettings(db, tenantId, {
+      dispositions: [
+        { code: 'billing/refund', label: 'Refund' },
+        { code: 'resolved', label: 'Resolved' },
+      ],
+      dispositionRequired: true,
+      acwSec: 60,
+    });
+    const settings = await srv.as(boss).inject({ url: '/api/desk/settings' });
+    expect(settings.json()).toMatchObject({
+      dispositionRequired: true,
+      dispositions: [{ code: 'billing/refund' }, { code: 'resolved' }],
+    });
+    const { callId } = await startCall();
+    const post = (path: string, payload: object) =>
+      srv.as(boss).inject({ method: 'POST', url: `/api/desk/calls/${callId}${path}`, payload });
+
+    expect((await post('/note', { text: 'Caller very unhappy' })).json()).toEqual({ ok: true });
+    expect((await post('/tags', { tags: ['vip', 'complaint'] })).json()).toEqual({ ok: true });
+    expect((await post('/disposition', { code: 'nope' })).json()).toEqual({
+      error: 'unknown_code',
+    });
+    // unknown call ids are 404 on all three
+    expect(
+      (
+        await srv
+          .as(boss)
+          .inject({ method: 'POST', url: '/api/desk/calls/nope/note', payload: { text: 'x' } })
+      ).statusCode,
+    ).toBe(404);
+
+    // an agent in wrap-up for this call cannot finish before the disposition is set
+    await srv.flow.routing.connect({ userId: boss.id, tenantId, name: 'Boss' });
+    await srv.flow.routing.busy(callId, boss.id);
+    await srv.flow.routing.release(callId, { acwSec: 60 });
+    const done = () => srv.as(boss).inject({ method: 'POST', url: '/api/desk/acw/done' });
+    expect((await done()).json()).toEqual({ error: 'disposition_required' });
+    expect(
+      (await post('/disposition', { code: 'billing/refund', note: 'refund sent' })).json(),
+    ).toEqual({ ok: true });
+    expect((await done()).json()).toMatchObject({ state: 'ready' });
+
+    const detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail).toMatchObject({ dispositionCode: 'billing/refund', tags: ['vip', 'complaint'] });
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['note', 'disposition']),
+    );
+    expect(detail.events.find((e: { type: string }) => e.type === 'note').payload).toMatchObject({
+      text: 'Caller very unhappy',
+      name: 'Boss',
+    });
+    await srv.flow.routing.disconnect(boss.id);
+  });
+
   it('treats a body-less leave as the human agent leaving', async () => {
     const { callId } = await startCall();
     const res = await srv

@@ -86,6 +86,12 @@ ${s.text}`;
         <Typography variant="h6">Call {id.slice(0, 8)}</Typography>
         {status && <Chip size="small" color={statusColor[status]} label={statusLabel[status]} />}
         {detail.data && <Typography color="text.secondary">{detail.data.queueKey}</Typography>}
+        {detail.data?.dispositionCode && (
+          <Chip size="small" variant="outlined" label={detail.data.dispositionCode} />
+        )}
+        {(detail.data?.tags ?? []).map((t) => (
+          <Chip key={t} size="small" label={t} />
+        ))}
         <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
           {supervisor && live && !joined && (
             <>

@@ -8,7 +8,16 @@
  * here — the bar shows what the server says.
  */
 import type { AgentPresence } from '@cc/shared';
-import { Button, ButtonGroup, Chip, Menu, MenuItem, Stack, Typography } from '@mui/material';
+import {
+  Button,
+  ButtonGroup,
+  Chip,
+  Menu,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { type DeskSettings, api, post } from '../lib/api.ts';
@@ -29,6 +38,7 @@ type Props = {
 /** See the module comment. */
 export function StateBar({ name, me, now, onError }: Props) {
   const [reasonAnchor, setReasonAnchor] = useState<HTMLElement | null>(null);
+  const [disposition, setDisposition] = useState('');
   const settings = useQuery({
     queryKey: ['desk-settings'],
     queryFn: () => api<DeskSettings>('/desk/settings'),
@@ -92,10 +102,31 @@ export function StateBar({ name, me, now, onError }: Props) {
         </Menu>
       </Stack>
       {state === 'acw' && me?.acwUntil && (
-        <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
+        <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap' }} spacing={2}>
           <Typography color="text.secondary">
             Wrap-up: {Math.max(0, Math.ceil((Date.parse(me.acwUntil) - now) / 1000))}s left
           </Typography>
+          {me.callId && (settings.data?.dispositions?.length ?? 0) > 0 && (
+            <TextField
+              select
+              size="small"
+              label="Disposition"
+              value={disposition}
+              onChange={(e) => {
+                setDisposition(e.target.value);
+                void run(() =>
+                  post(`/desk/calls/${me.callId}/disposition`, { code: e.target.value }),
+                );
+              }}
+              sx={{ minWidth: 220 }}
+            >
+              {(settings.data?.dispositions ?? []).map((d) => (
+                <MenuItem key={d.code} value={d.code}>
+                  {d.code.includes('/') ? `${d.code.split('/')[0]} · ${d.label}` : d.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <Button size="small" onClick={() => void run(() => post('/desk/acw/extend'))}>
             Extend
           </Button>

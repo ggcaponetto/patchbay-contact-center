@@ -76,6 +76,16 @@ export const TenantSettings = z.object({
    * `ready` automatically. `0` disables wrap-up (straight back to `ready`).
    */
   acwSec: z.number().int().min(0).max(600).default(30),
+  /**
+   * Disposition (wrap-up) codes agents pick after a call. A `/` in the code makes a
+   * two-level hierarchy (`billing/refund` shows as "Refund" under "billing").
+   */
+  dispositions: z
+    .array(z.object({ code: z.string().min(1).max(60), label: z.string().min(1).max(80) }))
+    .max(200)
+    .default([]),
+  /** When true, wrap-up cannot be finished before a disposition was set. */
+  dispositionRequired: z.boolean().default(false),
   /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
   notReadyReasons: z
     .array(z.string().min(1).max(40))
