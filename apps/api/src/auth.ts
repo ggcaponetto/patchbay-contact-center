@@ -24,7 +24,8 @@ import { fromNodeHeaders } from 'better-auth/node';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from './db/client.ts';
 import * as schema from './db/schema.ts';
-import { bootstrapUser } from './services/tenants.ts';
+import { seedDemoTeam } from './services/demo.ts';
+import { bootstrapUser, membershipsOf } from './services/tenants.ts';
 
 /** The subset of the user row the rest of the API needs. Stored on `request.ctx.user`. */
 export type SessionUser = { id: string; email: string; name: string };
@@ -143,15 +144,21 @@ function cookieValue(headers: Record<string, unknown>, name: string): string | u
  * is how the end-to-end suite plays several agents and supervisors (and exercises invites)
  * in one browser. The cookie rides on HTTP and websocket upgrades alike.
  *
+ * The desk switches person through `GET /api/auth/dev-users` (everyone in the database)
+ * and `POST /api/auth/dev-switch { email }` (sets the cookie); `POST /api/auth/sign-out`
+ * clears it, i.e. goes back to the default user. With `demoTeam`, the default user's
+ * first contact center is seeded with a demo supervisor and agents (`services/demo.ts`).
+ *
  * Why it is safe only in development: anyone who can reach the port can be any user.
- * `boot.ts` only passes `DEV_USER_EMAIL` when `NODE_ENV !== 'production'`. The two
- * `/api/auth/*` stubs exist so the web desk's Better Auth client (`getSession`, `signOut`)
- * keeps working unchanged.
+ * `boot.ts` only passes `DEV_USER_EMAIL` when `NODE_ENV !== 'production'`. The
+ * `get-session` / `sign-out` stubs exist so the web desk's Better Auth client keeps
+ * working unchanged.
  *
  * @param app - Fastify instance to mount the stub auth routes on.
  * @param db - Used to find or create the user rows.
  * @param email - The user a request without the cookie runs as.
  * @param adminEmails - Forwarded to `bootstrapUser` so dev users can get their own tenant.
+ * @param demoTeam - Seed the demo team into the default user's tenant (default `false`).
  * @returns A {@link GetSession} resolving the default or cookie-selected dev user.
  */
 export async function devAuth(
@@ -159,6 +166,7 @@ export async function devAuth(
   db: Db,
   email: string,
   adminEmails: string[],
+  demoTeam = false,
 ): Promise<GetSession> {
   const { eq } = await import('drizzle-orm');
   const { randomUUID } = await import('node:crypto');
@@ -183,9 +191,19 @@ export async function devAuth(
     users.set(wanted, user);
     return user;
   };
-  await resolve(email);
+  const me = await resolve(email);
+  if (demoTeam) {
+    const [home] = await membershipsOf(db, me.id);
+    if (home) {
+      const created = await seedDemoTeam(db, home.tenantId);
+      if (created) app.log.info(`demo team: ${created} user(s) added to ${home.tenantName}`);
+    }
+  }
   const getSession: GetSession = (headers) =>
     resolve(cookieValue(headers, DEV_USER_COOKIE)?.trim().toLowerCase() || email);
+  const cookie = (value: string, maxAge?: number) =>
+    `${DEV_USER_COOKIE}=${encodeURIComponent(value)}; Path=/; SameSite=Lax` +
+    (maxAge === undefined ? '' : `; Max-Age=${maxAge}`);
   app.get('/api/auth/get-session', async (request) => {
     const user = await getSession(request.headers);
     return {
@@ -193,7 +211,26 @@ export async function devAuth(
       user,
     };
   });
-  app.post('/api/auth/sign-out', async () => ({ success: true }));
+  app.post('/api/auth/sign-out', async (_request, reply) => {
+    reply.header('set-cookie', cookie('', 0));
+    return { success: true };
+  });
+  app.get('/api/auth/dev-users', async (request) => ({
+    current: (await getSession(request.headers))!.email,
+    users: await db
+      .select({ id: schema.user.id, email: schema.user.email, name: schema.user.name })
+      .from(schema.user)
+      .orderBy(schema.user.email),
+  }));
+  app.post<{ Body: { email?: string } }>('/api/auth/dev-switch', async (request, reply) => {
+    const wanted = String(request.body?.email ?? '')
+      .trim()
+      .toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+$/.test(wanted)) return reply.code(400).send({ error: 'invalid_email' });
+    const user = await resolve(wanted);
+    reply.header('set-cookie', cookie(wanted));
+    return user;
+  });
   app.log.warn(
     `DEV_USER_EMAIL set: every request runs as ${email} (or the ${DEV_USER_COOKIE} cookie)`,
   );

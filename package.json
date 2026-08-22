@@ -1,8 +1,8 @@
 {
-  "name": "livekit-playground",
+  "name": "patchbay-contact-center",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-first contact center proof of concept built on LiveKit Cloud",
+  "description": "Patchbay Contact Center — AI-first contact center on LiveKit Cloud",
   "type": "module",
   "workspaces": [
     "packages/*",

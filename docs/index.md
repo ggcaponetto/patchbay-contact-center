@@ -1,6 +1,6 @@
-# Contact Center POC
+# Patchbay Contact Center
 
-An AI-first, multi-tenant contact center proof of concept built on [LiveKit Cloud](https://cloud.livekit.io/). A customer presses a `<cc-call-button>` embedded on any website and talks over WebRTC; an AI voice agent answers (or, per tenant, humans are rung first) and can escalate to a human agent who joins the very same LiveKit room from a React desk. Every transcript segment, participant and call event lands in Postgres so an LLM can act on the conversation later. The whole repo is an npm-workspaces monorepo kept under a hard budget of 50k non-blank source lines.
+An AI-first, multi-tenant contact center proof of concept built on [LiveKit Cloud](https://cloud.livekit.io/). A customer presses a `<cc-call-button>` embedded on any website and talks over WebRTC; an AI voice agent answers (or, per tenant, humans are rung first) and can escalate to a human agent who joins the very same LiveKit room from a React desk. Every transcript segment, participant and call event lands in Postgres so an LLM can act on the conversation later. The whole repo is an npm-workspaces monorepo kept under a hard budget of 50k non-blank product lines (tests budgeted separately). Where it is going: the [Roadmap](/docs/guide/roadmap).
 
 ## Start here
 

@@ -18,7 +18,7 @@ This project uses plain **npm workspaces** (`apps/*`, `packages/*`). Always use 
 - Each folder with non-trivial logic has a `README.md` next to the code (architecture, diagrams in mermaid, conventions). VitePress serves the whole repo (`srcDir: '.'`, config in `.vitepress/config.ts`); hand-written guides live in `docs/guide`, the generated API reference in `docs/api`. Add new READMEs to the sidebar in `.vitepress/config.ts`.
 - Tests live next to their sources: `*.test.ts` are unit tests (no services), `*.integration.test.ts` need Postgres and/or LiveKit credentials and must skip themselves when those are absent. Browser end-to-end tests are Playwright specs in `tests/e2e`, load tests are Artillery profiles in `tests/load`. See `tests/README.md`.
 
-Quality gates are mandatory: run `npm run validate` before declaring work done. It runs Prettier, ESLint, `tsc`, knip, cspell, the LOC gate (`build/loc.mjs`, 50k hard budget / 20k POC target), vitest with 90% coverage thresholds on logic modules, and the builds. Add new words to `cspell.json` rather than disabling the check; do not add dependencies before they are used (knip fails otherwise).
+Quality gates are mandatory: run `npm run validate` before declaring work done. It runs Prettier, ESLint, `tsc`, knip, cspell, the LOC gate (`build/loc.mjs`, 50k hard budget for product code / 20k POC target, tests budgeted separately at 50k), vitest with 90% coverage thresholds on logic modules, and the builds. Add new words to `cspell.json` rather than disabling the check; do not add dependencies before they are used (knip fails otherwise).
 
 ## LiveKit Documentation
 

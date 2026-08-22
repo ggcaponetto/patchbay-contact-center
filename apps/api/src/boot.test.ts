@@ -43,7 +43,15 @@ describe('start', () => {
       db: f.db,
       livekit: f.livekit,
       devUserEmail: 'dev@example.com',
+      devDemoTeam: true,
     });
+    await start(
+      { NODE_ENV: 'development', DEV_USER_EMAIL: 'dev@example.com', DEV_DEMO_TEAM: 'false' },
+      f.deps,
+    );
+    expect(f.spies.buildServer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ devDemoTeam: false }),
+    );
     expect(f.app.listen).toHaveBeenCalledWith({ port: 4000, host: '0.0.0.0' });
   });
 

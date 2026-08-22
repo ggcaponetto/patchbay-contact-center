@@ -1,6 +1,6 @@
 <div align="center">
 
-# Contact Center POC
+# Patchbay Contact Center
 
 **An AI-first contact center on LiveKit Cloud — the AI answers, humans take over.**
 
@@ -8,23 +8,24 @@ A "Call us" button for any website, a voice AI that picks up first, a React desk
 human agents and supervisors take over live calls, and every conversation stored in
 Postgres for the next LLM to act on.
 
-[![CI](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml/badge.svg)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml)
-[![Docs](https://github.com/ggcaponetto/livekit-playground/actions/workflows/docs.yml/badge.svg)](https://ggcaponetto.github.io/livekit-playground/)
-[![SAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml)
-[![DAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml)
-[![Release](https://img.shields.io/github/v/release/ggcaponetto/livekit-playground?sort=semver)](https://github.com/ggcaponetto/livekit-playground/releases)
-[![codecov](https://codecov.io/gh/ggcaponetto/livekit-playground/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/livekit-playground)
+[![CI](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/ci.yml/badge.svg)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/ci.yml)
+[![Docs](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/docs.yml/badge.svg)](https://ggcaponetto.github.io/patchbay-contact-center/)
+[![SAST](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/sast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/sast.yml)
+[![DAST](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/dast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/dast.yml)
+[![Release](https://img.shields.io/github/v/release/ggcaponetto/patchbay-contact-center?sort=semver)](https://github.com/ggcaponetto/patchbay-contact-center/releases)
+[![codecov](https://codecov.io/gh/ggcaponetto/patchbay-contact-center/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/patchbay-contact-center)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ggcaponetto_livekit-playground)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=ncloc)](https://sonarcloud.io/summary/overall?id=ggcaponetto_livekit-playground)
-[![E2E](https://github.com/ggcaponetto/livekit-playground/actions/workflows/e2e-nightly.yml/badge.svg)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/e2e-nightly.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ggcaponetto/livekit-playground/blob/main/LICENSE)
+[![E2E](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/e2e-nightly.yml/badge.svg)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/e2e-nightly.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ggcaponetto/patchbay-contact-center/blob/main/LICENSE)
 [![Node ≥ 24](https://img.shields.io/badge/node-%E2%89%A5%2024-brightgreen)](https://nodejs.org)
 [![LiveKit Agents](https://img.shields.io/badge/LiveKit%20Agents-1.7-0A84FF)](https://docs.livekit.io/agents/)
 
 **[Getting started](docs/guide/getting-started.md)** ·
-[Documentation](https://ggcaponetto.github.io/livekit-playground/) ·
+[Documentation](https://ggcaponetto.github.io/patchbay-contact-center/) ·
 [Architecture](docs/guide/architecture.md) ·
-[API Reference](https://ggcaponetto.github.io/livekit-playground/docs/api/)
+[Roadmap](docs/guide/roadmap.md) ·
+[API Reference](https://ggcaponetto.github.io/patchbay-contact-center/docs/api/)
 
 </div>
 
@@ -69,8 +70,8 @@ Deeper dives: [Architecture](docs/guide/architecture.md) · [Call lifecycle](doc
 **Prerequisites:** Node ≥ 24 and npm ≥ 11, Docker (Postgres), the [LiveKit CLI](https://docs.livekit.io/intro/basics/cli/) with a [LiveKit Cloud](https://cloud.livekit.io/) project, and optionally a Google OAuth client.
 
 ```sh
-git clone https://github.com/ggcaponetto/livekit-playground.git
-cd livekit-playground
+git clone https://github.com/ggcaponetto/patchbay-contact-center.git
+cd patchbay-contact-center
 npm install
 cp .env.example .env.local                 # fill in the values (see below)
 lk cloud auth && lk app env -w -d .env.local   # LIVEKIT_URL / API_KEY / API_SECRET
@@ -79,14 +80,14 @@ docker compose up -d                       # Postgres on localhost:5432
 
 Minimum `.env.local` besides the LiveKit values:
 
-| Variable                                    | Purpose                                                                                |
-| ------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                              | `postgres://cc:cc@localhost:5432/cc` (matches `docker-compose.yml`)                    |
-| `INTERNAL_API_SECRET`                       | shared secret between the agent worker and the API                                     |
-| `ADMIN_EMAILS`                              | who becomes supervisor of a fresh tenant on first login                                |
-| `BETTER_AUTH_SECRET`                        | random string (≥ 32 chars)                                                             |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client; redirect URI `http://localhost:3000/api/auth/callback/google`            |
-| `DEV_USER_EMAIL`                            | _dev only_: skip Google and sign every request in as this user (ignored in production) |
+| Variable                                    | Purpose                                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL`                              | `postgres://cc:cc@localhost:5432/cc` (matches `docker-compose.yml`)                |
+| `INTERNAL_API_SECRET`                       | shared secret between the agent worker and the API                                 |
+| `ADMIN_EMAILS`                              | who becomes supervisor of a fresh tenant on first login                            |
+| `BETTER_AUTH_SECRET`                        | random string (≥ 32 chars)                                                         |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client; redirect URI `http://localhost:3000/api/auth/callback/google`        |
+| `DEV_USER_EMAIL`                            | _dev only_: skip Google; the desk gets a "switch user" menu and a seeded demo team |
 
 Start everything with one command (color-coded output via `concurrently`), or each app in its own terminal:
 
@@ -136,7 +137,7 @@ Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so ther
 | `npm run dast`             | dynamic security scan: boots the API, OWASP ZAP baseline via Docker (needs Postgres)   |
 | `npm run docs:dev`         | VitePress docs site with the typedoc API reference and mermaid diagrams                |
 | `npm run build`            | production builds of the web desk and the embed script                                 |
-| `npm run loc`              | size report against the 50k-line budget (POC target: under 20k)                        |
+| `npm run loc`              | size report: product code against 50k (POC target 20k), tests against their own 50k    |
 
 ## Quality gates
 
@@ -179,9 +180,9 @@ with the API (or proxy `/api`) for cookies; the embed script is served by the AP
 
 Proof of concept, working end to end against LiveKit Cloud: embedded call → AI → escalation →
 human takes over in the same room → transcript, events and summary in Postgres. Verified by
-unit, integration and Playwright e2e suites. Open items and known gaps are tracked in
-[TODO.md](TODO.md); the next big step is exposing stored conversations to an LLM through
-MCP tools.
+unit, integration and Playwright e2e suites. The path from here to a full contact center
+(call control, supervisor tools, skills-based routing, API-first + MCP) and why it fits the
+line budget is in the [Roadmap](docs/guide/roadmap.md); open items in [TODO.md](TODO.md).
 
 ## Contributing
 
@@ -193,4 +194,4 @@ Branching and versioning: [Releasing](docs/guide/releasing.md). Security issues:
 
 ## License
 
-[MIT](https://github.com/ggcaponetto/livekit-playground/blob/main/LICENSE) © 2026 Giuseppe Giulio Caponetto
+[MIT](https://github.com/ggcaponetto/patchbay-contact-center/blob/main/LICENSE) © 2026 Giuseppe Giulio Caponetto

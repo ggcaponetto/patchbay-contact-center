@@ -54,6 +54,8 @@ export type ServerDeps = {
   getSession?: GetSession;
   /** Dev-only: sign every request in as this email (see `devAuth`). */
   devUserEmail?: string;
+  /** With `devUserEmail`: seed the demo team (supervisor + agents) into the dev user's tenant. */
+  devDemoTeam?: boolean;
   /** Emails allowed to create tenants; defaults to the `ADMIN_EMAILS` env var. */
   adminEmails?: string[];
   /** Shared secret for `/api/internal`; defaults to the `INTERNAL_API_SECRET` env var. */
@@ -131,7 +133,7 @@ export async function buildServer(deps: ServerDeps) {
   const getSession = deps.auth
     ? registerAuth(app, deps.auth)
     : deps.devUserEmail
-      ? await devAuth(app, deps.db, deps.devUserEmail, adminEmails)
+      ? await devAuth(app, deps.db, deps.devUserEmail, adminEmails, deps.devDemoTeam)
       : deps.getSession;
   if (!getSession) throw new Error('buildServer needs `auth`, `devUserEmail` or `getSession`');
 
@@ -154,6 +156,8 @@ export async function buildServer(deps: ServerDeps) {
     user: request.ctx.user,
     isAdmin: adminEmails.includes(request.ctx.user.email.toLowerCase()),
     memberships: await membershipsOf(deps.db, request.ctx.user.id),
+    // The desk shows the "switch user" menu only under the dev-auth bypass.
+    devMode: Boolean(deps.devUserEmail),
   }));
 
   /** In-process event bus: internal routes publish, the desk websocket subscribes. */

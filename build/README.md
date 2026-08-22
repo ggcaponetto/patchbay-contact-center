@@ -2,7 +2,7 @@
 
 ## `loc.mjs` — the repo size gate
 
-`npm run loc` (part of `npm run validate` and CI) counts non-blank lines in git-tracked source files and fails when the total exceeds **50 000**. A softer **20 000** POC target prints a warning so drift is visible long before the hard gate trips.
+`npm run loc` (part of `npm run validate` and CI) counts non-blank lines in git-tracked source files in two buckets — **product** and **tests** (`*.test.*`, `tests/**`, `testing.ts`) — and fails when product code exceeds **50 000** or tests exceed **50 000**. A softer **20 000** POC target on product code prints a warning so drift is visible long before the hard gate trips. The two are budgeted apart because the 90 % coverage gate and the one-test-per-feature e2e plan make tests track product code roughly 1 : 1; the product budget is the one that shapes the product (see the [Roadmap](/docs/guide/roadmap)).
 
 What counts:
 
@@ -23,7 +23,7 @@ loc:   5577  total (11% of the 50000 budget)
 
 ### Why
 
-The budget exists for solo-developer maintainability: the repo must stay small enough for one person to hold in their head. Raising `BUDGET` in `build/loc.mjs` is a product decision, not a fix for a failing gate — delete or simplify code instead.
+The budget exists for solo-developer maintainability: the repo must stay small enough for one person to hold in their head. Raising `PRODUCT_BUDGET` or `TEST_BUDGET` in `build/loc.mjs` is a product decision, not a fix for a failing gate — delete or simplify code instead.
 
 ## `e2e-plan.mjs` — the test-plan gate
 

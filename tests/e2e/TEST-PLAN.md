@@ -49,6 +49,7 @@ Status: **implemented** (a tagged test exists), **planned** (write it next), **b
 | E2E-29 | Human-first: humans are rung first, nobody → the AI is dispatched as fallback                                       | ai         | cloud | `ai/human-first.spec.ts`             | implemented                                                                               |
 | E2E-30 | Customer hangs up: the AI leaves, the call is ended in history                                                      | ai         | cloud | `ai/ai-first.spec.ts`                | implemented                                                                               |
 | E2E-31 | The AI ends the call itself (`endCall` tool → `call.ended_by_ai`) after the caller says goodbye                     | ai         | cloud | `ai/ai-first.spec.ts`                | blocked: the fake microphone cannot speak; needs synthetic speech injection into the room |
+| E2E-33 | Dev login: the app bar "Signed in as …" menu switches the desk to another person (dev bypass only)                  | desk       | core  | `desk/dev-login.spec.ts`             | implemented                                                                               |
 | E2E-32 | Google sign-in and sign-out on the desk                                                                             | desk       | cloud | —                                    | blocked: no Google OAuth client configured (TODO.md); dev auth is used instead            |
 
 ## Not covered on purpose

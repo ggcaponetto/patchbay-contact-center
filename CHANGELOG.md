@@ -7,7 +7,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed to **Patchbay Contact Center** (`ggcaponetto/patchbay-contact-center`); docs at
+  `https://ggcaponetto.github.io/patchbay-contact-center/`.
+- LOC gate budgets product code and tests separately (50k each).
+
 ### Added
+
+- Dev multi-login: with `DEV_USER_EMAIL` the desk's app bar switches to any person
+  (`GET /api/auth/dev-users`, `POST /api/auth/dev-switch`) and a demo team is seeded
+  (`DEV_DEMO_TEAM`).
+- `docs/guide/roadmap.md`: the contact-center feature list mapped to phases, LiveKit
+  mechanisms and line-count estimates.
 
 - End-to-end test plan (`tests/e2e/TEST-PLAN.md`): one tagged Playwright test per feature,
   three execution tiers (`smoke` / `core` / `cloud`), fixtures for several signed-in actors,
@@ -46,5 +58,5 @@ First proof-of-concept release, working end to end against LiveKit Cloud.
 - Git-flow branching (`main` / `develop`), semantic-version tags and a `Release` workflow that
   publishes GitHub releases.
 
-[Unreleased]: https://github.com/ggcaponetto/livekit-playground/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ggcaponetto/livekit-playground/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ggcaponetto/patchbay-contact-center/releases/tag/v0.1.0

@@ -32,6 +32,8 @@ export type Me = {
   isAdmin: boolean;
   /** One entry per contact center; the first one is selected by default. */
   memberships: { tenantId: string; role: 'agent' | 'supervisor'; tenantName: string }[];
+  /** The API runs with the dev-auth bypass: the app bar offers "switch user". */
+  devMode?: boolean;
 };
 
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */

@@ -12,8 +12,8 @@ This guide takes you from a fresh clone to your first call with the AI agent, ru
 ## Clone and install
 
 ```console
-git clone https://github.com/ggcaponetto/livekit-playground.git
-cd livekit-playground
+git clone https://github.com/ggcaponetto/patchbay-contact-center.git
+cd patchbay-contact-center
 npm install
 ```
 
@@ -41,7 +41,8 @@ lk app env -w -d .env.local      # writes LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKI
 | `ADMIN_EMAILS`                             | API                    | —                                    | Comma-separated emails. On first sign-in such a user gets a tenant of their own (with a `support` queue) and becomes its supervisor; they may also `POST /api/admin/tenants`. |
 | `BETTER_AUTH_SECRET`                       | API                    | —                                    | Secret for Better Auth session cookies. Use a random string of at least 32 characters.                                                                                        |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | API                    | —                                    | Google OAuth client for the desk sign-in.                                                                                                                                     |
-| `DEV_USER_EMAIL`                           | API                    | unset                                | Dev only: every request is signed in as this user (created and bootstrapped on first use). Ignored when `NODE_ENV=production`.                                                |
+| `DEV_USER_EMAIL`                           | API                    | unset                                | Dev only: every request is signed in as this user (created and bootstrapped on first use); the desk gets a "switch user" menu. Ignored when `NODE_ENV=production`.            |
+| `DEV_DEMO_TEAM`                            | API                    | `true`                               | With `DEV_USER_EMAIL`: seed Sam (supervisor), Alice, Bob and Carol (agents) into the dev user's contact center so the desk can be used as a team. `false` disables it.        |
 | `API_PORT`                                 | Web (Vite)             | `4000`                               | Target port of the Vite `/api` proxy. Set it together with `PORT` when the API cannot use 4000.                                                                               |
 | `WEB_PORT`                                 | Web (Vite)             | `3000`                               | Port of the web desk dev server.                                                                                                                                              |
 
@@ -61,7 +62,11 @@ This starts `postgres:17-alpine` on `localhost:5432` with user, password and dat
 2. Add the authorized redirect URI `http://localhost:3000/api/auth/callback/google`. The redirect goes to the **web** origin because the Vite dev server proxies `/api` to the API; that keeps the session cookie first-party.
 3. Put the client id and secret in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, set `ADMIN_EMAILS` to your Google account and a random `BETTER_AUTH_SECRET`.
 
-No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `ADMIN_EMAILS`) and every request is signed in as that user. The API logs a warning when the bypass is active. While it is, a request carrying a `cc_dev_user=<email>` cookie runs as that other user instead (created and bootstrapped on first use) — handy for trying the agent side of a handoff in a second browser profile, and how the end-to-end suite plays several people.
+No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `ADMIN_EMAILS`) and every request is signed in as that user. The API logs a warning when the bypass is active.
+
+### Being several people at once (dev only)
+
+With the bypass on, the API seeds a **demo team** into your contact center — Sam (supervisor), Alice, Bob and Carol (agents, members of the `support` queue; Alice and Bob also of `sales`) — and the desk's app bar shows **Signed in as …**. Pick anyone from the menu (or "Other email…" for a new person, created on the spot) and the desk reloads as them. The choice is a cookie (`cc_dev_user`), so **one identity per browser profile**: to have a supervisor and an agent online at the same time, open the desk in a normal window as yourself and in an incognito window (or another profile) as Alice, set both Available, and watch the ring move between them. Set `DEV_DEMO_TEAM=false` to skip the seeding. The end-to-end suite uses the same cookie to play several people.
 
 ## Run the four dev servers
 

@@ -22,6 +22,8 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 ## Product / architecture
 
+- [ ] Build out the contact center per [docs/guide/roadmap.md](docs/guide/roadmap.md): Foundations → call control → supervisor → routing → MCP; omnichannel after.
+
 - [ ] MCP server over the stored conversations (`list_calls`, `get_transcript`, `get_events`, `add_note`, ...) so an LLM can decide follow-up actions. The `call`, `transcript_segment` and `call_event` tables are already shaped for this.
 - [ ] The AI summary only covers the AI segment of a call (`session.history`); generate it from the full stored transcript instead, after the call ends.
 - [ ] Routing state (presence, ringing offers) is in-memory in the API process; a restart drops it until desks reconnect. Fine for the POC, revisit before multi-instance deployment.

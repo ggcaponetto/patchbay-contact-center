@@ -87,6 +87,7 @@ describe('buildServer', () => {
       user: { id: 'u1', email: 'boss@example.com', name: 'Boss' },
       isAdmin: true,
       memberships: [],
+      devMode: false,
     });
     const denied = await app.inject({ method: 'POST', url: '/api/internal/calls/x/status' });
     expect(denied.statusCode).toBe(401);

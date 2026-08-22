@@ -118,6 +118,15 @@ describe('App', () => {
     expect(mocks.signOut).toHaveBeenCalled();
   });
 
+  it('shows the switch-user menu instead of the plain name in dev mode', async () => {
+    mocks.api.mockResolvedValue({
+      ...me([{ tenantId: 't1', role: 'agent', tenantName: 'Acme' }]),
+      devMode: true,
+    });
+    renderApp();
+    expect(await screen.findByText('Signed in as Ann')).toBeTruthy();
+  });
+
   it('gives supervisors extra tabs, routes every page and switches tenant', async () => {
     mocks.api.mockResolvedValue(
       me([

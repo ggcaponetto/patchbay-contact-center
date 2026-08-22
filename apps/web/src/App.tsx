@@ -23,6 +23,7 @@ import {
 } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { DevUserMenu } from './components/DevUserMenu.tsx';
 import { type Me, api, authClient, setTenant } from './lib/api.ts';
 import { useDeskSocket, useRoute } from './lib/hooks.ts';
 import { CallPage } from './pages/CallPage.tsx';
@@ -62,7 +63,7 @@ function SignIn() {
     <Centered>
       <Box sx={{ textAlign: 'center' }}>
         <Typography variant="h4" gutterBottom>
-          Contact Center
+          Patchbay Contact Center
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           Sign in with your Google account to reach the agent desk.
@@ -133,7 +134,7 @@ function Shell() {
       <AppBar position="sticky" color="default" elevation={1}>
         <Toolbar sx={{ gap: 2 }}>
           <Typography variant="h6" sx={{ mr: 2 }}>
-            Contact Center
+            Patchbay
           </Typography>
           <Tabs value={tab} onChange={(_e, v: string) => (location.hash = `#/${v}`)}>
             <Tab value="desk" label="Desk" />
@@ -155,9 +156,13 @@ function Shell() {
               ))}
             </Select>
           )}
-          <Typography variant="body2" color="text.secondary">
-            {me.data?.user.name}
-          </Typography>
+          {me.data?.devMode ? (
+            <DevUserMenu name={me.data.user.name} />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {me.data?.user.name}
+            </Typography>
+          )}
           <Button size="small" onClick={() => authClient.signOut()}>
             Sign out
           </Button>

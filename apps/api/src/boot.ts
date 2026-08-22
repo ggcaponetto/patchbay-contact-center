@@ -6,8 +6,8 @@
  *
  * 1. Apply pending SQL migrations so the schema is always current before any query runs.
  * 2. Open the Postgres pool and create the real LiveKit client.
- * 3. Pick the auth strategy: `DEV_USER_EMAIL` (dev bypass, never in production) or
- *    Better Auth with Google.
+ * 3. Pick the auth strategy: `DEV_USER_EMAIL` (dev bypass, never in production; seeds the
+ *    demo team unless `DEV_DEMO_TEAM=false`) or Better Auth with Google.
  * 4. `buildServer` wires everything together; then listen on `PORT` (default 4000).
  *
  * @see apps/api/README.md
@@ -33,7 +33,7 @@ const realDeps: BootDeps = { runMigrations, createDb, createLiveKit, createAuth,
 /**
  * Migrates, wires and starts listening. Resolves once the server accepts connections.
  *
- * @param env - Environment to read `NODE_ENV`, `DEV_USER_EMAIL` and `PORT` from.
+ * @param env - Environment to read `NODE_ENV`, `DEV_USER_EMAIL`, `DEV_DEMO_TEAM` and `PORT` from.
  * @param deps - See {@link BootDeps}; defaults to the real implementations.
  * @returns The listening Fastify app, so callers (and tests) can close it.
  */
@@ -45,7 +45,9 @@ export async function start(env: NodeJS.ProcessEnv = process.env, deps: BootDeps
   const { app } = await deps.buildServer({
     db,
     livekit: deps.createLiveKit(),
-    ...(devUser ? { devUserEmail: devUser } : { auth: deps.createAuth(db) }),
+    ...(devUser
+      ? { devUserEmail: devUser, devDemoTeam: env.DEV_DEMO_TEAM !== 'false' }
+      : { auth: deps.createAuth(db) }),
   });
   const port = Number(env.PORT ?? 4000);
   try {

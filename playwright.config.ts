@@ -55,6 +55,8 @@ const env = {
   API_ORIGIN,
   WEB_ORIGIN: `http://localhost:${WEB_PORT}`,
   DEV_USER_EMAIL: E2E_USER,
+  // No seeded demo team: the specs create exactly the people they need.
+  DEV_DEMO_TEAM: 'false',
   ADMIN_EMAILS: E2E_USER,
   INTERNAL_API_SECRET: INTERNAL_SECRET,
 };
