@@ -22,10 +22,12 @@ import { type Permission, ROLE_PERMISSIONS } from '@cc/shared';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { type Auth, type GetSession, type SessionUser, devAuth, registerAuth } from './auth.ts';
+import { type Bus, LocalBus } from './bus.ts';
 import type { Db } from './db/client.ts';
 import { Flow } from './flow.ts';
 import type { LiveKit } from './livekit.ts';
@@ -63,6 +65,10 @@ export type ServerDeps = {
   adminEmails?: string[];
   /** Shared secret for `/api/internal`; defaults to the `INTERNAL_API_SECRET` env var. */
   internalSecret?: string;
+  /** Cross-instance bus; defaults to an in-process `LocalBus` (tests, single process). */
+  bus?: Bus;
+  /** Name of this API process in the routing tables; defaults to a random id. */
+  instanceId?: string;
 };
 
 /** Version reported in the OpenAPI document (the root `package.json` version). */
@@ -242,8 +248,12 @@ export async function buildServer(deps: ServerDeps) {
   const hub = new EventEmitter();
   const secret = deps.internalSecret ?? process.env.INTERNAL_API_SECRET ?? '';
   if (!secret) throw new Error('INTERNAL_API_SECRET is not set');
-  const sockets = new DeskSockets();
-  const flow = new Flow(deps.db, deps.livekit, hub, (userId, m) => sockets.toUser(userId, m));
+  const bus = deps.bus ?? new LocalBus();
+  const sockets = new DeskSockets(bus);
+  const flow = new Flow(deps.db, deps.livekit, hub, bus, deps.instanceId ?? randomUUID());
+  app.addHook('onClose', async () => {
+    flow.routing.stop();
+  });
 
   await app.register(adminRoutes, { prefix: '/api/admin', db: deps.db, guards, adminEmails });
   await app.register(deskRoutes, { prefix: '/api/desk', db: deps.db, guards, flow, sockets });

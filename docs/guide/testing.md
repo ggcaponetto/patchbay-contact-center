@@ -15,7 +15,7 @@
 
 **Unit** — pure logic with no I/O:
 
-- `apps/api/src/routing.test.ts`: the ring cycle (`Routing`) with an injected clock — candidates, decline, timeouts, `giveUpAfterSec`, release.
+- `apps/api/src/routing.integration.test.ts`: the ring cycle (`Routing`) against Postgres with an injected clock and a `LocalBus` — candidates, decline, ring timeouts (RONA), `giveUpAfterSec`, wrap-up, disconnects and dead-instance sweeps.
 - `apps/agent/src/api.test.ts`: `ApiClient` against a mocked `fetch` (never throws, logs failures).
 - `apps/embed/src/state.test.ts`, `apps/web/src/lib/store.test.ts`: the UI reducers (`// @vitest-environment jsdom` where DOM globals are needed).
 

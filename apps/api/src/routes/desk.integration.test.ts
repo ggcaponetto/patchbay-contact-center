@@ -79,7 +79,7 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
       payload: { reason: 'r', summary: 's' },
     });
     await new Promise((r) => setTimeout(r, 50));
-    expect(srv.flow.routing.ringing(callId)).toBe(boss.id);
+    expect(await srv.flow.routing.ringing(callId)).toBe(boss.id);
     // the customer hung up and the worker already wrote `ended`, but the offer is still live
     await setCallStatus(db, callId, 'ended');
     const accept = await srv.as(boss).inject({
@@ -89,7 +89,7 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     expect(accept.statusCode).toBe(409);
     expect(accept.json()).toEqual({ error: 'call_over' });
     expect((await escalation).json()).toMatchObject({ outcome: 'accepted' });
-    srv.flow.routing.removePresence(boss.id);
+    await srv.flow.routing.disconnect(boss.id);
   });
 
   it('treats a body-less leave as the human agent leaving', async () => {

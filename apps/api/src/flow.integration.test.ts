@@ -105,6 +105,7 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
   it('rings an available agent on escalation and hands the call over', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
     expect((await setState(agent, 'ready')).json()).toMatchObject({ state: 'ready' });
     await vi.waitFor(() =>
       expect(d.last('presence')).toMatchObject({
@@ -207,14 +208,14 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     });
 
     await d.close();
-    await vi.waitFor(() => expect(srv.flow.routing.snapshot(tenantId)).toEqual([]));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
   it('reports nobody when the agent declines and nobody else is free', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
     await setState(agent, 'ready');
-    await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
     const escalation = srv.app.inject({
       method: 'POST',
       url: `/api/internal/calls/${callId}/escalate`,
@@ -238,21 +239,19 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
       offerTimeoutSec: 5,
     });
     const d = await desk(port, agent, current);
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
     await setState(agent, 'ready');
-    await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const { callId, roomName } = await startCall();
-      await vi.waitFor(() => expect(d.last('call.offer')).toMatchObject({ callId }));
-      expect(srv.lk.dispatched).toEqual([]);
-      await vi.advanceTimersByTimeAsync(5_000);
-      await vi.waitFor(() => expect(srv.lk.dispatched).toEqual([roomName]));
-      await vi.waitFor(() =>
-        expect(d.last('call.updated')).toMatchObject({ callId, status: 'ai' }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    const { callId, roomName } = await startCall();
+    await vi.waitFor(() => expect(d.last('call.offer')).toMatchObject({ callId }));
+    expect(srv.lk.dispatched).toEqual([]);
+    // Ring timeouts are detected by the engine's periodic tick when `ring_until` /
+    // `give_up_at` pass; age the offer into the past and run one tick by hand.
+    const { ringOffer } = await import('./db/schema.ts');
+    const past = new Date(Date.now() - 1000);
+    await db.update(ringOffer).set({ ringUntil: past, giveUpAt: past });
+    await srv.flow.routing.tick();
+    await vi.waitFor(() => expect(srv.lk.dispatched).toEqual([roomName]));
+    await vi.waitFor(() => expect(d.last('call.updated')).toMatchObject({ callId, status: 'ai' }));
     await d.close();
   });
 

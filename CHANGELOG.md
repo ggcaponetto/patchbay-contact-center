@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Postgres-backed routing engine (Phase 1 Foundations): presence and ring offers move
+  from process memory into `agent_presence` / `ring_offer`, so an API restart keeps them
+  and several API instances share one engine (periodic `tick`, `FOR UPDATE SKIP LOCKED`).
+  A message bus (`bus.ts`, Postgres `LISTEN`/`NOTIFY` in production) reaches desks on any
+  instance. Removes the in-memory-routing limitation from `TODO.md`.
 - OpenAPI (Phase 1 Foundations): `GET /api/openapi.json`, generated from the routes and
   the zod contracts; a test fails when a route is undocumented.
 - RBAC and API keys (Phase 1 Foundations): every route names a permission

@@ -92,9 +92,9 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     async (request) => flow.routing.snapshot(request.ctx.tenantId),
   );
 
-  /** My own presence, or 404 when I have no desk socket open. */
-  const mine = (userId: string, tenantId: string) =>
-    flow.routing.snapshot(tenantId).find((a) => a.userId === userId);
+  /** My own presence entry, or `undefined` when I have no desk socket open. */
+  const mine = async (userId: string, tenantId: string) =>
+    (await flow.routing.snapshot(tenantId)).find((a) => a.userId === userId);
 
   /** Go `ready` or `not_ready` (with a reason code). 409 `offline` / `on_call`. */
   app.post(
@@ -110,7 +110,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     async (request, reply) => {
       const body = parseBody(AgentStateRequest, request.body, reply);
       if (!body) return undefined;
-      const err = flow.routing.setState(request.ctx.user.id, body.state, body.reason);
+      const err = await flow.routing.setState(request.ctx.user.id, body.state, body.reason);
       if (err) return reply.code(409).send({ error: err });
       return mine(request.ctx.user.id, request.ctx.tenantId);
     },
@@ -128,7 +128,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     },
     async (request, reply) => {
       const tenant = await getTenant(db, request.ctx.tenantId);
-      const ok = flow.routing.extendAcw(request.ctx.user.id, tenant?.settings.acwSec ?? 30);
+      const ok = await flow.routing.extendAcw(request.ctx.user.id, tenant?.settings.acwSec ?? 30);
       if (!ok) return reply.code(409).send({ error: 'not_in_acw' });
       return mine(request.ctx.user.id, request.ctx.tenantId);
     },
@@ -145,9 +145,9 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       }),
     },
     async (request, reply) => {
-      const me = mine(request.ctx.user.id, request.ctx.tenantId);
+      const me = await mine(request.ctx.user.id, request.ctx.tenantId);
       if (me?.state !== 'acw') return reply.code(409).send({ error: 'not_in_acw' });
-      flow.routing.setState(request.ctx.user.id, 'ready');
+      await flow.routing.setState(request.ctx.user.id, 'ready');
       return mine(request.ctx.user.id, request.ctx.tenantId);
     },
   );
@@ -170,16 +170,17 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       const body = parseBody(ForceStateBody, request.body, reply);
       if (!body) return undefined;
       const { userId } = request.params;
-      const target = flow.routing.presenceOf(userId);
+      const target = await flow.routing.presenceOf(userId);
       if (!target || target.tenantId !== request.ctx.tenantId) {
         return reply.code(404).send({ error: 'not_found' });
       }
       if (body.state === 'logged_out') {
-        sockets.closeUser(userId, request.ctx.user.name);
-        flow.routing.removePresence(userId);
+        // Their sockets may be on any instance: the bus closes them everywhere.
+        await sockets.bus.publish({ kind: 'logout', userId, by: request.ctx.user.name });
+        await flow.routing.disconnect(userId);
         return { ok: true };
       }
-      const err = flow.routing.setState(userId, body.state, body.reason);
+      const err = await flow.routing.setState(userId, body.state, body.reason);
       if (err) return reply.code(409).send({ error: err });
       return mine(userId, request.ctx.tenantId);
     },
@@ -225,7 +226,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       if (!(await callDetail(db, request.ctx.tenantId, id))) {
         return reply.code(404).send({ error: 'not_found' });
       }
-      if (!flow.routing.accept(id, request.ctx.user.id)) {
+      if (!(await flow.routing.accept(id, request.ctx.user.id))) {
         return reply.code(409).send({ error: 'not_ringing_you' });
       }
       const joined = await flow.join(id, request.ctx.user, 'agent');
@@ -238,7 +239,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     '/calls/:id/decline',
     { preHandler: answer, config: doc('Decline the offer ringing me', 'calls:answer') },
     async (request) => {
-      flow.routing.decline(request.params.id, request.ctx.user.id);
+      await flow.routing.decline(request.params.id, request.ctx.user.id);
       return { ok: true };
     },
   );

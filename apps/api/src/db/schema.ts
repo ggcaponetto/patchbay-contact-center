@@ -27,6 +27,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -298,3 +299,57 @@ export const callEvent = pgTable(
   },
   (t) => [index('call_event_call_idx').on(t.callId, t.at)],
 );
+
+/**
+ * Routing state, part 1: who is online and in which agent state. One row per desk user
+ * with an open socket; written by `routing.ts`, owned by the API instance whose sockets
+ * the user is on (`instanceId`, refreshed in `lastSeen` by a heartbeat so a crashed
+ * instance's users are swept). Timestamps are `timestamptz` because the engine compares
+ * them to `Date.now()`.
+ */
+export const agentPresence = pgTable(
+  'agent_presence',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenant.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    state: text('state').$type<'ready' | 'not_ready' | 'busy' | 'acw'>().notNull(),
+    reason: text('reason'),
+    since: timestamp('since', { withTimezone: true }).notNull(),
+    callId: text('call_id'),
+    acwUntil: timestamp('acw_until', { withTimezone: true }),
+    instanceId: text('instance_id').notNull(),
+    lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
+    /** Connection order; the earliest-connected ready agent is rung first. */
+    seq: serial('seq').notNull(),
+  },
+  (t) => [index('agent_presence_tenant_idx').on(t.tenantId)],
+);
+
+/**
+ * Routing state, part 2: one row per call that is ringing. `currentUserId` is the agent
+ * being rung until `ringUntil`; `tried` lists who already was. Advanced by the routing
+ * tick of whichever API instance gets the row lock first.
+ */
+export const ringOffer = pgTable('ring_offer', {
+  callId: text('call_id')
+    .primaryKey()
+    .references(() => call.id, { onDelete: 'cascade' }),
+  tenantId: text('tenant_id').notNull(),
+  queueKey: text('queue_key').notNull(),
+  reason: text('reason'),
+  summary: text('summary'),
+  members: jsonb('members').$type<string[]>().default([]).notNull(),
+  tried: jsonb('tried').$type<string[]>().default([]).notNull(),
+  currentUserId: text('current_user_id'),
+  ringUntil: timestamp('ring_until', { withTimezone: true }),
+  giveUpAt: timestamp('give_up_at', { withTimezone: true }),
+  ringMs: integer('ring_ms').notNull(),
+  /** Human-first: dispatch metadata for the AI when nobody answers (any instance may do it). */
+  fallback: jsonb('fallback').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

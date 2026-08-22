@@ -7,14 +7,17 @@ function fakeDeps() {
   const livekit = { tag: 'livekit' };
   const auth = { tag: 'auth' };
   const app = { listen: vi.fn(async () => undefined), log: { fatal: vi.fn() } };
+  const bus = { tag: 'bus', start: vi.fn(async () => undefined) };
+  const routing = { start: vi.fn() };
   const spies = {
     runMigrations: vi.fn(async () => undefined),
     createDb: vi.fn(() => ({ db, close: async () => undefined })),
     createLiveKit: vi.fn(() => livekit),
     createAuth: vi.fn(() => auth),
-    buildServer: vi.fn(async () => ({ app })),
+    buildServer: vi.fn(async () => ({ app, flow: { routing } })),
+    createBus: vi.fn(() => bus),
   };
-  return { deps: spies as unknown as BootDeps, spies, db, livekit, auth, app };
+  return { deps: spies as unknown as BootDeps, spies, db, livekit, auth, app, bus, routing };
 }
 
 describe('start', () => {
@@ -31,7 +34,10 @@ describe('start', () => {
       db: f.db,
       livekit: f.livekit,
       auth: f.auth,
+      bus: f.bus,
     });
+    expect(f.bus.start).toHaveBeenCalledTimes(1);
+    expect(f.routing.start).toHaveBeenCalledTimes(1);
     expect(f.app.listen).toHaveBeenCalledWith({ port: 4321, host: '0.0.0.0' });
   });
 
@@ -42,6 +48,7 @@ describe('start', () => {
     expect(f.spies.buildServer).toHaveBeenCalledWith({
       db: f.db,
       livekit: f.livekit,
+      bus: f.bus,
       devUserEmail: 'dev@example.com',
       devDemoTeam: true,
     });

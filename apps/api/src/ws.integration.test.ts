@@ -69,9 +69,9 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
     );
     await a.close();
     await new Promise((r) => setTimeout(r, 50));
-    expect(srv.flow.routing.snapshot(tenantId)).toMatchObject([{ userId: boss.id }]);
+    expect(await srv.flow.routing.snapshot(tenantId)).toMatchObject([{ userId: boss.id }]);
     await b.close();
-    await vi.waitFor(() => expect(srv.flow.routing.snapshot(tenantId)).toEqual([]));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
   it('ignores malformed and unknown messages, including ones sent before auth finished', async () => {
@@ -136,7 +136,7 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
       expect(d.last('presence')).toMatchObject({ agents: [{ reason: 'Training' }] }),
     );
     // on a call: no state change, not even forced
-    srv.flow.routing.busy('c1', agent.id);
+    await srv.flow.routing.busy('c1', agent.id);
     expect((await force(agent.id, { state: 'ready' })).json()).toEqual({ error: 'on_call' });
     expect(
       (
@@ -147,7 +147,7 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
         })
       ).json(),
     ).toEqual({ error: 'on_call' });
-    srv.flow.routing.release('c1');
+    await srv.flow.routing.release('c1');
     // offline users cannot set a state
     expect(
       (
@@ -164,7 +164,7 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
 
     expect((await force(agent.id, { state: 'logged_out' })).json()).toEqual({ ok: true });
     await vi.waitFor(() => expect(d.last('logout')).toMatchObject({ by: 'Boss' }));
-    await vi.waitFor(() => expect(srv.flow.routing.snapshot(tenantId)).toEqual([]));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
   it('rejects a tenant the user is not a member of', async () => {

@@ -5,24 +5,30 @@ LiveKit access, and the three modules that move a call between the AI and humans
 (`routing.ts`, `flow.ts`, `ws.ts`). Routes, services and the database live in their own
 folders with their own READMEs.
 
-| File         | Role                                                                   |
-| ------------ | ---------------------------------------------------------------------- |
-| `index.ts`   | Process entrypoint: loads `.env.local`, calls `start()`                |
-| `boot.ts`    | `start(env, deps)`: migrations, real dependencies, auth choice, listen |
-| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler      |
-| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                   |
-| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room               |
-| `routing.ts` | In-memory presence and ring-offer state machine (no I/O)               |
-| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave   |
-| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out                 |
-| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)               |
+| File         | Role                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| `index.ts`   | Process entrypoint: loads `.env.local`, calls `start()`                           |
+| `boot.ts`    | `start(env, deps)`: migrations, real dependencies, auth choice, listen            |
+| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler                 |
+| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                              |
+| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room                          |
+| `routing.ts` | Postgres-backed presence and ring-offer engine (restart- and multi-instance-safe) |
+| `bus.ts`     | Cross-instance message bus (`LocalBus`, `PgBus` over LISTEN/NOTIFY)               |
+| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave              |
+| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out                            |
+| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)                          |
 
 ## `routing.ts`: presence and offers
 
-`Routing` holds two maps and nothing else: `agents` (one `Presence` per connected desk
-user) and `offers` (one per call currently ringing). It talks back through
-`RoutingEvents` callbacks, which `Flow` implements. Because it does no I/O and takes an
-injectable clock, `routing.test.ts` drives it with fake timers.
+`Routing` keeps its state in two Postgres tables — `agent_presence` (one row per connected
+desk user, with the agent state, reason, time-in-state and the owning API instance) and
+`ring_offer` (one row per call currently ringing). Nothing is in process memory, so an API
+restart loses no presence or ringing call, and several API instances share one engine:
+each runs the same `tick()` (heartbeat, dead-instance sweep, wrap-up and ring-timeout
+expiry) and a `FOR UPDATE SKIP LOCKED` row lock decides which instance advances an offer.
+It reaches desks through the {@link bus} (a desk may be on another instance) and reports
+outcomes to `Flow` through `RoutingEvents`. Driven with an injected clock and a
+`LocalBus` in `routing.integration.test.ts` (needs Postgres).
 
 ### Agent states and presence rules
 
@@ -67,11 +73,23 @@ timer. Two timings: `ringSec` (per agent, from `offerTimeoutSec` in tenant setti
 the escalation body) and the optional `giveUpAfterSec` deadline for the whole cycle used
 by human-first mode; the last agent's ring is shortened so it never passes the deadline.
 
-Presence is process memory: a restart forgets everyone and desks simply reconnect.
+Presence and offers live in Postgres, so a restart keeps them; a desk that reconnects to
+another instance is re-homed there (`instance_id`), and a crashed instance's users are
+swept by any instance's `tick` after the 30 s heartbeat window.
+
+## `bus.ts`: cross-instance messaging
+
+With more than one API process, an agent's desk socket lives on one instance while the
+ring that targets them may be advanced by another. Everything that must reach "whoever
+holds the socket" — offers, presence snapshots, `call.updated`, transcript frames,
+escalation outcomes, forced logouts — is published as a `BusMessage` and delivered to
+every instance, which forwards it to the connections it holds. `PgBus` uses Postgres
+`LISTEN` / `NOTIFY` (no extra infrastructure); `LocalBus` is an in-process emitter for
+tests and single-process runs and is the default when `buildServer` gets no bus.
 
 ## `flow.ts`: orchestration
 
-`Flow` owns the single `Routing` instance and is the only module that combines routing,
+`Flow` owns the single `Routing` instance per process and is the only module that combines routing,
 the database (`services/calls.ts`) and LiveKit. Every status write goes through its
 private `status()`, which persists and emits `call.updated` on the hub.
 
