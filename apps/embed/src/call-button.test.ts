@@ -115,6 +115,14 @@ describe('<cc-call-button>', () => {
     expect(ui(el).status()).toBe('');
   });
 
+  it('refuses to call without a key and never touches the network', async () => {
+    const el = mount({});
+    ui(el).button('Call us').click();
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(ui(el).status()).toContain('key attribute is missing');
+  });
+
   it('runs a full call: connect, peers, audio, mute, timer, hang up', async () => {
     const el = mount({ key: 'pk_1', queue: 'sales', label: 'Ring' });
     fetchMock.mockReturnValueOnce(new Promise(() => {}));

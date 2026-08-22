@@ -77,11 +77,13 @@ export class CcCallButton extends HTMLElement {
   private async startCall(): Promise<void> {
     this.dispatch({ type: 'click' });
     try {
+      const embedKey = this.getAttribute('key') ?? '';
+      if (!embedKey) throw new Error('the key attribute is missing (create one in Settings)');
       const res = await fetch(`${this.apiOrigin}/api/public/calls`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          embedKey: this.getAttribute('key') ?? '',
+          embedKey,
           queue: this.getAttribute('queue') ?? 'support',
           customerMeta: { page: location.href, userAgent: navigator.userAgent },
         }),
