@@ -213,6 +213,19 @@ export const call = pgTable(
     status: text('status')
       .$type<'ringing' | 'ai' | 'waiting_human' | 'human' | 'ended'>()
       .notNull(),
+    // Contact fields (channel-agnostic routing inputs; voice is the only channel today).
+    /** How the contact came in; `voice` (WebRTC) for now, `sip` / `chat` / … later. */
+    channel: text('channel').default('voice').notNull(),
+    /** Routing priority; higher is served first. Set by the queue, never by the customer. */
+    priority: integer('priority').default(0).notNull(),
+    /** Skill keys the handling agent must have (empty = any queue member). */
+    requiredSkills: jsonb('required_skills').$type<string[]>().default([]).notNull(),
+    /** Agent to try first (last-agent / sticky routing), if still online and ready. */
+    preferredAgentId: text('preferred_agent_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    /** BCP 47 language tag of the customer, when known (language routing). */
+    language: text('language'),
     customerMeta: jsonb('customer_meta').$type<Record<string, unknown>>().default({}).notNull(),
     startedAt: timestamp('started_at').defaultNow().notNull(),
     endedAt: timestamp('ended_at'),

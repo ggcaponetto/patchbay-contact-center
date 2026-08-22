@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Contact fields on calls (Phase 1 Foundations): `channel`, `priority`, `requiredSkills`,
+  `preferredAgentId`, `language` — the routing inputs every later channel shares. The
+  embed sends the customer's language (`language` attribute or `<html lang>`).
 - Agent states (Phase 1 Foundations): `ready` / `not_ready` with reason codes /
   `busy` / `acw` with time-in-state, after-call work (timed, extendable, finish early;
   `acwSec` setting), RONA (unanswered ring parks the agent Not ready), supervisor

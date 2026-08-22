@@ -32,6 +32,8 @@ export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow; hub: EventEmitt
 const CreateCallBody = z.object({
   embedKey: z.string().min(1),
   queue: z.string().min(1).default('support'),
+  /** BCP 47 language tag from the website (`<cc-call-button language="de-CH">`). */
+  language: z.string().min(2).max(35).optional(),
   customerMeta: z.record(z.string(), z.unknown()).default({}),
 });
 
@@ -62,6 +64,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
       queueId: queue.id,
       roomName,
       customerMeta: body.customerMeta,
+      ...(body.language ? { language: body.language } : {}),
     });
     const identity = `customer:${id}`;
     await addParticipant(db, { callId: id, kind: 'customer', identity });

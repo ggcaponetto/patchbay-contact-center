@@ -44,7 +44,12 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
       method: 'POST',
       url: '/api/public/calls',
       headers,
-      payload: { embedKey: publicKey, queue: 'support', customerMeta: { page: '/pricing' } },
+      payload: {
+        embedKey: publicKey,
+        queue: 'support',
+        language: 'de-CH',
+        customerMeta: { page: '/pricing' },
+      },
     });
 
   it('creates an AI-first call with a dispatching customer token', async () => {
@@ -69,7 +74,18 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     });
 
     const detail = await srv.as(boss).inject({ url: `/api/desk/calls/${body.callId}` });
-    expect(detail.json()).toMatchObject({ status: 'ai', participants: [{ kind: 'customer' }] });
+    expect(detail.json()).toMatchObject({
+      status: 'ai',
+      channel: 'voice',
+      priority: 0,
+      requiredSkills: [],
+      language: 'de-CH',
+      participants: [{ kind: 'customer' }],
+    });
+    expect((await srv.as(boss).inject({ url: '/api/desk/calls' })).json()[0]).toMatchObject({
+      channel: 'voice',
+      language: 'de-CH',
+    });
     expect(detail.json().events.map((e: { type: string }) => e.type)).toEqual(['call.created']);
   });
 

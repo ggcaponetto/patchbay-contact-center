@@ -33,6 +33,7 @@ const styles = `
  * - `queue`: queue key to ring; defaults to `support`.
  * - `api`: origin of the API; defaults to the origin of the loaded script.
  * - `label`: text of the call button; defaults to "Call us".
+ * - `language`: the customer's language (BCP 47); defaults to the page's `<html lang>`.
  *
  * Network: `POST <api>/api/public/calls` with `{ embedKey, queue, customerMeta }` and
  * the browser-set `Origin` header, then `Room.connect(url, token)`.
@@ -85,6 +86,8 @@ export class CcCallButton extends HTMLElement {
         body: JSON.stringify({
           embedKey,
           queue: this.getAttribute('queue') ?? 'support',
+          // The customer's language, from the attribute or the page, for language routing.
+          language: this.getAttribute('language') || document.documentElement.lang || undefined,
           customerMeta: { page: location.href, userAgent: navigator.userAgent },
         }),
       });

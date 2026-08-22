@@ -30,9 +30,9 @@ All error bodies are `{ error: '<code>' }`; `400 invalid_body` adds `issues` fro
 
 ## `public.ts` (prefix `/api/public`)
 
-| Method | Path     | Auth   | Body                                                   | Response                           | Errors                                                                         |
-| ------ | -------- | ------ | ------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------ |
-| POST   | `/calls` | public | `{ embedKey, queue? = 'support', customerMeta? = {} }` | `{ callId, roomName, token, url }` | 400 `invalid_body`, 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed` |
+| Method | Path     | Auth   | Body                                                              | Response                           | Errors                                                                         |
+| ------ | -------- | ------ | ----------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| POST   | `/calls` | public | `{ embedKey, queue? = 'support', language?, customerMeta? = {} }` | `{ callId, roomName, token, url }` | 400 `invalid_body`, 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed` |
 
 Side effects: `call` row (`ringing` → `ai` or `waiting_human`), `customer` participant,
 `call.created` event. In `ai-first` mode the token carries the agent dispatch; in

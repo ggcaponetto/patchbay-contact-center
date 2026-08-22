@@ -34,6 +34,10 @@ export async function createCall(
     queueId: string;
     roomName: string;
     customerMeta: Record<string, unknown>;
+    /** Customer language (BCP 47), when the website told us. */
+    language?: string;
+    /** Routing priority (from the queue; higher first). */
+    priority?: number;
   },
 ) {
   const [row] = await db
@@ -143,6 +147,9 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
       id: call.id,
       status: call.status,
       queueKey: queue.key,
+      channel: call.channel,
+      priority: call.priority,
+      language: call.language,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       aiSummary: call.aiSummary,

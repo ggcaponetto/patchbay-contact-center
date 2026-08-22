@@ -126,6 +126,7 @@ describe('<cc-call-button>', () => {
   it('runs a full call: connect, peers, audio, mute, timer, hang up', async () => {
     const el = mount({ key: 'pk_1', queue: 'sales', label: 'Ring' });
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
+    document.documentElement.lang = 'de-CH';
     ui(el).button('Ring').click();
     expect(ui(el).button('Ring').disabled).toBe(true);
     expect(ui(el).status()).toBe('Connecting…');
@@ -135,9 +136,11 @@ describe('<cc-call-button>', () => {
       body: JSON.stringify({
         embedKey: 'pk_1',
         queue: 'sales',
+        language: 'de-CH',
         customerMeta: { page: location.href, userAgent: navigator.userAgent },
       }),
     });
+    document.documentElement.lang = '';
     // A second click while connecting is ignored by the reducer.
     ui(el).button('Ring').click();
     expect(fetchMock).toHaveBeenCalledTimes(1);
