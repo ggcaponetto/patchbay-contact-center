@@ -9,7 +9,8 @@ import { type DeskState, initialState } from '../lib/store.ts';
 import { Dashboard } from './Dashboard.tsx';
 
 const api = vi.hoisted(() => vi.fn());
-vi.mock('../lib/api.ts', () => ({ api }));
+const post = vi.hoisted(() => vi.fn());
+vi.mock('../lib/api.ts', () => ({ api, post }));
 
 const fakeDesk = (state: Partial<DeskState>): ReturnType<typeof useDeskSocket> => ({
   state: { ...initialState, ...state },
@@ -78,8 +79,24 @@ describe('Dashboard', () => {
       fakeDesk({
         callStatus: { c1: 'waiting_human' },
         agents: [
-          { userId: 'u1', name: 'Ann', status: 'busy', callId: 'c2' },
-          { userId: 'u2', name: 'Bob', status: 'available', callId: null },
+          {
+            userId: 'u1',
+            name: 'Ann',
+            state: 'busy',
+            reason: null,
+            since: new Date(Date.now() - 65_000).toISOString(),
+            callId: 'c2',
+            acwUntil: null,
+          },
+          {
+            userId: 'u2',
+            name: 'Bob',
+            state: 'not_ready',
+            reason: 'Lunch',
+            since: new Date().toISOString(),
+            callId: null,
+            acwUntil: null,
+          },
         ],
       }),
     );
@@ -90,8 +107,25 @@ describe('Dashboard', () => {
     expect(screen.getByText('With agent')).toBeTruthy();
     expect(screen.getByText('Agents online (2)')).toBeTruthy();
     expect(screen.getByText('On a call')).toBeTruthy();
-    expect(screen.getByText('available')).toBeTruthy();
+    expect(screen.getByText(/1:0\d/)).toBeTruthy();
+    expect(screen.getByText('Not ready')).toBeTruthy();
+    expect(screen.getByText(/Lunch · 0:0\d/)).toBeTruthy();
     await userEvent.click(screen.getByText(/support · /));
     expect(location.hash).toBe('#/calls/c1');
+
+    // force-state menu: busy agents cannot be forced ready, everyone can be logged out
+    post.mockResolvedValue({});
+    await userEvent.click(screen.getByRole('button', { name: 'actions for Bob' }));
+    await userEvent.click(screen.getByText('Force not ready'));
+    expect(post).toHaveBeenCalledWith('/desk/agents/u2/state', {
+      state: 'not_ready',
+      reason: 'Supervisor',
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'actions for Ann' }));
+    expect(screen.getByText('Force ready').closest('li')?.getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    await userEvent.click(screen.getByText('Log out'));
+    expect(post).toHaveBeenLastCalledWith('/desk/agents/u1/state', { state: 'logged_out' });
   });
 });

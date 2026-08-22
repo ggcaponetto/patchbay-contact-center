@@ -21,7 +21,7 @@ for (const behavior of ['leave', 'listen'] as const) {
       await admin(supervisor.request).updateSettings({ handoff: { aiBehavior: behavior } });
       const deskPage = new DeskPage(page);
       await deskPage.goto();
-      await deskPage.setAvailable();
+      await deskPage.setReady();
 
       const button = new EmbedButton(await context.newPage());
       await button.goto(tenant.key);

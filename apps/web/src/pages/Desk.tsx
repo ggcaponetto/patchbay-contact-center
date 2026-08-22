@@ -1,10 +1,9 @@
 /**
- * `#/desk`: the page every agent lives on. Availability toggle, the incoming-call
- * dialog with its countdown and, once accepted, the {@link CallPanel} for the active
- * call. State comes from the desk websocket (`desk.state`), joining happens over REST
- * because the accept call returns a LiveKit token.
+ * `#/desk`: the page every agent lives on. The {@link StateBar} (Ready / Not ready,
+ * wrap-up), the incoming-call dialog with its countdown and, once accepted, the
+ * {@link CallPanel} for the active call. State comes from the desk websocket
+ * (`desk.state`), every action happens over REST.
  */
-import type { AgentStatus } from '@cc/shared';
 import {
   Alert,
   Button,
@@ -14,40 +13,38 @@ import {
   DialogTitle,
   Paper,
   Stack,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import { useCallback, useState } from 'react';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
+import { StateBar } from '../components/StateBar.tsx';
 import { type Me, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
-import { secondsLeft } from '../lib/store.ts';
+import { myPresence, secondsLeft } from '../lib/store.ts';
 
 /** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
 
 /**
- * The agent's workplace: availability toggle, incoming offers, the active call.
+ * The agent's workplace: state bar, incoming offers, the active call.
  *
  * Uses:
- * - WS `status` (via `desk.setStatus`) when the Available/Away toggle changes.
+ * - `POST /api/desk/state`, `/acw/*` from the {@link StateBar}; the server echoes the
+ *   new state in the `presence` frame (`myPresence`).
  * - WS `call.offer` / `call.offer.cancelled` (already reduced into `state.offer`).
  * - `POST /api/desk/calls/:id/accept` to answer; returns `{ token, url }`.
  * - WS `subscribe` so live transcript segments of the call start arriving.
  * - WS `offer.decline` to pass the call to the next agent.
  * - `POST /api/desk/calls/:id/leave` (`role: 'human'`) when hanging up; a human leaving
- *   ends the call server-side.
- *
- * `myStatus` becomes `busy` when an offer is accepted (the server marks the presence
- * busy at the same time); the toggle never shows it, hence the "(on a call)" hint.
+ *   ends the call server-side and puts the agent into wrap-up.
  */
 export function Desk({ desk, me }: Props) {
-  const { state, dispatch, send, setStatus } = desk;
+  const { state, dispatch, send } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const now = useNow();
+  const mine = myPresence(state, me.user.id);
 
   /** Accept the ringing offer: get a token, subscribe to the transcript, open the panel. */
   const accept = async () => {
@@ -59,8 +56,6 @@ export function Desk({ desk, me }: Props) {
       );
       send({ type: 'subscribe', callId: offer.callId });
       setActive({ callId: offer.callId, join: { ...joined, publish: true } });
-      // The server marked us busy on accept; mirror it so the "(on a call)" hint shows.
-      dispatch({ type: 'myStatus', status: 'busy' });
       dispatch({ type: 'offer.clear' });
       setError(null);
     } catch (err) {
@@ -79,30 +74,14 @@ export function Desk({ desk, me }: Props) {
     if (!active) return;
     const { callId } = active;
     setActive(null);
+    // The server frees us into wrap-up (or straight to ready) and broadcasts it.
     await post(`/desk/calls/${callId}/leave`, { role: 'human' }).catch(() => undefined);
-    setStatus('available');
-  }, [active, setStatus]);
+  }, [active]);
 
   return (
     <Stack spacing={2}>
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
-          <Typography>Hi {me.user.name}, you are</Typography>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={state.myStatus}
-            onChange={(_e, v: AgentStatus | null) => v && setStatus(v)}
-          >
-            <ToggleButton value="available" color="success">
-              Available
-            </ToggleButton>
-            <ToggleButton value="away" color="warning">
-              Away
-            </ToggleButton>
-          </ToggleButtonGroup>
-          {state.myStatus === 'busy' && <Typography color="text.secondary">(on a call)</Typography>}
-        </Stack>
+        <StateBar name={me.user.name} me={mine} now={now} onError={setError} />
       </Paper>
       {error && (
         <Alert severity="error" onClose={() => setError(null)}>
@@ -118,9 +97,9 @@ export function Desk({ desk, me }: Props) {
         />
       ) : (
         <Typography color="text.secondary">
-          {state.myStatus === 'available'
+          {mine?.state === 'ready'
             ? 'Waiting for calls. Keep this tab open to get rung.'
-            : 'Set yourself to Available to receive calls.'}
+            : 'Set yourself to Ready to receive calls.'}
         </Typography>
       )}
       <Dialog open={state.offer !== null && !active}>

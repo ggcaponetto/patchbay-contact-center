@@ -11,14 +11,12 @@ describe('Routing', () => {
 
   /** Online agents; `support` is who the test offers may ring (queue membership). */
   const support: string[] = [];
-  const agent = (
-    userId: string,
-    queues = ['support'],
-    status: 'available' | 'away' = 'available',
-  ) => {
+  const agent = (userId: string, queues = ['support'], state: 'ready' | 'not_ready' = 'ready') => {
     if (queues.includes('support')) support.push(userId);
-    r.setPresence({ userId, tenantId: 't1', name: userId, status });
+    r.connect({ userId, tenantId: 't1', name: userId });
+    if (state === 'ready') r.setState(userId, 'ready');
   };
+  const of = (userId: string) => r.snapshot('t1').find((p) => p.userId === userId);
   const offersTo = () => sent.filter((s) => s.msg.type === 'call.offer').map((s) => s.to);
 
   beforeEach(() => {
@@ -45,7 +43,7 @@ describe('Routing', () => {
     agent('a');
     agent('b');
     agent('c', ['sales']);
-    agent('d', ['support'], 'away');
+    agent('d', ['support'], 'not_ready');
     r.offer({
       callId: 'c1',
       tenantId: 't1',
@@ -70,17 +68,13 @@ describe('Routing', () => {
     expect(r.accept('c1', 'a')).toBe(false);
     expect(r.accept('c1', 'b')).toBe(true);
     expect(accepted).toHaveBeenCalledWith('c1', 'b');
-    expect(r.snapshot('t1').find((p) => p.userId === 'b')).toMatchObject({
-      status: 'busy',
-      callId: 'c1',
-    });
+    expect(of('b')).toMatchObject({ state: 'busy', callId: 'c1', reason: null });
     expect(r.ringing('c1')).toBeNull();
+    // no state change while on a call
+    expect(r.setState('b', 'not_ready', 'Break')).toBe('on_call');
 
     r.release('c1');
-    expect(r.snapshot('t1').find((p) => p.userId === 'b')).toMatchObject({
-      status: 'available',
-      callId: null,
-    });
+    expect(of('b')).toMatchObject({ state: 'ready', callId: null, acwUntil: null });
     expect(nobody).not.toHaveBeenCalled();
   });
 
@@ -90,9 +84,53 @@ describe('Routing', () => {
     r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
     vi.advanceTimersByTime(10_000);
     expect(offersTo()).toEqual(['a', 'b']);
+    // RONA: the agent who let it ring is parked
+    expect(of('a')).toMatchObject({ state: 'not_ready', reason: 'RONA' });
     vi.advanceTimersByTime(10_000);
     expect(nobody).toHaveBeenCalledWith('c1', 't1');
     expect(r.ringing('c1')).toBeNull();
+  });
+
+  it('tracks states, reasons and time in state; wrap-up ends by itself or by hand', () => {
+    expect(r.setState('ghost', 'ready')).toBe('offline');
+    agent('a');
+    expect(of('a')).toMatchObject({ state: 'ready', since: new Date(0).toISOString() });
+    vi.setSystemTime(5_000);
+    expect(r.setState('a', 'not_ready', 'Lunch')).toBeNull();
+    expect(of('a')).toMatchObject({
+      state: 'not_ready',
+      reason: 'Lunch',
+      since: new Date(5_000).toISOString(),
+    });
+    // a second tab does not reset the state
+    r.connect({ userId: 'a', tenantId: 't1', name: 'a' });
+    expect(of('a')).toMatchObject({ state: 'not_ready', reason: 'Lunch' });
+
+    r.setState('a', 'ready');
+    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
+    r.accept('c1', 'a');
+    r.release('c1', { acwSec: 30 });
+    expect(of('a')).toMatchObject({
+      state: 'acw',
+      callId: 'c1',
+      acwUntil: new Date(35_000).toISOString(),
+    });
+    expect(r.extendAcw('a', 30)).toBe(true);
+    expect(of('a')).toMatchObject({ acwUntil: new Date(65_000).toISOString() });
+    vi.advanceTimersByTime(60_000);
+    expect(of('a')).toMatchObject({ state: 'ready', callId: null, acwUntil: null });
+    expect(r.extendAcw('a', 30)).toBe(false);
+
+    // finishing wrap-up by hand
+    r.busy('c2', 'a');
+    expect(of('a')).toMatchObject({ state: 'busy', callId: 'c2' });
+    r.release('c2', { acwSec: 30 });
+    expect(r.setState('a', 'ready')).toBeNull();
+    expect(of('a')).toMatchObject({ state: 'ready', acwUntil: null });
+    vi.advanceTimersByTime(60_000); // the cancelled timer does nothing
+    expect(of('a')).toMatchObject({ state: 'ready' });
+    r.busy('c3', 'nobody-here');
+    expect(r.presenceOf('a')?.userId).toBe('a');
   });
 
   it('gives up immediately when nobody is online for the queue', () => {

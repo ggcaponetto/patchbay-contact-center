@@ -11,7 +11,7 @@ test(
   async ({ page, tenant, call, ai }) => {
     const deskPage = new DeskPage(page);
     await deskPage.goto();
-    await deskPage.setAvailable();
+    await deskPage.setReady();
     const { callId } = await call(tenant.key);
     const agent = ai(callId);
     await agent.join();
@@ -26,12 +26,12 @@ test(
 );
 
 test(
-  'accepting puts the call with the agent and marks them busy',
+  'accepting puts the call with the agent and marks them on a call',
   { tag: ['@core', '@desk', '@E2E-09'] },
   async ({ page, supervisor, tenant, call, ai }) => {
     const deskPage = new DeskPage(page);
     await deskPage.goto();
-    await deskPage.setAvailable();
+    await deskPage.setReady();
     const { callId } = await call(tenant.key);
     const agent = ai(callId);
     await agent.join();
@@ -39,7 +39,7 @@ test(
     await deskPage.expectRinging();
     await deskPage.accept();
     expect((await outcome).outcome).toBe('accepted');
-    await expect(page.getByText('(on a call)')).toBeVisible();
+    await expect(deskPage.stateChip()).toContainText('On a call');
     const detail = await desk(supervisor.request).call(callId);
     expect(detail.status).toBe('human');
     expect(detail.events.map((e) => e.type)).toEqual(
@@ -60,9 +60,9 @@ test(
     const firstDesk = new DeskPage(first.page);
     const secondDesk = new DeskPage(second.page);
     await firstDesk.goto();
-    await firstDesk.setAvailable();
+    await firstDesk.setReady();
     await secondDesk.goto();
-    await secondDesk.setAvailable();
+    await secondDesk.setReady();
 
     const { callId } = await call(tenant.key);
     const agent = ai(callId);
@@ -79,12 +79,12 @@ test(
 );
 
 test(
-  'when nobody answers in time the escalation resolves nobody and the call returns to the AI',
+  'an unanswered ring resolves nobody, parks the agent as Not ready (RONA) and returns the call to the AI',
   { tag: ['@core', '@desk', '@E2E-11'] },
   async ({ page, supervisor, tenant, call, ai }) => {
     const deskPage = new DeskPage(page);
     await deskPage.goto();
-    await deskPage.setAvailable();
+    await deskPage.setReady();
     const { callId } = await call(tenant.key);
     const agent = ai(callId);
     await agent.join();
@@ -92,6 +92,7 @@ test(
     await deskPage.expectRinging();
     expect(await outcome).toEqual({ outcome: 'nobody' });
     await expect(deskPage.dialog).toHaveCount(0);
+    await expect(deskPage.stateChip()).toContainText('Not ready · RONA');
     const detail = await desk(supervisor.request).call(callId);
     expect(detail.status).toBe('ai');
     expect(detail.events.map((e) => e.type)).toContain('offer.nobody');
@@ -110,7 +111,7 @@ test(
     const outsider = await actor(email);
     const outsiderDesk = new DeskPage(outsider.page);
     await outsiderDesk.goto();
-    await outsiderDesk.setAvailable();
+    await outsiderDesk.setReady();
 
     const { callId } = await call(tenant.key);
     const agent = ai(callId);

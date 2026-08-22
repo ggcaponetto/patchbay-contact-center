@@ -30,9 +30,9 @@ test(
     const vipDesk = new DeskPage(vip.page);
     const otherDesk = new DeskPage(other.page);
     await vipDesk.goto();
-    await vipDesk.setAvailable();
+    await vipDesk.setReady();
     await otherDesk.goto();
-    await otherDesk.setAvailable();
+    await otherDesk.setReady();
     const { callId } = await call(tenant.key, { queue: queue.key });
     const agent = ai(callId);
     await agent.join();

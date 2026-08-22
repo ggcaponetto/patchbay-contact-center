@@ -71,6 +71,16 @@ export const TenantSettings = z.object({
   humanFirstTimeoutSec: z.number().int().min(5).max(300).default(30),
   /** How long a single agent's offer rings before moving to the next agent. */
   offerTimeoutSec: z.number().int().min(5).max(120).default(20),
+  /**
+   * After-call work: seconds an agent stays in `acw` after a call before becoming
+   * `ready` automatically. `0` disables wrap-up (straight back to `ready`).
+   */
+  acwSec: z.number().int().min(0).max(600).default(30),
+  /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
+  notReadyReasons: z
+    .array(z.string().min(1).max(40))
+    .max(20)
+    .default(['Break', 'Lunch', 'Meeting', 'Training']),
   /** Prompt material for the AI agent; both strings are appended to the built-in base prompt. */
   aiAgent: z
     .object({
@@ -140,16 +150,51 @@ export const ParticipantAttributes = z.object({
 export type ParticipantAttributes = z.infer<typeof ParticipantAttributes>;
 
 /**
- * Presence of a desk user, chosen in the web desk and sent with the `status`
- * {@link ClientMessage}. Only `available` agents are offered calls.
+ * State of a desk user (classic contact-center agent states). Only `ready` agents are
+ * offered calls. `logged_out` is implicit: a user with no desk socket has no presence.
  *
- * - `available`: ready to take calls.
- * - `busy`: on a call (set by the API when an offer is accepted) or manually unavailable.
- * - `away`: logged in but not taking calls.
+ * - `ready`: taking calls.
+ * - `not_ready`: logged in, not taking calls; carries a reason (aux) code such as
+ *   `Break`, or `RONA` when set by the API after an unanswered ring.
+ * - `busy`: on a call (set by the API when an offer is accepted or a call is joined).
+ * - `acw`: after-call work / wrap-up, timed by {@link TenantSettings.acwSec}; the agent
+ *   can extend it or finish early.
  */
-export const AgentStatus = z.enum(['available', 'busy', 'away']);
-/** Inferred type of {@link AgentStatus}. */
-export type AgentStatus = z.infer<typeof AgentStatus>;
+export const AgentState = z.enum(['ready', 'not_ready', 'busy', 'acw']);
+/** Inferred type of {@link AgentState}. */
+export type AgentState = z.infer<typeof AgentState>;
+
+/** The reason code the API uses when an agent did not answer a ring (RONA). */
+export const RONA_REASON = 'RONA';
+
+/**
+ * Body of `POST /api/desk/state` (and of the supervisor's force-state route): the states
+ * a person can ask for. `busy` and `acw` are set by the API, never requested.
+ */
+export const AgentStateRequest = z.object({
+  state: z.enum(['ready', 'not_ready']),
+  /** Reason code for `not_ready`; ignored for `ready`. */
+  reason: z.string().min(1).max(40).optional(),
+});
+/** Inferred type of {@link AgentStateRequest}. */
+export type AgentStateRequest = z.infer<typeof AgentStateRequest>;
+
+/** One agent in the `presence` {@link ServerMessage}. */
+export const AgentPresence = z.object({
+  userId: z.string(),
+  name: z.string(),
+  state: AgentState,
+  /** Reason code while `not_ready`, else `null`. */
+  reason: z.string().nullable(),
+  /** ISO time the current state was entered (time-in-state timers). */
+  since: z.string(),
+  /** Call the agent is on (`busy`) or just left (`acw`), else `null`. */
+  callId: z.string().nullable(),
+  /** ISO time wrap-up ends automatically while `acw`, else `null`. */
+  acwUntil: z.string().nullable(),
+});
+/** Inferred type of {@link AgentPresence}. */
+export type AgentPresence = z.infer<typeof AgentPresence>;
 
 /**
  * Role of a user inside a tenant (membership row), checked by the API's desk routes.
@@ -216,8 +261,8 @@ export type TranscriptSegmentInput = z.infer<typeof TranscriptSegmentInput>;
  * - `call.offer.cancelled`: the offer above is no longer for this agent (timed out,
  *   someone else took it or the call ended).
  * - `call.updated`: the call's {@link CallStatus} changed.
- * - `presence`: full list of the tenant's online agents and their {@link AgentStatus};
- *   sent whenever anyone's presence changes.
+ * - `presence`: full list of the tenant's online agents ({@link AgentPresence}); sent
+ *   whenever anyone's state changes.
  * - `transcript`: a new {@link TranscriptSegmentInput} for a call the desk subscribed to.
  */
 export const ServerMessage = z.discriminatedUnion('type', [
@@ -231,17 +276,9 @@ export const ServerMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('call.offer.cancelled'), callId: z.string() }),
   z.object({ type: z.literal('call.updated'), callId: z.string(), status: CallStatus }),
-  z.object({
-    type: z.literal('presence'),
-    agents: z.array(
-      z.object({
-        userId: z.string(),
-        name: z.string(),
-        status: AgentStatus,
-        callId: z.string().nullable(),
-      }),
-    ),
-  }),
+  z.object({ type: z.literal('presence'), agents: z.array(AgentPresence) }),
+  /** You were forced out by a supervisor; the desk signs out and stops reconnecting. */
+  z.object({ type: z.literal('logout'), by: z.string() }),
   z.object({ type: z.literal('transcript'), callId: z.string(), segment: TranscriptSegmentInput }),
 ]);
 /** Inferred type of {@link ServerMessage}. */
@@ -250,17 +287,15 @@ export type ServerMessage = z.infer<typeof ServerMessage>;
 /**
  * Messages from a desk client to the API over the websocket, discriminated on `type`.
  *
- * - `status`: set my {@link AgentStatus} (for example `available` when ready to take calls).
  * - `offer.decline`: pass on the `call.offer` I was sent; the API rings the next agent.
  * - `subscribe`: start receiving `transcript` messages for `callId` (used when viewing
  *   or joining a call).
  *
- * Accepting an offer is deliberately **not** a websocket message: it happens over REST
- * because the response carries the LiveKit token to join the room.
+ * State changes (`ready`, `not_ready`, wrap-up) and accepting an offer are REST calls
+ * (`/api/desk/state`, `/api/desk/calls/:id/accept`): every operation has a public API,
+ * and accepting returns the LiveKit token.
  */
 export const ClientMessage = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('status'), status: AgentStatus }),
-  // Accepting happens over REST because it returns a LiveKit token.
   z.object({ type: z.literal('offer.decline'), callId: z.string() }),
   z.object({ type: z.literal('subscribe'), callId: z.string() }),
 ]);

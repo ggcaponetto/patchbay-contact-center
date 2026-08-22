@@ -15,6 +15,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Agent states (Phase 1 Foundations): `ready` / `not_ready` with reason codes /
+  `busy` / `acw` with time-in-state, after-call work (timed, extendable, finish early;
+  `acwSec` setting), RONA (unanswered ring parks the agent Not ready), supervisor
+  force-state / end wrap-up / log out, `GET /api/desk/agents`. State changes are REST
+  (`POST /api/desk/state`, `/acw/*`, `/agents/:userId/state`); the `status` socket
+  message is gone.
 - Dev multi-login: with `DEV_USER_EMAIL` the desk's app bar switches to any person
   (`GET /api/auth/dev-users`, `POST /api/auth/dev-switch`) and a demo team is seeded
   (`DEV_DEMO_TEAM`).

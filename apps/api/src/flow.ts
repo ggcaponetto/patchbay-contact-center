@@ -34,6 +34,7 @@ import {
   markParticipantLeft,
   setCallStatus,
 } from './services/calls.ts';
+import { getTenant } from './services/tenants.ts';
 
 /**
  * Result of a ring cycle, returned to the AI agent worker by the escalation long-poll.
@@ -189,6 +190,8 @@ export class Flow {
     });
     await addParticipant(this.db, { callId, kind: role, identity, userId: u.id });
     await addEvent(this.db, callId, `${mode}.joined`, { userId: u.id, name: u.name });
+    // `accept` already marked the agent busy; a take-over marks the supervisor.
+    if (mode === 'takeover') this.routing.busy(callId, u.id);
     if (mode !== 'listen') await this.status(callId, 'human');
     return { token, url: this.livekit.url };
   }
@@ -196,16 +199,26 @@ export class Flow {
   /**
    * A desk participant left the call. The human agent leaving ends the call.
    *
-   * `release` frees the agent in the router (status back to `available`) even when the
-   * leaver is a supervisor, because the router keys agents by call id, not by role.
+   * `release` frees the agent in the router (into wrap-up, see the private `release`) even
+   * when the leaver is a supervisor, because the router keys agents by call id, not by role.
    *
    * @param role - Which identity left: `human:<id>` or `supervisor:<id>`.
    */
   async leave(callId: string, u: { id: string }, role: 'human' | 'supervisor'): Promise<void> {
     await markParticipantLeft(this.db, callId, `${role}:${u.id}`);
     await addEvent(this.db, callId, `${role}.left`, { userId: u.id });
-    this.routing.release(callId);
+    await this.release(callId);
     if (role === 'human') await this.end(callId);
+  }
+
+  /**
+   * Frees whoever is on the call in the router: they enter after-call work for the
+   * tenant's `acwSec` (straight to `ready` when it is `0`).
+   */
+  private async release(callId: string): Promise<void> {
+    const call = await getCall(this.db, callId);
+    const tenant = call ? await getTenant(this.db, call.tenantId) : undefined;
+    this.routing.release(callId, { acwSec: tenant?.settings.acwSec ?? 0 });
   }
 
   /**
@@ -220,7 +233,7 @@ export class Flow {
     if (!call || call.status === 'ended') return;
     await this.livekit.deleteRoom(call.roomName);
     await this.status(callId, 'ended');
-    this.routing.release(callId);
+    await this.release(callId);
     this.waiters.get(callId)?.resolve({ outcome: 'nobody' });
     this.waiters.delete(callId);
   }

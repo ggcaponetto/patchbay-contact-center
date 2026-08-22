@@ -18,13 +18,19 @@ export class DeskPage {
     await this.page.goto('/#/desk');
     await expect(this.page.getByText(/^Hi .*, you are/)).toBeVisible();
   }
-  async setAvailable() {
-    await this.page.getByRole('button', { name: 'Available' }).click();
+  /** The state chip in the state bar ("Ready · 0:05", "Not ready · Lunch · 0:02", …). */
+  stateChip() {
+    return this.page.getByText(/^(Ready|Not ready|On a call|Wrap-up)( · .*)? · \d+:\d\d$/);
+  }
+  async setReady() {
+    await this.page.getByRole('button', { name: 'Ready', exact: true }).click();
     await expect(this.page.getByText('Waiting for calls')).toBeVisible();
   }
-  async setAway() {
-    await this.page.getByRole('button', { name: 'Away' }).click();
-    await expect(this.page.getByText('Set yourself to Available')).toBeVisible();
+  /** Not ready with one of the tenant's reason codes (default `Break`). */
+  async setNotReady(reason = 'Break') {
+    await this.page.getByRole('button', { name: 'Not ready' }).click();
+    await this.page.getByRole('menuitem', { name: reason }).click();
+    await expect(this.stateChip()).toContainText(`Not ready · ${reason}`);
   }
   /** Waits for the incoming-call dialog of the given queue. */
   async expectRinging(queueKey = 'support') {

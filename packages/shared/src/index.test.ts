@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  AgentStateRequest,
   ClientMessage,
   DispatchMetadata,
   ServerMessage,
@@ -20,6 +21,8 @@ describe('TenantSettings', () => {
       handoff: { aiBehavior: 'leave' },
       humanFirstTimeoutSec: 30,
       offerTimeoutSec: 20,
+      acwSec: 30,
+      notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
     });
   });
@@ -57,7 +60,11 @@ describe('DispatchMetadata', () => {
 
 describe('websocket messages', () => {
   it('accepts known message types and rejects unknown ones', () => {
-    expect(ClientMessage.parse({ type: 'status', status: 'available' }).type).toBe('status');
+    expect(ClientMessage.parse({ type: 'subscribe', callId: 'c1' }).type).toBe('subscribe');
+    expect(AgentStateRequest.parse({ state: 'not_ready', reason: 'Break' }).reason).toBe('Break');
+    expect(() => AgentStateRequest.parse({ state: 'busy' })).toThrow();
+    expect(TenantSettings.parse({}).acwSec).toBe(30);
+    expect(TenantSettings.parse({}).notReadyReasons).toContain('Lunch');
     expect(ServerMessage.parse({ type: 'call.updated', callId: 'c1', status: 'human' }).type).toBe(
       'call.updated',
     );

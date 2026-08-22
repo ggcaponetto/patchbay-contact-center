@@ -169,10 +169,20 @@ function Shell() {
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        {!desk.state.connected && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Connecting to the desk…
+        {desk.state.loggedOutBy ? (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2 }}
+            action={<Button onClick={() => location.reload()}>Sign in again</Button>}
+          >
+            {desk.state.loggedOutBy} logged you out of the desk.
           </Alert>
+        ) : (
+          !desk.state.connected && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Connecting to the desk…
+            </Alert>
+          )
         )}
         {route.page === 'desk' && <Desk desk={desk} me={me.data!} />}
         {route.page === 'dashboard' && supervisor && <Dashboard desk={desk} />}

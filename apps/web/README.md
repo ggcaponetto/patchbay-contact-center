@@ -85,13 +85,13 @@ Two things are worth knowing up front:
 
 ## Pages
 
-| Route          | Who         | Shows                                                                 | Endpoints / messages                                                                                             |
-| -------------- | ----------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `#/desk`       | everyone    | Available/Away toggle, incoming-call dialog, `CallPanel`              | WS `status`, `offer.decline`, `subscribe`; `POST /desk/calls/:id/accept`, `POST /desk/calls/:id/leave`           |
-| `#/dashboard`  | supervisors | Live calls with duration + status chip, agents online                 | `GET /desk/calls`; WS `presence`, `call.updated`                                                                 |
-| `#/history`    | everyone    | Table of all calls (started, queue, status, duration, summary)        | `GET /desk/calls`; WS `call.updated` (re-fetch)                                                                  |
-| `#/calls/<id>` | everyone    | Transcript, AI summary, event log; supervisors: listen in / take over | `GET /desk/calls/:id`; WS `subscribe`, `transcript`; `POST /desk/calls/:id/join` (`listen`/`takeover`), `/leave` |
-| `#/settings`   | supervisors | Routing & AI, team & invites, queues, embed keys                      | `GET/PATCH /admin/tenant…`, `GET/POST /admin/members`, `/admin/invites`, `/admin/queues…`, `/admin/embed-keys…`  |
+| Route          | Who         | Shows                                                                                         | Endpoints / messages                                                                                                              |
+| -------------- | ----------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `#/desk`       | everyone    | `StateBar` (Ready / Not ready + reason, timer, wrap-up), incoming-call dialog, `CallPanel`    | `POST /desk/state`, `/desk/acw/*`, `GET /desk/settings`; WS `offer.decline`, `subscribe`; `POST /desk/calls/:id/accept`, `/leave` |
+| `#/dashboard`  | supervisors | Live calls with duration + status chip, agents with state, reason and timer, force-state menu | `GET /desk/calls`, `POST /desk/agents/:userId/state`; WS `presence`, `call.updated`                                               |
+| `#/history`    | everyone    | Table of all calls (started, queue, status, duration, summary)                                | `GET /desk/calls`; WS `call.updated` (re-fetch)                                                                                   |
+| `#/calls/<id>` | everyone    | Transcript, AI summary, event log; supervisors: listen in / take over                         | `GET /desk/calls/:id`; WS `subscribe`, `transcript`; `POST /desk/calls/:id/join` (`listen`/`takeover`), `/leave`                  |
+| `#/settings`   | supervisors | Routing & AI, team & invites, queues, embed keys                                              | `GET/PATCH /admin/tenant…`, `GET/POST /admin/members`, `/admin/invites`, `/admin/queues…`, `/admin/embed-keys…`                   |
 
 All REST paths are relative to `/api`; the `api()` helper adds the prefix, the session
 cookie and the `x-tenant-id` header. The websocket is `/api/ws?tenantId=…`. Message
@@ -123,14 +123,14 @@ Notes for the curious:
 - The server routes offers one agent at a time; `expiresAt` is when it moves on. The
   countdown is purely cosmetic, the reducer keeps the offer until a
   `call.offer.cancelled` or an `ended` `call.updated` arrives, or the user acts.
-- `myStatus` is optimistic: the toggle updates it locally and sends `status`. The
-  server flips the agent to `busy` on accept; that shows up in `presence` (Dashboard)
-  but the toggle itself never displays `busy`, hence the "(on a call)" hint.
+- The agent's own state is never set optimistically: the `StateBar` posts to
+  `/api/desk/state` and shows whatever the next `presence` frame says (`myPresence`
+  in `store.ts`). The server sets `busy` on accept and `acw` after hang-up.
 - `CallPanel` calls `onLeave` on its own when no peer with `role: customer` is left in
   the room, so an agent is never stuck in an empty room.
 - After a reconnect of the websocket the API sees a new connection, i.e. the agent is
-  `away` again server-side until the toggle is pressed. The UI still shows the old
-  choice; this is a known POC simplification.
+  `not_ready` again — and, since the state comes from the server, the desk shows that.
+- A `logout` frame (supervisor forced it) stops the reconnect loop and shows a banner.
 
 ## Supervisors: listen in and take over
 

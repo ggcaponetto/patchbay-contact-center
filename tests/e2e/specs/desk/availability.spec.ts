@@ -1,24 +1,28 @@
 /**
- * Presence: the Available/Away toggle over the desk websocket, what the dashboard shows
- * for it, and that presence follows the socket (closing the tab takes the agent offline).
+ * Agent states: Ready / Not ready with a reason code and the time-in-state timer, what
+ * the dashboard shows for it, and that presence follows the socket (closing the tab
+ * takes the agent offline).
  */
 import { DashboardPage, DeskPage, admin, expect, test } from '../../support/fixtures.ts';
 
 test(
-  'supervisor goes Available and appears on the dashboard as available',
+  'supervisor goes Ready, then Not ready with a reason, and the dashboard shows both',
   { tag: ['@smoke', '@desk', '@E2E-02'] },
   async ({ page }) => {
     const desk = new DeskPage(page);
     await desk.goto();
-    await desk.setAvailable();
+    await expect(desk.stateChip()).toContainText('Not ready');
+    await desk.setReady();
+    await expect(desk.stateChip()).toContainText(/^Ready · 0:0\d$/);
     const dashboard = new DashboardPage(page);
     await dashboard.goto();
     await expect(dashboard.agentsOnline()).toHaveText('Agents online (1)');
-    await expect(dashboard.agent('e2e')).toContainText('available');
+    await expect(dashboard.agent('e2e')).toContainText('Ready');
     await page.getByRole('tab', { name: 'Desk' }).click();
-    await desk.setAway();
+    await desk.setNotReady('Lunch');
     await dashboard.goto();
-    await expect(dashboard.agent('e2e')).toContainText('away');
+    await expect(dashboard.agent('e2e')).toContainText('Not ready');
+    await expect(dashboard.agent('e2e')).toContainText('Lunch');
   },
 );
 
@@ -31,13 +35,13 @@ test(
     const agent = await actor(email);
     const agentDesk = new DeskPage(agent.page);
     await agentDesk.goto();
-    await agentDesk.setAvailable();
+    await agentDesk.setReady();
 
     // the supervisor's own (away) desk socket counts too
     const dashboard = new DashboardPage(page);
     await dashboard.goto();
     await expect(dashboard.agentsOnline()).toHaveText('Agents online (2)');
-    await expect(dashboard.agent(agent.name)).toContainText('available');
+    await expect(dashboard.agent(agent.name)).toContainText('Ready');
 
     await agent.close();
     await expect(dashboard.agentsOnline()).toHaveText('Agents online (1)');

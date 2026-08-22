@@ -24,18 +24,28 @@ user) and `offers` (one per call currently ringing). It talks back through
 `RoutingEvents` callbacks, which `Flow` implements. Because it does no I/O and takes an
 injectable clock, `routing.test.ts` drives it with fake timers.
 
-### Presence rules
+### Agent states and presence rules
 
-- `ws.ts` calls `setPresence` when a desk connects (initially `away`) and on every
-  `status` message; `removePresence` when the user's last socket closes.
-- `setPresence` keeps the agent's current `callId`, so changing status while on a call
-  does not free the agent.
-- An agent is a **candidate** for an offer when: same tenant, status `available`,
-  `callId === null`, member of the offer's queue, not already tried for this offer, and
-  not currently being rung for another call. The first match in insertion order is taken;
-  there is no load balancing.
-- `accept` sets the agent to `busy` with that `callId`; `release` (call ended or a desk
-  participant left) sets them back to `available`.
+States are the classic contact-center ones — `ready`, `not_ready` (with a reason code:
+`Break`, `Lunch`, … from the tenant settings, or `RONA`), `busy` (on a call) and `acw`
+(after-call work / wrap-up) — each with the time it was entered, so desks show
+time-in-state timers. Logged out = no desk socket.
+
+- `ws.ts` calls `connect` when a desk connects (a new presence starts `not_ready`; a
+  second tab keeps the state) and `removePresence` when the user's last socket closes.
+- State changes are REST (`POST /api/desk/state`, `/acw/extend`, `/acw/done`, and the
+  supervisor's `POST /api/desk/agents/:userId/state`), handled by `setState` /
+  `extendAcw`; `busy` is never requested, it is set by `accept` / `busy` (take-over).
+- `setState` refuses while `busy` (`on_call`): a state change must never free an agent
+  on a call. Leaving `acw` by hand ends the wrap-up.
+- An agent is a **candidate** for an offer when: same tenant, state `ready`, member of
+  the offer's queue, not already tried for this offer, and not currently being rung for
+  another call. The first match in insertion order is taken; there is no load balancing.
+- A ring that times out parks the agent: `not_ready` with reason `RONA` (redirect on no
+  answer). Declines and disconnects do not.
+- `release` (call ended or a desk participant left) puts whoever was on the call into
+  `acw` for the tenant's `acwSec` (then `ready` automatically), or straight to `ready`
+  when `acwSec` is `0`.
 
 ### Life of an offer
 
@@ -143,8 +153,7 @@ customer token's room configuration and only rings humans later via `escalate`.
 
 1. Client opens `ws(s)://<api>/api/ws?tenantId=<id>` with the session cookie.
 2. The server resolves the session and membership. Failure → close code `4401`.
-3. The connection is added to `DeskSockets`, the user's queue keys are loaded once, and
-   presence is set to `away`.
+3. The connection is added to `DeskSockets` and presence starts as `not_ready`.
 4. Messages are parsed with `ClientMessage` (zod); anything else is dropped silently.
 5. On close the socket is removed; presence is removed only when it was the user's last
    socket, which also moves any offer ringing them to the next agent.
@@ -154,14 +163,15 @@ agent must reconnect (reload the desk) to ring for the new queue.
 
 ### Client → server
 
-| `type`          | Fields                          | Effect                                               |
-| --------------- | ------------------------------- | ---------------------------------------------------- |
-| `status`        | `status: available\|busy\|away` | `Routing.setPresence`; only `available` gets offers  |
-| `subscribe`     | `callId`                        | Receive `transcript` messages for that call          |
-| `offer.decline` | `callId`                        | `Routing.decline`; the offer moves to the next agent |
+| `type`          | Fields   | Effect                                               |
+| --------------- | -------- | ---------------------------------------------------- |
+| `subscribe`     | `callId` | Receive `transcript` messages for that call          |
+| `offer.decline` | `callId` | `Routing.decline`; the offer moves to the next agent |
 
-Accepting is **not** a socket message: `POST /api/desk/calls/:id/accept` returns the
-LiveKit token.
+Accepting and every state change are **not** socket messages: `POST /api/desk/calls/:id/accept`
+returns the LiveKit token, `POST /api/desk/state` and the wrap-up routes answer with the
+new presence. The server → client `logout` frame tells a desk a supervisor logged it out
+(the socket is then closed with `4403` and the desk does not reconnect).
 
 ### Server → client
 
@@ -176,9 +186,9 @@ LiveKit token.
 ### Why early messages are buffered
 
 `ws` delivers a message only if a `message` listener is attached at that moment. The
-handler `await`s the session and membership lookups before it is ready, and a desk sends
-`status` right after `open`, so without a buffer the first message would be lost and the
-agent would stay `away`. The handler therefore attaches a listener immediately that
+handler `await`s the session and membership lookups before it is ready, and a desk may
+send `subscribe` right after `open`, so without a buffer the first message would be lost.
+The handler therefore attaches a listener immediately that
 pushes into `inbox.early` until `inbox.handle` exists, then replays the buffer in order.
 
 ## `auth.ts`

@@ -38,5 +38,5 @@ scenarios:
     engine: ws
     flow:
       - connect: 'ws://localhost:4100/api/ws'
-      - send: '{"type":"status","status":"available"}'
+      - send: '{"type":"subscribe","callId":"load"}'
       - think: 5

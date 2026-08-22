@@ -65,6 +65,10 @@ describe('Settings', () => {
     await userEvent.type(screen.getByLabelText(/Ring each agent for/), '45');
     await userEvent.clear(screen.getByLabelText(/Human-first timeout/));
     await userEvent.type(screen.getByLabelText(/Human-first timeout/), '60');
+    await userEvent.clear(screen.getByLabelText(/Wrap-up time/));
+    await userEvent.type(screen.getByLabelText(/Wrap-up time/), '15');
+    await userEvent.clear(screen.getByLabelText(/Not-ready reason codes/));
+    await userEvent.type(screen.getByLabelText(/Not-ready reason codes/), 'Break, Coffee');
     await userEvent.clear(screen.getByLabelText(/AI greeting instruction/));
     await userEvent.type(screen.getByLabelText(/AI greeting instruction/), 'Say hi');
     await userEvent.type(screen.getByLabelText(/Company instructions/), 'Be nice');
@@ -75,6 +79,8 @@ describe('Settings', () => {
         handoff: { aiBehavior: 'listen' },
         offerTimeoutSec: 45,
         humanFirstTimeoutSec: 60,
+        acwSec: 15,
+        notReadyReasons: ['Break', 'Coffee'],
         aiAgent: { greeting: 'Say hi', instructions: 'Be nice' },
       }),
     );

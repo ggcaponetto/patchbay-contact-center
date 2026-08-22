@@ -77,12 +77,8 @@ describe('Flow (defensive branches)', () => {
   });
 
   it('names the agent "a colleague" when the accepting user row is gone', async () => {
-    flow.routing.setPresence({
-      userId: 'ghost',
-      tenantId: 't1',
-      name: 'Ghost',
-      status: 'available',
-    });
+    flow.routing.connect({ userId: 'ghost', tenantId: 't1', name: 'Ghost' });
+    flow.routing.setState('ghost', 'ready');
     membersOf.push({ userId: 'ghost' });
     const outcome = flow.escalate('c1', 'r', 's', 5);
     await vi.waitFor(() => expect(flow.routing.ringing('c1')).toBe('ghost'));

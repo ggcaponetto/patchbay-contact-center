@@ -1,27 +1,69 @@
 /**
- * `#/dashboard` (supervisors only): live calls and agent presence at a glance.
+ * `#/dashboard` (supervisors only): live calls and agent states at a glance, with the
+ * supervisor's force-state actions (Ready, Not ready, end wrap-up, log out) per agent.
  */
+import type { AgentPresence } from '@cc/shared';
 import {
+  Button,
   Chip,
   Grid,
   List,
   ListItem,
   ListItemButton,
   ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   Typography,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { type CallSummary, api } from '../lib/api.ts';
+import { useState } from 'react';
+import { type CallSummary, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
-import { formatDuration, statusColor, statusLabel } from '../lib/store.ts';
+import {
+  formatDuration,
+  formatSince,
+  stateColor,
+  stateLabel,
+  statusColor,
+  statusLabel,
+} from '../lib/store.ts';
 
 /** Props of {@link Dashboard}. */
 type Props = { desk: ReturnType<typeof useDeskSocket> };
 
-/** Chip color per agent presence status. */
-const agentColor = { available: 'success', busy: 'warning', away: 'default' } as const;
+/** The "…" menu on an agent row: `POST /api/desk/agents/:userId/state`. */
+function ForceState({ agent }: { agent: AgentPresence }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const force = (body: { state: 'ready' | 'not_ready' | 'logged_out'; reason?: string }) => {
+    setAnchor(null);
+    void post(`/desk/agents/${agent.userId}/state`, body).catch(() => undefined);
+  };
+  return (
+    <>
+      <Button
+        size="small"
+        aria-label={`actions for ${agent.name}`}
+        onClick={(e) => setAnchor(e.currentTarget)}
+      >
+        …
+      </Button>
+      <Menu open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)}>
+        <MenuItem disabled={agent.state === 'busy'} onClick={() => force({ state: 'ready' })}>
+          {agent.state === 'acw' ? 'End wrap-up' : 'Force ready'}
+        </MenuItem>
+        <MenuItem
+          disabled={agent.state === 'busy'}
+          onClick={() => force({ state: 'not_ready', reason: 'Supervisor' })}
+        >
+          Force not ready
+        </MenuItem>
+        <MenuItem onClick={() => force({ state: 'logged_out' })}>Log out</MenuItem>
+      </Menu>
+    </>
+  );
+}
 
 /**
  * Supervisor overview: live calls and who is online. Refetched on every call update.
@@ -74,9 +116,17 @@ export function Dashboard({ desk }: Props) {
           <List dense>
             {desk.state.agents.length === 0 && <ListItemText secondary="Nobody is online." />}
             {desk.state.agents.map((a) => (
-              <ListItem key={a.userId}>
-                <ListItemText primary={a.name} secondary={a.callId ? 'On a call' : undefined} />
-                <Chip size="small" color={agentColor[a.status]} label={a.status} />
+              <ListItem key={a.userId} secondaryAction={<ForceState agent={a} />}>
+                <ListItemText
+                  primary={a.name}
+                  secondary={`${a.reason ? `${a.reason} · ` : ''}${formatSince(a.since, now)}`}
+                />
+                <Chip
+                  size="small"
+                  color={stateColor[a.state]}
+                  label={stateLabel[a.state]}
+                  sx={{ mr: 5 }}
+                />
               </ListItem>
             ))}
           </List>

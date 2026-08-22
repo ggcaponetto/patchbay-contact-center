@@ -36,6 +36,9 @@ export type Me = {
   devMode?: boolean;
 };
 
+/** `GET /api/desk/settings`: the tenant settings the Desk page needs (any member). */
+export type DeskSettings = { notReadyReasons: string[]; acwSec: number };
+
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */
 export type CallSummary = {
   id: string;

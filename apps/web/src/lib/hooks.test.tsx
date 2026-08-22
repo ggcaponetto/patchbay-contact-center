@@ -91,9 +91,6 @@ describe('useDeskSocket', () => {
     );
     expect(result.current.state.callStatus).toEqual({ c: 'ai' });
 
-    act(() => result.current.setStatus('available'));
-    expect(result.current.state.myStatus).toBe('available');
-    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'status', status: 'available' }));
     act(() => result.current.send({ type: 'subscribe', callId: 'c' }));
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'subscribe', callId: 'c' }));
 
@@ -109,6 +106,16 @@ describe('useDeskSocket', () => {
     expect(FakeWebSocket.instances[1]!.close).toHaveBeenCalled();
     act(() => void vi.advanceTimersByTime(5000));
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('stops reconnecting after a forced logout', () => {
+    const { result } = renderHook(() => useDeskSocket('t1'));
+    const ws = FakeWebSocket.instances[0]!;
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'logout', by: 'Boss' }) }));
+    expect(result.current.state.loggedOutBy).toBe('Boss');
+    act(() => ws.onclose?.());
+    act(() => void vi.advanceTimersByTime(5000));
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
   it('closes the socket on unmount before any drop', () => {

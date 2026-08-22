@@ -66,13 +66,12 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
 
   it('refuses to hand out a token when the call ended while it was ringing', async () => {
     const { callId } = await startCall();
-    srv.flow.routing.setPresence({
+    srv.flow.routing.connect({
       userId: boss.id,
       tenantId: (await srv.as(boss).inject({ url: '/api/me' })).json().memberships[0].tenantId,
       name: 'Boss',
-      status: 'available',
-      queues: ['support'],
     });
+    srv.flow.routing.setState(boss.id, 'ready');
     const escalation = srv.app.inject({
       method: 'POST',
       url: `/api/internal/calls/${callId}/escalate`,

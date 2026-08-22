@@ -23,7 +23,7 @@ test(
     });
     const deskPage = new DeskPage(page);
     await deskPage.goto();
-    await deskPage.setAvailable();
+    await deskPage.setReady();
 
     const button = new EmbedButton(await context.newPage());
     await button.goto(tenant.key);

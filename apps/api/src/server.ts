@@ -168,7 +168,7 @@ export async function buildServer(deps: ServerDeps) {
   const flow = new Flow(deps.db, deps.livekit, hub, (userId, m) => sockets.toUser(userId, m));
 
   await app.register(adminRoutes, { prefix: '/api/admin', db: deps.db, authenticate, adminEmails });
-  await app.register(deskRoutes, { prefix: '/api/desk', db: deps.db, authenticate, flow });
+  await app.register(deskRoutes, { prefix: '/api/desk', db: deps.db, authenticate, flow, sockets });
   await app.register(publicRoutes, {
     prefix: '/api/public',
     db: deps.db,

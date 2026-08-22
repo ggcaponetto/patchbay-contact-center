@@ -8,24 +8,24 @@
  * - {@link useRoute}: current hash route.
  * - {@link useNow}: a one-second ticker for countdowns and durations.
  */
-import type { AgentStatus, ClientMessage, ServerMessage } from '@cc/shared';
+import type { ClientMessage, ServerMessage } from '@cc/shared';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { initialState, parseRoute, reduce } from './store.ts';
 
 /**
- * Desk websocket: reconnects on close, exposes the reduced state and a sender.
+ * Desk websocket: reconnects on close (unless a supervisor logged us out), exposes the
+ * reduced state and a sender. Agent states are set over REST (`/api/desk/state`); the
+ * server echoes them in the `presence` frame, so `state.agents` is the truth.
  *
  * Opens `ws(s)://<host>/api/ws?tenantId=…` (proxied to the API in dev). Every frame is a
  * `ServerMessage` and goes straight into {@link reduce}. If the socket closes for any
  * reason (API restart, network blip) it is reopened after two seconds, forever, until
  * the component unmounts or `tenantId` changes. The server treats a fresh connection as
- * a fresh presence, so after a reconnect the agent is `away` again server-side even
- * though `state.myStatus` still shows the last choice.
+ * a fresh presence (`not_ready`), and the desk shows exactly that.
  *
  * @param tenantId the tenant to connect for; `undefined` keeps the socket closed.
- * @returns `state` (`DeskState`), the raw `dispatch`, `send` for `ClientMessage`s
- * and `setStatus` (updates the local state and tells the server).
+ * @returns `state` (`DeskState`), the raw `dispatch` and `send` for `ClientMessage`s.
  */
 export function useDeskSocket(tenantId: string | undefined) {
   const [state, dispatch] = useReducer(reduce, initialState);
@@ -48,8 +48,11 @@ export function useDeskSocket(tenantId: string | undefined) {
         dispatch({ type: 'socket', connected: true });
         for (const m of pendingRef.current.splice(0)) ws.send(JSON.stringify(m));
       };
-      ws.onmessage = (e) =>
-        dispatch({ type: 'server', message: JSON.parse(String(e.data)) as ServerMessage });
+      ws.onmessage = (e) => {
+        const message = JSON.parse(String(e.data)) as ServerMessage;
+        if (message.type === 'logout') closed = true; // forced out: do not reconnect
+        dispatch({ type: 'server', message });
+      };
       ws.onclose = () => {
         dispatch({ type: 'socket', connected: false });
         if (!closed) timer = setTimeout(connect, 2000);
@@ -70,14 +73,7 @@ export function useDeskSocket(tenantId: string | undefined) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
     else pendingRef.current.push(m);
   }, []);
-  const setStatus = useCallback(
-    (status: AgentStatus) => {
-      dispatch({ type: 'myStatus', status });
-      send({ type: 'status', status });
-    },
-    [send],
-  );
-  return { state, dispatch, send, setStatus };
+  return { state, dispatch, send };
 }
 
 /** What {@link useLiveRoom} knows about the LiveKit room. */

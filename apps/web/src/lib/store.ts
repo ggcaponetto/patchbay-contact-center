@@ -11,7 +11,13 @@
  * labels/colors, duration formatting and the hash-route parser (there is no router
  * library in this app).
  */
-import type { AgentStatus, CallStatus, ServerMessage, TranscriptSegmentInput } from '@cc/shared';
+import type {
+  AgentPresence,
+  AgentState,
+  CallStatus,
+  ServerMessage,
+  TranscriptSegmentInput,
+} from '@cc/shared';
 
 /**
  * An incoming call currently ringing this agent (the `call.offer` server message
@@ -29,25 +35,19 @@ export type Offer = {
   expiresAt: string;
 };
 
-/** One agent in the `presence` broadcast. */
-type PresenceEntry = {
-  userId: string;
-  name: string;
-  status: AgentStatus;
-  /** The call the agent is on, if any. */
-  callId: string | null;
-};
-
 /** Everything the desk knows, derived from websocket traffic and local actions. */
 export type DeskState = {
   /** True while the websocket is open. */
   connected: boolean;
-  /** Our own availability as last chosen in the UI (optimistic, not echoed by the server). */
-  myStatus: AgentStatus;
+  /** Name of the supervisor who logged us out, once a `logout` frame arrived. */
+  loggedOutBy: string | null;
   /** The offer currently ringing us, if any. */
   offer: Offer | null;
-  /** Who is online in this tenant (cleared when the socket drops). */
-  agents: PresenceEntry[];
+  /**
+   * Who is online in this tenant with their state (cleared when the socket drops). Our
+   * own entry is the source of truth for our state; the server echoes every change.
+   */
+  agents: AgentPresence[];
   /** Latest status per call id, as pushed by the server. */
   callStatus: Record<string, CallStatus>;
   /** Live transcript segments per call id. */
@@ -56,10 +56,10 @@ export type DeskState = {
   callsVersion: number;
 };
 
-/** State before the socket connects: away, no offer, nothing known. */
+/** State before the socket connects: no offer, nothing known. */
 export const initialState: DeskState = {
   connected: false,
-  myStatus: 'away',
+  loggedOutBy: null,
   offer: null,
   agents: [],
   callStatus: {},
@@ -71,13 +71,11 @@ export const initialState: DeskState = {
  * Inputs of {@link reduce}.
  *
  * - `socket`: the websocket opened or closed.
- * - `myStatus`: the agent toggled Available/Away (the hook also sends it to the server).
  * - `server`: a frame from the API, see `ServerMessage` in `@cc/shared`.
  * - `offer.clear`: the UI is done with the offer dialog (accepted, declined or failed).
  */
 export type DeskAction =
   | { type: 'socket'; connected: boolean }
-  | { type: 'myStatus'; status: AgentStatus }
   | { type: 'server'; message: ServerMessage }
   | { type: 'offer.clear' };
 
@@ -94,8 +92,6 @@ export function reduce(state: DeskState, action: DeskAction): DeskState {
         connected: action.connected,
         agents: action.connected ? state.agents : [],
       };
-    case 'myStatus':
-      return { ...state, myStatus: action.status };
     case 'offer.clear':
       return { ...state, offer: null };
     case 'server':
@@ -108,6 +104,8 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
   switch (m.type) {
     case 'presence':
       return { ...state, agents: m.agents };
+    case 'logout':
+      return { ...state, loggedOutBy: m.by, agents: [], offer: null };
     case 'call.offer':
       // Optional fields are only copied when present so the object stays comparable in
       // tests (`toEqual` treats `reason: undefined` and a missing key differently).
@@ -143,6 +141,29 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
       };
   }
 }
+
+/** Our own presence entry, or `undefined` while offline. */
+export const myPresence = (state: DeskState, userId: string): AgentPresence | undefined =>
+  state.agents.find((a) => a.userId === userId);
+
+/** Human-readable label for each agent state (chips, toggles). */
+export const stateLabel: Record<AgentState, string> = {
+  ready: 'Ready',
+  not_ready: 'Not ready',
+  busy: 'On a call',
+  acw: 'Wrap-up',
+};
+
+/** MUI `Chip` color for each agent state. */
+export const stateColor: Record<AgentState, 'default' | 'info' | 'warning' | 'success'> = {
+  ready: 'success',
+  not_ready: 'default',
+  busy: 'warning',
+  acw: 'info',
+};
+
+/** `m:ss` since an ISO timestamp (time in state), never negative. */
+export const formatSince = (since: string, now: number): string => formatDuration(since, null, now);
 
 /** Seconds left on an offer, never negative. */
 export const secondsLeft = (offer: Offer, now: number): number =>

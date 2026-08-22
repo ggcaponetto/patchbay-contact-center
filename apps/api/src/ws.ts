@@ -6,7 +6,8 @@
  * Message contracts are the zod schemas `ClientMessage` / `ServerMessage` in `@cc/shared`.
  *
  * Server → client: `presence`, `call.offer`, `call.offer.cancelled`, `call.updated`,
- * `transcript`. Client → server: `status`, `subscribe`, `offer.decline`.
+ * `transcript`, `logout`. Client → server: `subscribe`, `offer.decline` (agent states are
+ * set over REST, `routes/desk.ts`).
  *
  * Sources of outgoing messages:
  *
@@ -65,6 +66,14 @@ export class DeskSockets {
   toTenant(tenantId: string, message: ServerMessage): void {
     this.each((c) => c.tenantId === tenantId, message);
   }
+  /** Closes every socket of a user (forced logout); the desk stops reconnecting. */
+  closeUser(userId: string, by: string): void {
+    for (const c of [...this.conns]) {
+      if (c.userId !== userId) continue;
+      c.socket.send(JSON.stringify({ type: 'logout', by } satisfies ServerMessage));
+      c.socket.close(4403, 'logged_out');
+    }
+  }
   /** Sends to sockets that subscribed to the call (live transcript). */
   toSubscribers(callId: string, message: ServerMessage): void {
     this.each((c) => c.subscribed.has(callId), message);
@@ -91,8 +100,8 @@ export type WsDeps = {
  *
  * 1. Upgrade. The session cookie is resolved with `getSession`; `?tenantId=` picks the
  *    membership (first one otherwise). No session or membership: close `4401`.
- * 2. The connection is registered, the user's queue keys are loaded, and presence starts
- *    as `away` until the client sends `status`.
+ * 2. The connection is registered and presence starts as `not_ready` until the desk
+ *    asks for a state over `POST /api/desk/state`.
  * 3. Client messages are parsed with `ClientMessage`; invalid JSON or unknown shapes are
  *    silently dropped.
  * 4. On close the connection is removed; presence is dropped only when the user has no
@@ -107,12 +116,7 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
 
   const presenceMessage = (tenantId: string): ServerMessage => ({
     type: 'presence',
-    agents: flow.routing.snapshot(tenantId).map((a) => ({
-      userId: a.userId,
-      name: a.name,
-      status: a.status,
-      callId: a.callId,
-    })),
+    agents: flow.routing.snapshot(tenantId),
   });
   hub.on('presence', ({ tenantId }: { tenantId: string }) =>
     sockets.toTenant(tenantId, presenceMessage(tenantId)),
@@ -151,19 +155,11 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       subscribed: new Set(),
     };
     sockets.add(conn);
-    const presence = (status: 'available' | 'busy' | 'away') =>
-      flow.routing.setPresence({
-        userId: user.id,
-        tenantId: membership.tenantId,
-        name: user.name,
-        status,
-      });
-
     socket.on('close', () => {
       const stillConnected = sockets.remove(conn);
       if (!stillConnected) flow.routing.removePresence(user.id);
     });
-    presence('away');
+    flow.routing.connect({ userId: user.id, tenantId: membership.tenantId, name: user.name });
 
     inbox.handle = (raw) => {
       let json: unknown;
@@ -176,9 +172,6 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       if (!parsed.success) return;
       const msg = parsed.data;
       switch (msg.type) {
-        case 'status':
-          presence(msg.status);
-          break;
         case 'subscribe':
           conn.subscribed.add(msg.callId);
           break;

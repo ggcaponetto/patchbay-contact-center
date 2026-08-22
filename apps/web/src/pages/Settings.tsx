@@ -63,8 +63,14 @@ function RoutingCard() {
   const qc = useQueryClient();
   const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
   const [draft, setDraft] = useState<TenantSettings | null>(null);
+  // The reason codes are edited as free text (commas would vanish while typing if the
+  // field were bound to the parsed array) and parsed into the draft on every change.
+  const [reasonsText, setReasonsText] = useState('');
   useEffect(() => {
-    if (tenant.data) setDraft(tenant.data.settings);
+    if (tenant.data) {
+      setDraft(tenant.data.settings);
+      setReasonsText(tenant.data.settings.notReadyReasons.join(', '));
+    }
   }, [tenant.data]);
   const save = useMutation({
     mutationFn: (s: TenantSettings) => patch('/admin/tenant/settings', s),
@@ -115,7 +121,27 @@ function RoutingCard() {
             value={draft.humanFirstTimeoutSec}
             onChange={(e) => setDraft({ ...draft, humanFirstTimeoutSec: Number(e.target.value) })}
           />
+          <TextField
+            type="number"
+            label="Wrap-up time (s, 0 = off)"
+            value={draft.acwSec}
+            onChange={(e) => setDraft({ ...draft, acwSec: Number(e.target.value) })}
+          />
         </Stack>
+        <TextField
+          label="Not-ready reason codes (comma separated)"
+          value={reasonsText}
+          onChange={(e) => {
+            setReasonsText(e.target.value);
+            setDraft({
+              ...draft,
+              notReadyReasons: e.target.value
+                .split(',')
+                .map((r) => r.trim())
+                .filter(Boolean),
+            });
+          }}
+        />
         <TextField
           label="AI greeting instruction"
           value={draft.aiAgent.greeting}

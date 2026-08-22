@@ -98,14 +98,17 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     current.user = u;
     return srv.app;
   };
+  /** `POST /api/desk/state` as `u` (states are REST, not socket messages). */
+  const setState = (u: User, state: 'ready' | 'not_ready', reason?: string) =>
+    asUser(u).inject({ method: 'POST', url: '/api/desk/state', payload: { state, reason } });
 
   it('rings an available agent on escalation and hands the call over', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
+    expect((await setState(agent, 'ready')).json()).toMatchObject({ state: 'ready' });
     await vi.waitFor(() =>
       expect(d.last('presence')).toMatchObject({
-        agents: [{ userId: agent.id, status: 'available' }],
+        agents: [{ userId: agent.id, state: 'ready', reason: null }],
       }),
     );
 
@@ -141,7 +144,7 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     });
     expect((await escalation).json()).toEqual({ outcome: 'accepted', agentName: 'Sam' });
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'busy', callId }] }),
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'busy', callId }] }),
     );
     await vi.waitFor(() =>
       expect(d.last('call.updated')).toMatchObject({ callId, status: 'human' }),
@@ -175,7 +178,20 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     );
     expect(srv.lk.deleted).toHaveLength(1);
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'available', callId: null }] }),
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'acw', callId }] }),
+    );
+    // wrap-up: extend, then finish by hand
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/extend' })).json(),
+    ).toMatchObject({ state: 'acw' });
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/done' })).json(),
+    ).toMatchObject({ state: 'ready', callId: null });
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/done' })).statusCode,
+    ).toBe(409);
+    await vi.waitFor(() =>
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'ready', callId: null }] }),
     );
     const detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
     expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
@@ -197,7 +213,7 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
   it('reports nobody when the agent declines and nobody else is free', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
+    await setState(agent, 'ready');
     await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
     const escalation = srv.app.inject({
       method: 'POST',
@@ -222,7 +238,7 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
       offerTimeoutSec: 5,
     });
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
+    await setState(agent, 'ready');
     await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
