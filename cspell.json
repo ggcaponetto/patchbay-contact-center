@@ -83,6 +83,7 @@
     "typecheck",
     "typedoc",
     "uidx",
+    "unhold",
     "unstub",
     "upsert",
     "vitepress",

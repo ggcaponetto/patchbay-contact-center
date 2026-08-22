@@ -33,9 +33,11 @@ import { Routing } from './routing.ts';
 import {
   addEvent,
   addParticipant,
+  callDetail,
   getCall,
   markParticipantLeft,
   setCallStatus,
+  setHeld,
 } from './services/calls.ts';
 import { getTenant } from './services/tenants.ts';
 
@@ -208,18 +210,172 @@ export class Flow {
   }
 
   /**
-   * A desk participant left the call. The human agent leaving ends the call.
-   *
-   * `release` frees the agent in the router (into wrap-up, see the private `release`) even
-   * when the leaver is a supervisor, because the router keys agents by call id, not by role.
+   * A desk participant left the call. The **last** human leaving ends the call; while
+   * other humans remain (a consultation), only the leaver is freed into wrap-up.
    *
    * @param role - Which identity left: `human:<id>` or `supervisor:<id>`.
    */
   async leave(callId: string, u: { id: string }, role: 'human' | 'supervisor'): Promise<void> {
     await markParticipantLeft(this.db, callId, `${role}:${u.id}`);
     await addEvent(this.db, callId, `${role}.left`, { userId: u.id });
+    if (role === 'human' && (await this.humansOn(callId, u.id)) > 0) {
+      await this.freeUser(callId, u.id);
+      return;
+    }
     await this.release(callId);
     if (role === 'human') await this.end(callId);
+  }
+
+  /** Active (not left) human participants on the call, excluding `exceptUserId`. */
+  private async humansOn(callId: string, exceptUserId?: string): Promise<number> {
+    const call = await getCall(this.db, callId);
+    const detail = call ? await callDetail(this.db, call.tenantId, callId) : undefined;
+    return (detail?.participants ?? []).filter(
+      (p) => p.kind === 'human' && p.leftAt === null && p.userId !== exceptUserId,
+    ).length;
+  }
+
+  /** Frees one user (wrap-up per tenant settings) without releasing the whole call. */
+  private async freeUser(callId: string, userId: string): Promise<void> {
+    const call = await getCall(this.db, callId);
+    const tenant = call ? await getTenant(this.db, call.tenantId) : undefined;
+    await this.routing.free(userId, { acwSec: tenant?.settings.acwSec ?? 0 });
+  }
+
+  /** Takes the customer off hold: state, event, and the media worker's stop command. */
+  async unhold(callId: string): Promise<void> {
+    const call = await getCall(this.db, callId);
+    if (!call || !call.heldAt) return;
+    await setHeld(this.db, callId, false);
+    await addEvent(this.db, callId, 'retrieve', {});
+    await this.bus.publish({ kind: 'media', command: { action: 'moh.stop', callId } });
+    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+  }
+
+  /** Puts the customer on hold: state, event, and the media worker's start command. */
+  async hold(callId: string): Promise<void> {
+    const call = await getCall(this.db, callId);
+    if (!call || call.heldAt || call.status === 'ended') return;
+    await setHeld(this.db, callId, true);
+    await addEvent(this.db, callId, 'hold', {});
+    const token = await this.livekit.createToken({
+      room: call.roomName,
+      identity: `media:${callId}`,
+      name: 'Music',
+      attributes: { role: 'media' },
+    });
+    await this.bus.publish({
+      kind: 'media',
+      command: {
+        action: 'moh.start',
+        callId,
+        roomName: call.roomName,
+        token,
+        url: this.livekit.url,
+      },
+    });
+    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+  }
+
+  /**
+   * Blind (cold) transfer: the transferring agent is marked gone and freed, the customer
+   * goes on hold with music, and the target — a queue's members or a single user — is
+   * rung; whoever accepts also takes the customer off hold (`retrieveOnAccept`).
+   */
+  async transfer(
+    callId: string,
+    from: { id: string; name: string },
+    target: { kind: 'queue'; id: string } | { kind: 'user'; id: string },
+  ): Promise<'not_live' | 'empty_target' | null> {
+    const call = await getCall(this.db, callId);
+    if (!call || call.status === 'ended') return 'not_live';
+    const members = target.kind === 'queue' ? await this.queueMembers(target.id) : [target.id];
+    if (members.length === 0) return 'empty_target';
+    const tenant = await getTenant(this.db, call.tenantId);
+    const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
+    await markParticipantLeft(this.db, callId, `human:${from.id}`);
+    await addEvent(this.db, callId, 'transfer', { userId: from.id, target });
+    await this.routing.free(from.id, { acwSec: tenant?.settings.acwSec ?? 0 });
+    await this.hold(callId);
+    await this.status(callId, 'waiting_human');
+    await this.routing.offer({
+      callId,
+      tenantId: call.tenantId,
+      queueKey: q?.key ?? '',
+      reason: `Transfer from ${from.name}`,
+      ...(tenant ? { ringSec: tenant.settings.offerTimeoutSec } : {}),
+      members,
+      retrieveOnAccept: true,
+    });
+    return null;
+  }
+
+  /**
+   * Consultation: the customer goes on hold with music and `targetUserId` is rung into
+   * the same room (their accept joins them as another human). The customer keeps
+   * hearing music until the consult is completed or the customer is retrieved (swap).
+   */
+  async consult(
+    callId: string,
+    from: { id: string; name: string },
+    targetUserId: string,
+  ): Promise<'not_live' | null> {
+    const call = await getCall(this.db, callId);
+    if (!call || call.status === 'ended') return 'not_live';
+    const tenant = await getTenant(this.db, call.tenantId);
+    const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
+    await addEvent(this.db, callId, 'consult', { userId: from.id, targetUserId });
+    await this.hold(callId);
+    await this.routing.offer({
+      callId,
+      tenantId: call.tenantId,
+      queueKey: q?.key ?? '',
+      reason: `Consultation with ${from.name}`,
+      ...(tenant ? { ringSec: tenant.settings.offerTimeoutSec } : {}),
+      members: [targetUserId],
+    });
+    return null;
+  }
+
+  /**
+   * Ends a consultation. `transfer`: the initiator leaves and the consultant keeps the
+   * (retrieved) customer. `conference`: everyone stays, customer retrieved. `drop`: the
+   * consultant is removed from the room and freed; the initiator retrieves by hand.
+   */
+  async consultComplete(
+    callId: string,
+    from: { id: string },
+    mode: 'transfer' | 'conference' | 'drop',
+    dropUserId?: string,
+  ): Promise<'not_live' | 'no_consultant' | null> {
+    const call = await getCall(this.db, callId);
+    if (!call || call.status === 'ended') return 'not_live';
+    if (mode === 'drop') {
+      const detail = await callDetail(this.db, call.tenantId, callId);
+      const consultant = (detail?.participants ?? []).find(
+        (p) =>
+          p.kind === 'human' &&
+          p.leftAt === null &&
+          (dropUserId ? p.userId === dropUserId : p.userId !== from.id),
+      );
+      if (!consultant) return 'no_consultant';
+      await this.livekit.removeParticipant(call.roomName, consultant.identity);
+      await markParticipantLeft(this.db, callId, consultant.identity);
+      await addEvent(this.db, callId, 'consult.dropped', { userId: consultant.userId });
+      if (consultant.userId) await this.freeUser(callId, consultant.userId);
+      this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+      return null;
+    }
+    await this.unhold(callId);
+    await addEvent(this.db, callId, mode === 'transfer' ? 'transfer.completed' : 'conference', {
+      userId: from.id,
+    });
+    if (mode === 'transfer') {
+      await markParticipantLeft(this.db, callId, `human:${from.id}`);
+      await this.freeUser(callId, from.id);
+      this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+    }
+    return null;
   }
 
   /**

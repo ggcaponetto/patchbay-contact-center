@@ -184,6 +184,155 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     expect((await post('/hold')).json()).toEqual({ error: 'not_live' });
   });
 
+  it('blind-transfers with hold music until the target accepts', async () => {
+    const { createInvite, bootstrapUser, updateSettings } = await import('../services/tenants.ts');
+    const me = await srv.as(boss).inject({ url: '/api/me' });
+    const tenantId = me.json().memberships[0].tenantId as string;
+    await updateSettings(db, tenantId, { acwSec: 0 });
+    await createInvite(db, tenantId, 'bob@example.com', 'agent');
+    const bob = await createUser(db, 'bob@example.com', 'Bob');
+    await bootstrapUser(db, bob, []);
+    for (const u of [boss, bob]) {
+      await srv.flow.routing.connect({ userId: u.id, tenantId, name: u.name });
+      await srv.flow.routing.setState(u.id, 'ready');
+    }
+    const media: unknown[] = [];
+    srv.bus.subscribe((m) => m.kind === 'media' && media.push(m.command));
+    const { callId } = await startCall();
+    await srv.flow.routing.busy(callId, boss.id);
+
+    // transfer to Bob directly
+    const res = await srv.as(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/transfer`,
+      payload: { target: { kind: 'user', id: bob.id } },
+    });
+    expect(res.json()).toEqual({ ok: true });
+    // the transferring agent is free again, the customer held, Bob rung
+    expect((await srv.flow.routing.presenceOf(boss.id))?.state).toBe('ready');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await srv.flow.routing.ringing(callId)).toBe(bob.id);
+    let detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail).toMatchObject({ status: 'waiting_human' });
+    expect(detail.heldAt).not.toBeNull();
+
+    // Bob accepts: joined as human, customer retrieved (retrieveOnAccept)
+    const accept = await srv
+      .as(bob)
+      .inject({ method: 'POST', url: `/api/desk/calls/${callId}/accept` });
+    expect(accept.statusCode).toBe(200);
+    detail = (await srv.as(bob).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail).toMatchObject({ status: 'human', heldAt: null });
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['transfer', 'hold', 'offer.accepted', 'retrieve']),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(media.map((c) => (c as { action: string }).action)).toEqual(['moh.start', 'moh.stop']);
+    // empty target / dead call answers
+    expect(
+      (
+        await srv.as(bob).inject({
+          method: 'POST',
+          url: `/api/desk/calls/${callId}/transfer`,
+          payload: { target: { kind: 'queue', id: 'nope' } },
+        })
+      ).json(),
+    ).toEqual({ error: 'empty_target' });
+    await srv.flow.routing.disconnect(boss.id);
+    await srv.flow.routing.disconnect(bob.id);
+  });
+
+  it('consults a colleague, completes as transfer or conference, and drops', async () => {
+    const { createInvite, bootstrapUser, updateSettings } = await import('../services/tenants.ts');
+    const me = await srv.as(boss).inject({ url: '/api/me' });
+    const tenantId = me.json().memberships[0].tenantId as string;
+    await updateSettings(db, tenantId, { acwSec: 0 });
+    await createInvite(db, tenantId, 'carol@example.com', 'agent');
+    const carol = await createUser(db, 'carol@example.com', 'Carol');
+    await bootstrapUser(db, carol, []);
+    for (const u of [boss, carol]) {
+      await srv.flow.routing.connect({ userId: u.id, tenantId, name: u.name });
+      await srv.flow.routing.setState(u.id, 'ready');
+    }
+    const { callId } = await startCall();
+    // boss takes the call
+    await srv.flow.routing.busy(callId, boss.id);
+    await srv.flow.join(callId, boss, 'agent');
+
+    const post = (u: typeof boss, path: string, payload?: object) =>
+      srv.as(u).inject({ method: 'POST', url: `/api/desk/calls/${callId}${path}`, payload });
+
+    // consult Carol: customer held, Carol rung with the consultation reason
+    expect((await post(boss, '/consult', { targetUserId: carol.id })).json()).toEqual({
+      ok: true,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await srv.flow.routing.ringing(callId)).toBe(carol.id);
+    expect((await post(carol, '/accept')).statusCode).toBe(200);
+    let detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    // customer still held during the consultation, two humans on the call
+    expect(detail.heldAt).not.toBeNull();
+    const humans = detail.participants.filter(
+      (x: { kind: string; leftAt: string | null }) => x.kind === 'human' && x.leftAt === null,
+    );
+    expect(humans).toHaveLength(2);
+
+    // drop Carol: removed from the room, freed, boss keeps the (held) customer
+    expect((await post(boss, '/consult/complete', { mode: 'drop' })).json()).toEqual({
+      ok: true,
+    });
+    expect(srv.lk.removed).toEqual([expect.stringContaining(`human:${carol.id}`)]);
+    expect((await srv.flow.routing.presenceOf(carol.id))?.state).toBe('ready');
+    expect((await post(boss, '/consult/complete', { mode: 'drop' })).json()).toEqual({
+      error: 'no_consultant',
+    });
+    await post(boss, '/retrieve');
+
+    // consult again and complete as transfer: boss leaves, Carol keeps the customer
+    await srv.flow.routing.setState(carol.id, 'ready');
+    await post(boss, '/consult', { targetUserId: carol.id });
+    await new Promise((r) => setTimeout(r, 50));
+    await post(carol, '/accept');
+    expect((await post(boss, '/consult/complete', { mode: 'transfer' })).json()).toEqual({
+      ok: true,
+    });
+    detail = (await srv.as(carol).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.heldAt).toBeNull();
+    expect((await srv.flow.routing.presenceOf(boss.id))?.state).toBe('ready');
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['consult', 'consult.dropped', 'transfer.completed']),
+    );
+
+    // Carol is now the last human: her leave ends the call
+    expect((await post(carol, '/leave', { role: 'human' })).json()).toEqual({ ok: true });
+    detail = (await srv.as(carol).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).toBe('ended');
+    await srv.flow.routing.disconnect(boss.id);
+    await srv.flow.routing.disconnect(carol.id);
+  });
+
+  it('rejects malformed bodies and dead calls on the call-control routes', async () => {
+    const { callId } = await startCall();
+    const post = (path: string, payload?: object) =>
+      srv.as(boss).inject({ method: 'POST', url: `/api/desk/calls/${callId}${path}`, payload });
+    expect((await post('/transfer', { target: { kind: 'nope' } })).statusCode).toBe(400);
+    expect((await post('/consult', {})).statusCode).toBe(400);
+    expect((await post('/consult/complete', { mode: 'later' })).statusCode).toBe(400);
+    expect((await post('/tags', { tags: 'x' })).statusCode).toBe(400);
+    expect((await post('/disposition', {})).statusCode).toBe(400);
+    const { setCallStatus } = await import('../services/calls.ts');
+    await setCallStatus(db, callId, 'ended');
+    expect((await post('/transfer', { target: { kind: 'user', id: boss.id } })).json()).toEqual({
+      error: 'not_live',
+    });
+    expect((await post('/consult', { targetUserId: boss.id })).json()).toEqual({
+      error: 'not_live',
+    });
+    expect((await post('/consult/complete', { mode: 'drop' })).json()).toEqual({
+      error: 'not_live',
+    });
+  });
+
   it('treats a body-less leave as the human agent leaving', async () => {
     const { callId } = await startCall();
     const res = await srv

@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Transfers and consultations (Phase 2): blind transfer to a queue or colleague
+  (customer parked with music until the target accepts), consultation into the same room
+  (customer held; swap = hold/retrieve), completed as hand-over, conference, or drop
+  (`removeParticipant`); a call now ends only when the last human leaves.
 - Hold / retrieve with music on hold (Phase 2): a new media worker (`apps/media`,
   `@livekit/rtc-node`) joins the room over the Postgres bus and plays a synthesized loop
   to the held customer; the desk shows the hold timer and a hold-too-long reminder

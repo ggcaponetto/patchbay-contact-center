@@ -44,6 +44,7 @@ export type DeskSettings = {
   dispositionRequired: boolean;
   holdReminderSec: number;
   autoAnswer: boolean;
+  queues: { id: string; key: string; name: string }[];
 };
 
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */

@@ -359,5 +359,7 @@ export const ringOffer = pgTable('ring_offer', {
   ringMs: integer('ring_ms').notNull(),
   /** Human-first: dispatch metadata for the AI when nobody answers (any instance may do it). */
   fallback: jsonb('fallback').$type<Record<string, unknown>>(),
+  /** Blind transfer: take the customer off hold as soon as someone accepts. */
+  retrieveOnAccept: boolean('retrieve_on_accept').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

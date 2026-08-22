@@ -72,6 +72,40 @@ describe('CallPanel', () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
+  it('shows hold with its timer and the too-long reminder', () => {
+    live.room = { ...live.room, connected: true, peers: [customer] };
+    const onToggle = vi.fn();
+    const heldAt = new Date(Date.now() - 65_000).toISOString();
+    render(
+      <CallPanel
+        join={join}
+        title="T"
+        transcript={[]}
+        onLeave={vi.fn()}
+        hold={{ heldAt, onToggle, reminderAfterSec: 60 }}
+      />,
+    );
+    expect(screen.getByText(/Retrieve \(1:0\d\)/)).toBeTruthy();
+    expect(screen.getByText(/on hold for \d+ seconds/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Mute' }) as HTMLButtonElement).disabled).toBe(true);
+    screen.getByText(/Retrieve/).click();
+    expect(onToggle).toHaveBeenCalled();
+    expect(live.room.setHeld).toHaveBeenCalledWith(true);
+
+    cleanup();
+    render(
+      <CallPanel
+        join={join}
+        title="T"
+        transcript={[]}
+        onLeave={vi.fn()}
+        hold={{ heldAt: null, onToggle, reminderAfterSec: 0 }}
+      />,
+    );
+    expect(screen.getByText('Hold')).toBeTruthy();
+    expect(screen.queryByText(/on hold for/)).toBeNull();
+  });
+
   it('leaves only when a customer who was here left', () => {
     const onLeave = vi.fn();
     // connected but the room is still filling up: no leave

@@ -123,7 +123,9 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
       .on(RoomEvent.ParticipantDisconnected, refresh)
       // Attributes can arrive after the participant (the AI sets its own), hence refresh.
       .on(RoomEvent.ParticipantAttributesChanged, refresh)
-      .on(RoomEvent.TrackSubscribed, (track) => {
+      .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+        // Hold music is for the customer; the desk stays silent on `media` tracks.
+        if (participant?.attributes['role'] === 'media') return;
         if (track.kind === Track.Kind.Audio) audioRef.current?.append(track.attach());
       })
       .on(RoomEvent.Disconnected, () => setState((s) => ({ ...s, connected: false })));

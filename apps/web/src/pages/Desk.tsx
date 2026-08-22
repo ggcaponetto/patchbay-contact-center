@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
 import { StateBar } from '../components/StateBar.tsx';
+import { TransferConsult } from '../components/TransferConsult.tsx';
 import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
@@ -61,7 +62,6 @@ type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
 export function Desk({ desk, me }: Props) {
   const { state, dispatch, send } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
-  const [heldAt, setHeldAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const settings = useQuery({
     queryKey: ['desk-settings'],
@@ -75,13 +75,26 @@ export function Desk({ desk, me }: Props) {
     queryFn: () => api<CallDetail>(`/desk/calls/${state.offer!.callId}`),
     enabled: state.offer !== null,
   });
+  // The active call as the server sees it: hold state and who else is on it. Refetched
+  // on every call.updated (hold, retrieve, consult accept, drop all bump it).
+  const activeDetail = useQuery({
+    queryKey: ['call', active?.callId, state.callsVersion],
+    queryFn: () => api<CallDetail>(`/desk/calls/${active!.callId}`),
+    enabled: active !== null,
+  });
+  const heldAt = activeDetail.data?.heldAt ?? null;
+  const consultants = (activeDetail.data?.participants ?? [])
+    .filter((p) => p.kind === 'human' && p.leftAt === null && p.userId !== me.user.id)
+    .map((p) => ({
+      userId: p.userId,
+      name: state.agents.find((a) => a.userId === p.userId)?.name ?? 'colleague',
+    }));
 
   /** Hold / retrieve the customer; the server starts and stops the music. */
   const toggleHold = async () => {
     if (!active) return;
     try {
       await post(`/desk/calls/${active.callId}/${heldAt ? 'retrieve' : 'hold'}`);
-      setHeldAt(heldAt ? null : new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -115,7 +128,6 @@ export function Desk({ desk, me }: Props) {
     if (!active) return;
     const { callId } = active;
     setActive(null);
-    setHeldAt(null);
     // The server frees us into wrap-up (or straight to ready) and broadcasts it.
     await post(`/desk/calls/${callId}/leave`, { role: 'human' }).catch(() => undefined);
   }, [active]);
@@ -146,7 +158,18 @@ export function Desk({ desk, me }: Props) {
           title="Customer call"
           transcript={state.transcripts[active.callId] ?? []}
           onLeave={() => void leave()}
-          extras={<CallNotes callId={active.callId} onError={setError} />}
+          extras={
+            <>
+              <TransferConsult
+                callId={active.callId}
+                myUserId={me.user.id}
+                consultants={consultants}
+                onLeft={() => setActive(null)}
+                onError={setError}
+              />
+              <CallNotes callId={active.callId} onError={setError} />
+            </>
+          }
           hold={{
             heldAt,
             reminderAfterSec: settings.data?.holdReminderSec ?? 0,

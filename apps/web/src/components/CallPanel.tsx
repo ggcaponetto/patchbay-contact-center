@@ -63,6 +63,13 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
     if (room.connected) void room.setHeld(held);
   }, [held, room.connected]);
   const [sawCustomer, setSawCustomer] = useState(false);
+  const [wasConnected, setWasConnected] = useState(false);
+  // Dropped from the room (consult drop, room deleted): fold the panel via onLeave —
+  // the server already recorded whatever happened, the extra /leave is harmless.
+  useEffect(() => {
+    if (room.connected) setWasConnected(true);
+    else if (wasConnected) onLeave();
+  }, [room.connected, wasConnected, onLeave]);
   // The customer leaving ends the call for us as well: once connected, if no peer carries
   // the `customer` role any more we call `onLeave` so the agent is not stuck in an empty
   // room. `peers` is refreshed on participant connect/disconnect/attribute changes.

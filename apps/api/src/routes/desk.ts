@@ -23,15 +23,8 @@ import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
-import {
-  addEvent,
-  callDetail,
-  listCalls,
-  setDisposition,
-  setHeld,
-  setTags,
-} from '../services/calls.ts';
-import { getTenant } from '../services/tenants.ts';
+import { addEvent, callDetail, listCalls, setDisposition, setTags } from '../services/calls.ts';
+import { getTenant, listQueues } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
 import { parseBody } from './util.ts';
 
@@ -45,6 +38,17 @@ const ForceStateBody = z.union([AgentStateRequest, z.object({ state: z.literal('
 const JoinBody = z.object({ mode: z.enum(['listen', 'takeover']) });
 const NoteBody = z.object({ text: z.string().min(1).max(2000) });
 const TagsBody = z.object({ tags: z.array(z.string().min(1).max(40)).max(20) });
+const TransferBody = z.object({
+  target: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('queue'), id: z.string().min(1) }),
+    z.object({ kind: z.literal('user'), id: z.string().min(1) }),
+  ]),
+});
+const ConsultBody = z.object({ targetUserId: z.string().min(1) });
+const ConsultCompleteBody = z.object({
+  mode: z.enum(['transfer', 'conference', 'drop']),
+  dropUserId: z.string().optional(),
+});
 const DispositionBody = z.object({
   code: z.string().min(1).max(60),
   note: z.string().max(2000).optional(),
@@ -93,6 +97,11 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         dispositionRequired: tenant?.settings.dispositionRequired ?? false,
         holdReminderSec: tenant?.settings.holdReminderSec ?? 0,
         autoAnswer: tenant?.settings.autoAnswer ?? false,
+        queues: (await listQueues(db, request.ctx.tenantId)).map((q) => ({
+          id: q.id,
+          key: q.key,
+          name: q.name,
+        })),
       };
     },
   );
@@ -251,11 +260,15 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       if (!(await callDetail(db, request.ctx.tenantId, id))) {
         return reply.code(404).send({ error: 'not_found' });
       }
-      if (!(await flow.routing.accept(id, request.ctx.user.id))) {
+      const offer = await flow.routing.accept(id, request.ctx.user.id);
+      if (!offer) {
         return reply.code(409).send({ error: 'not_ringing_you' });
       }
       const joined = await flow.join(id, request.ctx.user, 'agent');
-      return joined ?? reply.code(409).send({ error: 'call_over' });
+      if (!joined) return reply.code(409).send({ error: 'call_over' });
+      // A blind transfer's acceptor also takes the customer off hold.
+      if (offer.retrieveOnAccept) await flow.unhold(id);
+      return joined;
     },
   );
 
@@ -339,24 +352,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       if (!detail) return undefined;
       if (detail.status === 'ended') return reply.code(409).send({ error: 'not_live' });
       if (detail.heldAt) return reply.code(409).send({ error: 'already_held' });
-      await setHeld(db, detail.id, true);
-      await addEvent(db, detail.id, 'hold', { userId: request.ctx.user.id });
-      const token = await flow.livekit.createToken({
-        room: detail.roomName,
-        identity: `media:${detail.id}`,
-        name: 'Music',
-        attributes: { role: 'media' },
-      });
-      await sockets.bus.publish({
-        kind: 'media',
-        command: {
-          action: 'moh.start',
-          callId: detail.id,
-          roomName: detail.roomName,
-          token,
-          url: flow.livekit.url,
-        },
-      });
+      await flow.hold(detail.id);
       return { ok: true };
     },
   );
@@ -374,12 +370,75 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       const detail = await withCall(request.params.id, request.ctx.tenantId, reply);
       if (!detail) return undefined;
       if (!detail.heldAt) return reply.code(409).send({ error: 'not_held' });
-      await setHeld(db, detail.id, false);
-      await addEvent(db, detail.id, 'retrieve', { userId: request.ctx.user.id });
-      await sockets.bus.publish({
-        kind: 'media',
-        command: { action: 'moh.stop', callId: detail.id },
-      });
+      await flow.unhold(detail.id);
+      return { ok: true };
+    },
+  );
+
+  /**
+   * Blind (cold) transfer to a queue or a single user. The caller's desk closes its
+   * panel locally afterwards — the server already marked them gone.
+   */
+  app.post<P>(
+    '/calls/:id/transfer',
+    {
+      preHandler: answer,
+      config: doc('Blind-transfer the call to a queue or a user', 'calls:answer', {
+        body: TransferBody,
+        errors: ['404 not_found', '409 not_live / empty_target'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(TransferBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      const err = await flow.transfer(request.params.id, request.ctx.user, body.target);
+      if (err) return reply.code(409).send({ error: err });
+      return { ok: true };
+    },
+  );
+
+  /** Starts a consultation: customer on hold with music, the colleague is rung. */
+  app.post<P>(
+    '/calls/:id/consult',
+    {
+      preHandler: answer,
+      config: doc('Consult a colleague (customer goes on hold)', 'calls:answer', {
+        body: ConsultBody,
+        errors: ['404 not_found', '409 not_live'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(ConsultBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      const err = await flow.consult(request.params.id, request.ctx.user, body.targetUserId);
+      if (err) return reply.code(409).send({ error: err });
+      return { ok: true };
+    },
+  );
+
+  /** Ends the consultation: hand over, conference everyone, or drop the consultant. */
+  app.post<P>(
+    '/calls/:id/consult/complete',
+    {
+      preHandler: answer,
+      config: doc('Complete the consultation (transfer / conference / drop)', 'calls:answer', {
+        body: ConsultCompleteBody,
+        errors: ['404 not_found', '409 not_live / no_consultant'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(ConsultCompleteBody, request.body, reply);
+      if (!body) return undefined;
+      if (!(await withCall(request.params.id, request.ctx.tenantId, reply))) return undefined;
+      const err = await flow.consultComplete(
+        request.params.id,
+        request.ctx.user,
+        body.mode,
+        body.dropUserId,
+      );
+      if (err) return reply.code(409).send({ error: err });
       return { ok: true };
     },
   );

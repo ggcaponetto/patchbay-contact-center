@@ -77,25 +77,28 @@ only guard; the "Auth" columns below name the permission (`member` = `calls:read
 
 ## `desk.ts` (prefix `/api/desk`)
 
-| Method | Path                     | Auth         | Body                                             | Response                                | Errors                                      |
-| ------ | ------------------------ | ------------ | ------------------------------------------------ | --------------------------------------- | ------------------------------------------- |
-| GET    | `/settings`              | member       | –                                                | `{ notReadyReasons, acwSec }`           | 401, 403                                    |
-| GET    | `/agents`                | member       | –                                                | `AgentPresence[]` (who is online)       | 401, 403                                    |
-| POST   | `/state`                 | member       | `{ state: 'ready' \| 'not_ready', reason? }`     | my `AgentPresence`                      | 400, 409 `offline` / `on_call`              |
-| POST   | `/acw/extend`            | member       | –                                                | my `AgentPresence`                      | 409 `not_in_acw`                            |
-| POST   | `/acw/done`              | member       | –                                                | my `AgentPresence`                      | 409 `not_in_acw`                            |
-| POST   | `/agents/:userId/state`  | supervisor   | `AgentStateRequest` or `{ state: 'logged_out' }` | presence or `{ ok: true }`              | 400, 404, 409 `on_call`                     |
-| GET    | `/calls`                 | member       | –                                                | latest 50 calls with `queueKey`         | 401, 403                                    |
-| GET    | `/calls/:id`             | member       | –                                                | call + participants, transcript, events | 404 `not_found`                             |
-| POST   | `/calls/:id/accept`      | member       | –                                                | `{ token, url }`                        | 404, 409 `not_ringing_you`, 409 `call_over` |
-| POST   | `/calls/:id/decline`     | member       | –                                                | `{ ok: true }`                          | 401, 403                                    |
-| POST   | `/calls/:id/join`        | supervisor   | `{ mode: 'listen' \| 'takeover' }`               | `{ token, url }`                        | 400, 404, 409 `call_over`                   |
-| POST   | `/calls/:id/leave`       | member       | `{ role? = 'human' \| 'supervisor' }`            | `{ ok: true }`                          | 400, 404                                    |
-| POST   | `/calls/:id/hold`        | calls:answer | –                                                | `{ ok: true }`                          | 404, 409 `not_live` / `already_held`        |
-| POST   | `/calls/:id/retrieve`    | calls:answer | –                                                | `{ ok: true }`                          | 404, 409 `not_held`                         |
-| POST   | `/calls/:id/note`        | calls:answer | `{ text }`                                       | `{ ok: true }`                          | 400, 404                                    |
-| POST   | `/calls/:id/tags`        | calls:answer | `{ tags: string[] }`                             | `{ ok: true }`                          | 400, 404                                    |
-| POST   | `/calls/:id/disposition` | calls:answer | `{ code, note? }`                                | `{ ok: true }`                          | 400 `unknown_code`, 404                     |
+| Method | Path                          | Auth         | Body                                                          | Response                                | Errors                                      |
+| ------ | ----------------------------- | ------------ | ------------------------------------------------------------- | --------------------------------------- | ------------------------------------------- |
+| GET    | `/settings`                   | member       | –                                                             | `{ notReadyReasons, acwSec }`           | 401, 403                                    |
+| GET    | `/agents`                     | member       | –                                                             | `AgentPresence[]` (who is online)       | 401, 403                                    |
+| POST   | `/state`                      | member       | `{ state: 'ready' \| 'not_ready', reason? }`                  | my `AgentPresence`                      | 400, 409 `offline` / `on_call`              |
+| POST   | `/acw/extend`                 | member       | –                                                             | my `AgentPresence`                      | 409 `not_in_acw`                            |
+| POST   | `/acw/done`                   | member       | –                                                             | my `AgentPresence`                      | 409 `not_in_acw`                            |
+| POST   | `/agents/:userId/state`       | supervisor   | `AgentStateRequest` or `{ state: 'logged_out' }`              | presence or `{ ok: true }`              | 400, 404, 409 `on_call`                     |
+| GET    | `/calls`                      | member       | –                                                             | latest 50 calls with `queueKey`         | 401, 403                                    |
+| GET    | `/calls/:id`                  | member       | –                                                             | call + participants, transcript, events | 404 `not_found`                             |
+| POST   | `/calls/:id/accept`           | member       | –                                                             | `{ token, url }`                        | 404, 409 `not_ringing_you`, 409 `call_over` |
+| POST   | `/calls/:id/decline`          | member       | –                                                             | `{ ok: true }`                          | 401, 403                                    |
+| POST   | `/calls/:id/join`             | supervisor   | `{ mode: 'listen' \| 'takeover' }`                            | `{ token, url }`                        | 400, 404, 409 `call_over`                   |
+| POST   | `/calls/:id/leave`            | member       | `{ role? = 'human' \| 'supervisor' }`                         | `{ ok: true }`                          | 400, 404                                    |
+| POST   | `/calls/:id/transfer`         | calls:answer | `{ target: { kind: 'queue' \| 'user', id } }`                 | `{ ok: true }`                          | 400, 404, 409 `not_live` / `empty_target`   |
+| POST   | `/calls/:id/consult`          | calls:answer | `{ targetUserId }`                                            | `{ ok: true }`                          | 400, 404, 409 `not_live`                    |
+| POST   | `/calls/:id/consult/complete` | calls:answer | `{ mode: 'transfer' \| 'conference' \| 'drop', dropUserId? }` | `{ ok: true }`                          | 400, 404, 409 `not_live` / `no_consultant`  |
+| POST   | `/calls/:id/hold`             | calls:answer | –                                                             | `{ ok: true }`                          | 404, 409 `not_live` / `already_held`        |
+| POST   | `/calls/:id/retrieve`         | calls:answer | –                                                             | `{ ok: true }`                          | 404, 409 `not_held`                         |
+| POST   | `/calls/:id/note`             | calls:answer | `{ text }`                                                    | `{ ok: true }`                          | 400, 404                                    |
+| POST   | `/calls/:id/tags`             | calls:answer | `{ tags: string[] }`                                          | `{ ok: true }`                          | 400, 404                                    |
+| POST   | `/calls/:id/disposition`      | calls:answer | `{ code, note? }`                                             | `{ ok: true }`                          | 400 `unknown_code`, 404                     |
 
 `accept` is gated by `Routing.accept`: only the agent currently being rung for that call
 succeeds. `leave` with `role: 'human'` ends the call and puts the agent into wrap-up.

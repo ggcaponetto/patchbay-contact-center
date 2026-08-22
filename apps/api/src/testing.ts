@@ -80,10 +80,11 @@ export async function createUser(
  *   `dispatched` and `deleted` (room names). Tokens are `token-for-<identity>`.
  */
 export function fakeLiveKit() {
-  const calls: { tokens: unknown[]; dispatched: string[]; deleted: string[] } = {
+  const calls: { tokens: unknown[]; dispatched: string[]; deleted: string[]; removed: string[] } = {
     tokens: [],
     dispatched: [],
     deleted: [],
+    removed: [],
   };
   const livekit: LiveKit = {
     url: 'wss://fake.livekit.cloud',
@@ -96,6 +97,9 @@ export function fakeLiveKit() {
     },
     async deleteRoom(room) {
       calls.deleted.push(room);
+    },
+    async removeParticipant(room, identity) {
+      calls.removed.push(`${room}:${identity}`);
     },
   };
   return { livekit, calls };

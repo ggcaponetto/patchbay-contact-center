@@ -29,6 +29,14 @@ describe('CallNotes', () => {
     expect(post).toHaveBeenLastCalledWith('/desk/calls/c1/tags', { tags: ['vip', 'complaint'] });
   });
 
+  it('works with the default props (no tags, no error reporter)', async () => {
+    post.mockRejectedValueOnce(new Error('x'));
+    render(<CallNotes callId="c1" />);
+    expect((screen.getByLabelText('Tags (comma separated)') as HTMLInputElement).value).toBe('');
+    await userEvent.click(screen.getByRole('button', { name: 'Save tags' }));
+    expect(post).toHaveBeenCalledWith('/desk/calls/c1/tags', { tags: [] });
+  });
+
   it('reports failures through onError', async () => {
     post.mockRejectedValueOnce(new Error('not_found'));
     const onError = vi.fn();

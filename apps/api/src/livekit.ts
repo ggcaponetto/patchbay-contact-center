@@ -60,12 +60,14 @@ export type LiveKit = {
   dispatchAgent(room: string, metadata: string): Promise<void>;
   /** Deletes the room (kicking everyone). Errors are swallowed; the room may already be gone. */
   deleteRoom(room: string): Promise<void>;
+  /** Removes one participant from the room (consult drop). Errors are swallowed. */
+  removeParticipant(room: string, identity: string): Promise<void>;
 };
 
 /** The two server-API clients {@link createLiveKit} talks to; tests inject fakes. */
 export type LiveKitClients = {
-  /** `RoomServiceClient` (or a fake): only `deleteRoom` is used. */
-  rooms: Pick<RoomServiceClient, 'deleteRoom'>;
+  /** `RoomServiceClient` (or a fake): `deleteRoom` and `removeParticipant` are used. */
+  rooms: Pick<RoomServiceClient, 'deleteRoom' | 'removeParticipant'>;
   /** `AgentDispatchClient` (or a fake): only `createDispatch` is used. */
   dispatch: Pick<AgentDispatchClient, 'createDispatch'>;
 };
@@ -123,6 +125,9 @@ export function createLiveKit(
     },
     async deleteRoom(room) {
       await rooms.deleteRoom(room).catch(() => undefined);
+    },
+    async removeParticipant(room, identity) {
+      await rooms.removeParticipant(room, identity).catch(() => undefined);
     },
   };
 }

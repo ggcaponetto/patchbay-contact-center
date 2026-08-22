@@ -109,8 +109,8 @@ describe.skipIf(!hasDb)('Routing (Postgres)', () => {
       ),
     ).toBe(true);
 
-    expect(await r.accept('c1', a)).toBe(false);
-    expect(await r.accept('c1', b)).toBe(true);
+    expect(await r.accept('c1', a)).toBeNull();
+    expect(await r.accept('c1', b)).toMatchObject({ callId: 'c1', retrieveOnAccept: false });
     expect(accepted).toHaveBeenCalledWith('c1', b);
     expect(await of(b)).toMatchObject({ state: 'busy', callId: 'c1', reason: null });
     expect(await r.ringing('c1')).toBeNull();

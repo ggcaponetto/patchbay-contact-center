@@ -270,6 +270,8 @@ export class Routing {
     members: string[];
     /** Handed back to `onNobody` unchanged (human-first dispatch metadata). */
     fallback?: Record<string, unknown>;
+    /** Blind transfer: whoever accepts also takes the customer off hold. */
+    retrieveOnAccept?: boolean;
   }): Promise<void> {
     const inserted = await this.db
       .insert(ringOffer)
@@ -283,6 +285,7 @@ export class Routing {
         giveUpAt: input.giveUpAfterSec ? new Date(this.now() + input.giveUpAfterSec * 1000) : null,
         ringMs: input.ringSec ? input.ringSec * 1000 : this.offerTimeoutMs,
         fallback: input.fallback ?? null,
+        retrieveOnAccept: input.retrieveOnAccept ?? false,
       })
       .onConflictDoNothing()
       .returning({ callId: ringOffer.callId });
@@ -290,19 +293,44 @@ export class Routing {
   }
 
   /**
-   * The ringing agent accepted. Returns false when the offer is no longer theirs
+   * The ringing agent accepted. Returns `null` when the offer is no longer theirs
    * (it moved on, was cancelled, or never existed), so the route can answer 409.
-   * On success the agent becomes `busy` on that call and `onAccepted` fires.
+   * On success the agent becomes `busy` on that call, `onAccepted` fires, and the
+   * consumed offer row is returned (`retrieveOnAccept` drives the transfer unhold).
    */
-  async accept(callId: string, userId: string): Promise<boolean> {
-    const deleted = await this.db
+  async accept(callId: string, userId: string): Promise<Offer | null> {
+    const [deleted] = await this.db
       .delete(ringOffer)
       .where(and(eq(ringOffer.callId, callId), eq(ringOffer.currentUserId, userId)))
       .returning();
-    if (deleted.length === 0) return false;
+    if (!deleted) return null;
     await this.busy(callId, userId);
     await this.events.onAccepted(callId, userId);
-    return true;
+    return deleted;
+  }
+
+  /**
+   * Frees one user from a call without touching anyone else on it (a consult party was
+   * dropped or left while the call goes on): wrap-up like {@link Routing.release}.
+   */
+  async free(userId: string, opts: { acwSec: number } = { acwSec: 0 }): Promise<void> {
+    const a = await this.presenceOf(userId);
+    if (!a || a.state !== 'busy') return;
+    const now = new Date(this.now());
+    await this.db
+      .update(agentPresence)
+      .set(
+        opts.acwSec > 0
+          ? {
+              state: 'acw',
+              reason: null,
+              since: now,
+              acwUntil: new Date(this.now() + opts.acwSec * 1000),
+            }
+          : { state: 'ready', reason: null, since: now, callId: null, acwUntil: null },
+      )
+      .where(eq(agentPresence.userId, userId));
+    await this.publishPresence(a.tenantId);
   }
 
   /** Marks an online user `busy` on a call (accept, take-over). Offline users are ignored. */
