@@ -1,5 +1,7 @@
 import type { CallStatus, TranscriptSegmentInput } from '@cc/shared';
 
+export type EscalationOutcome = { outcome: 'accepted'; agentName: string } | { outcome: 'nobody' };
+
 /** Minimal client for the API's `/api/internal` endpoints. Errors are logged, never thrown. */
 export class ApiClient {
   private readonly baseUrl: string;
@@ -14,29 +16,41 @@ export class ApiClient {
     this.log = log;
   }
 
-  private async post(path: string, body: unknown): Promise<void> {
+  private async post(path: string, body: unknown): Promise<unknown> {
     try {
       const res = await fetch(`${this.baseUrl}/api/internal/calls/${this.callId}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-internal-secret': this.secret },
         body: JSON.stringify(body),
       });
-      if (!res.ok) this.log(`api ${path} -> ${res.status} ${await res.text()}`);
+      if (!res.ok) {
+        this.log(`api ${path} -> ${res.status} ${await res.text()}`);
+        return undefined;
+      }
+      return await res.json();
     } catch (err) {
       this.log(`api ${path} failed: ${String(err)}`);
+      return undefined;
     }
   }
 
-  transcript(segment: TranscriptSegmentInput) {
-    return this.post('/transcript', segment);
+  /** Asks for a human; resolves when someone accepted or nobody could (long-poll). */
+  async escalate(reason: string, summary: string, ringSec: number): Promise<EscalationOutcome> {
+    const res = (await this.post('/escalate', { reason, summary, ringSec })) as
+      EscalationOutcome | undefined;
+    return res ?? { outcome: 'nobody' };
   }
-  event(type: string, payload: Record<string, unknown> = {}) {
-    return this.post('/events', { type, payload });
+
+  async transcript(segment: TranscriptSegmentInput): Promise<void> {
+    await this.post('/transcript', segment);
   }
-  participant(kind: 'ai' | 'transcriber', identity: string, left = false) {
-    return this.post('/participants', { kind, identity, left });
+  async event(type: string, payload: Record<string, unknown> = {}): Promise<void> {
+    await this.post('/events', { type, payload });
   }
-  status(status: CallStatus, summary?: string) {
-    return this.post('/status', summary ? { status, summary } : { status });
+  async participant(kind: 'ai' | 'transcriber', identity: string, left = false): Promise<void> {
+    await this.post('/participants', { kind, identity, left });
+  }
+  async status(status: CallStatus, summary?: string): Promise<void> {
+    await this.post('/status', summary ? { status, summary } : { status });
   }
 }

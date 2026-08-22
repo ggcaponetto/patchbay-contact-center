@@ -3,12 +3,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
+import type { Flow } from '../flow.ts';
 import type { LiveKit } from '../livekit.ts';
 import { addEvent, addParticipant, createCall, setCallStatus } from '../services/calls.ts';
 import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
-export type PublicOpts = { db: Db; livekit: LiveKit };
+export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow };
 
 const CreateCallBody = z.object({
   embedKey: z.string().min(1),
@@ -17,7 +18,7 @@ const CreateCallBody = z.object({
 });
 
 /** Unauthenticated endpoints used by the embeddable call button. */
-export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, livekit }) => {
+export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, livekit, flow }) => {
   app.post('/calls', async (request, reply) => {
     const body = parseBody(CreateCallBody, request.body, reply);
     if (!body) return undefined;
@@ -59,6 +60,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, li
       ...(aiFirst ? { dispatchMetadata: JSON.stringify(metadata) } : {}),
     });
     await setCallStatus(db, id, aiFirst ? 'ai' : 'waiting_human');
+    if (!aiFirst) flow.humanFirst(id, metadata);
     return { callId: id, roomName, token, url: livekit.url };
   });
 };

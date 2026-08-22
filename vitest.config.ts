@@ -35,6 +35,8 @@ export default defineConfig({
         'apps/api/src/db/**',
         'apps/api/src/livekit.ts',
         'apps/api/src/auth.ts',
+        'apps/web/src/lib/hooks.ts',
+        'apps/web/src/lib/api.ts',
       ],
       thresholds: { lines: 90, functions: 90, branches: 90, statements: 90 },
     },

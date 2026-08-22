@@ -73,20 +73,27 @@ export function fakeLiveKit() {
 
 export const INTERNAL_SECRET = 'test-secret';
 
-/** Builds a server whose session is whatever `current` holds (switch users per request). */
-export async function testServer(db: Db, adminEmails: string[] = []) {
+/**
+ * Builds a server whose session is whatever `current` holds (switch users per request),
+ * or whatever `resolve` returns when given.
+ */
+export async function testServer(
+  db: Db,
+  adminEmails: string[] = [],
+  resolve?: () => SessionUser | null,
+) {
   const current: { user: SessionUser | null } = { user: null };
   const lk = fakeLiveKit();
-  const { app, hub } = await buildServer({
+  const { app, hub, flow } = await buildServer({
     db,
     adminEmails,
     livekit: lk.livekit,
     internalSecret: INTERNAL_SECRET,
-    getSession: async () => current.user,
+    getSession: async () => (resolve ? resolve() : current.user),
   });
   const as = (u: SessionUser | null) => {
     current.user = u;
     return app;
   };
-  return { app, as, hub, lk: lk.calls };
+  return { app, as, hub, flow, lk: lk.calls };
 }

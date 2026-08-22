@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../src/db/client.ts';
 import { createEmbedKey, createTenant, updateSettings } from '../src/services/tenants.ts';
 import {
@@ -33,6 +33,7 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     await resetDb(db);
     srv.lk.tokens.length = 0;
     srv.lk.deleted.length = 0;
+    srv.lk.dispatched.length = 0;
     boss = await createUser(db, 'boss@example.com');
     tenantId = (await createTenant(db, 'Acme', boss.id)).id;
     publicKey = (await createEmbedKey(db, tenantId, 'site', ['https://shop.example'])).publicKey;
@@ -68,17 +69,16 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     expect(detail.json().events.map((e: { type: string }) => e.type)).toEqual(['call.created']);
   });
 
-  it('does not dispatch the AI in human-first mode', async () => {
+  it('falls back to the AI in human-first mode when nobody is online', async () => {
     await updateSettings(db, tenantId, { routingMode: 'human-first' });
     const body = (await startCall()).json();
     expect(srv.lk.tokens[0]).not.toHaveProperty('dispatchMetadata');
+    await vi.waitFor(() => expect(srv.lk.dispatched).toEqual([body.roomName]));
     const list = (await srv.as(boss).inject({ url: '/api/desk/calls' })).json();
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({
-      id: body.callId,
-      status: 'waiting_human',
-      queueKey: 'support',
-    });
+    expect(list[0]).toMatchObject({ id: body.callId, status: 'ai', queueKey: 'support' });
+    const detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${body.callId}` })).json();
+    expect(detail.events.map((e: { type: string }) => e.type)).toContain('offer.nobody');
   });
 
   it('rejects bad embed keys, queues and origins', async () => {

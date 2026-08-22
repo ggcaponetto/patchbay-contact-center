@@ -95,7 +95,7 @@ export type ServerMessage = z.infer<typeof ServerMessage>;
 /** Messages from a desk client to the API over the websocket. */
 export const ClientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('status'), status: AgentStatus }),
-  z.object({ type: z.literal('offer.accept'), callId: z.string() }),
+  // Accepting happens over REST because it returns a LiveKit token.
   z.object({ type: z.literal('offer.decline'), callId: z.string() }),
   z.object({ type: z.literal('subscribe'), callId: z.string() }),
 ]);

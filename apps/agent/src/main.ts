@@ -9,14 +9,17 @@ import {
   voice,
 } from '@livekit/agents';
 import { EnhancerModel, audioEnhancement } from '@livekit/plugins-ai-coustics';
+import { type RemoteParticipant, RoomEvent } from '@livekit/rtc-node';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { LLM_MODEL, createAgent, summarize } from './agent.ts';
 import { ApiClient } from './api.ts';
+import { startTranscriber } from './transcriber.ts';
 
 dotenv.config({ path: ['.env.local', '../../.env.local'] });
 
 const AGENT_NAME = 'cc-agent';
+const STT_MODEL = 'assemblyai/universal-3-5-pro';
 
 export default defineAgent({
   entry: async (ctx: JobContext) => {
@@ -28,9 +31,12 @@ export default defineAgent({
       meta.callId,
     );
     const identity = `ai:${meta.callId}`;
+    const customerIdentity = `customer:${meta.callId}`;
+    let handedOff = false;
+    let stopTranscriber: (() => void) | undefined;
 
     const session = new voice.AgentSession({
-      stt: new inference.STT({ model: 'assemblyai/universal-3-5-pro', language: 'en' }),
+      stt: new inference.STT({ model: STT_MODEL, language: 'en' }),
       tts: new inference.TTS({
         model: 'fishaudio/s2.1-pro',
         voice: 'fa4c9eb3dccc4806b382b40d61c6b10a',
@@ -51,18 +57,73 @@ export default defineAgent({
       const isUser = event.item.role === 'user';
       void api.transcript({
         speaker: isUser ? 'customer' : 'ai',
-        identity: isUser ? `customer:${meta.callId}` : identity,
+        identity: isUser ? customerIdentity : identity,
         text,
       });
+    });
+
+    const roleOf = (p: RemoteParticipant) => p.attributes['role'];
+
+    /**
+     * A human agent joined. Depending on tenant settings the AI either leaves the
+     * conversation (session closed, the same participant keeps transcribing) or
+     * stays muted and keeps listening to the customer.
+     */
+    const onHumanJoined = async (human: RemoteParticipant) => {
+      if (handedOff) return;
+      handedOff = true;
+      const behavior = meta.settings.handoff.aiBehavior;
+      await api.event('handoff', { to: human.identity, behavior });
+      if (behavior === 'listen') {
+        session.interrupt();
+        session.output.setAudioEnabled(false);
+        // The session only transcribes the customer; cover the human agent too.
+        stopTranscriber = startTranscriber({
+          room: ctx.room,
+          speechToText: new inference.STT({ model: STT_MODEL, language: 'en' }),
+          include: (p) => p.identity === human.identity,
+          onSegment: (p, text) =>
+            void api.transcript({ speaker: 'human', identity: p.identity, text }),
+        });
+      } else {
+        await session.close();
+        await ctx.room.localParticipant?.setAttributes({ role: 'transcriber' });
+        await api.participant('ai', identity, true);
+        await api.participant('transcriber', identity);
+        stopTranscriber = startTranscriber({
+          room: ctx.room,
+          speechToText: new inference.STT({ model: STT_MODEL, language: 'en' }),
+          include: (p) => roleOf(p) === 'customer' || roleOf(p) === 'human',
+          onSegment: (p, text) =>
+            void api.transcript({
+              speaker: roleOf(p) === 'human' ? 'human' : 'customer',
+              identity: p.identity,
+              text,
+            }),
+        });
+      }
+    };
+    ctx.room.on(RoomEvent.ParticipantConnected, (p) => {
+      if (roleOf(p) === 'human') void onHumanJoined(p);
+    });
+    ctx.room.on(RoomEvent.ParticipantAttributesChanged, (_changed, p) => {
+      const remote = ctx.room.remoteParticipants.get(p.identity);
+      if (remote && roleOf(remote) === 'human') void onHumanJoined(remote);
+    });
+    ctx.room.on(RoomEvent.ParticipantDisconnected, (p) => {
+      // The customer hung up: nothing left to do for this job.
+      if (p.identity === customerIdentity) ctx.shutdown();
     });
 
     const agent = createAgent({
       instructions: meta.settings.aiAgent.instructions,
       actions: {
         escalate: async ({ reason, summary }) => {
-          await api.event('escalation.requested', { reason, summary });
-          await api.status('waiting_human', summary);
-          return 'Tell the caller you are connecting them to a colleague and to stay on the line.';
+          session.say('One moment please, I am connecting you to a colleague.');
+          const outcome = await api.escalate(reason, summary, meta.settings.offerTimeoutSec);
+          return outcome.outcome === 'accepted'
+            ? `Tell the caller that ${outcome.agentName} is joining the call now.`
+            : 'Tell the caller that no colleague is available right now, apologize, and offer to keep helping or take a message.';
         },
         endCall: async () => {
           await api.event('call.ended_by_ai');
@@ -73,11 +134,12 @@ export default defineAgent({
     });
 
     ctx.addShutdownCallback(async () => {
+      stopTranscriber?.();
       const summary = await summarize(
         new inference.LLM({ model: LLM_MODEL }),
         session.history,
       ).catch(() => '');
-      await api.participant('ai', identity, true);
+      await api.participant(handedOff ? 'transcriber' : 'ai', identity, true);
       await api.status('ended', summary || undefined);
     });
 
@@ -90,6 +152,9 @@ export default defineAgent({
     await ctx.room.localParticipant?.setAttributes({ role: 'ai' });
     await api.participant('ai', identity);
     await api.event('ai.joined');
+    for (const p of ctx.room.remoteParticipants.values()) {
+      if (roleOf(p) === 'human') void onHumanJoined(p);
+    }
 
     session.generateReply({ instructions: meta.settings.aiAgent.greeting });
   },

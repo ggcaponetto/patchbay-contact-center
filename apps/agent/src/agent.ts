@@ -101,7 +101,7 @@ export async function summarize(model: llm.LLM, history: llm.ChatContext): Promi
   chatCtx.addMessage({
     role: 'system',
     content:
-      'Summarize the following customer service call in two or three plain sentences: who called, what they needed, what was done, and any open follow-up. Output only the summary.',
+      'Summarize the following customer service call transcript in two or three plain sentences: what the caller needed, what was done, and any open follow-up. If the caller never said anything, answer exactly: The caller hung up without speaking. Output only the summary, never ask for more input.',
   });
   chatCtx.addMessage({ role: 'user', content: lines });
   const response = await model.chat({ chatCtx }).collect();

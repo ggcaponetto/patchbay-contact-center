@@ -28,6 +28,17 @@ describe('ApiClient', () => {
     expect(log).not.toHaveBeenCalled();
   });
 
+  it('long-polls escalation and falls back to nobody on errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response(JSON.stringify({ outcome: 'accepted', agentName: 'Sam' })),
+    );
+    const api = new ApiClient('http://api', 's', 'c', vi.fn());
+    expect(await api.escalate('r', 's', 20)).toEqual({ outcome: 'accepted', agentName: 'Sam' });
+    vi.stubGlobal('fetch', async () => new Response('boom', { status: 500 }));
+    expect(await api.escalate('r', 's', 20)).toEqual({ outcome: 'nobody' });
+  });
+
   it('logs instead of throwing on failures', async () => {
     const log = vi.fn();
     vi.stubGlobal('fetch', async () => new Response('nope', { status: 500 }));

@@ -149,6 +149,15 @@ export async function setQueueMembers(
   return true;
 }
 
+/** Queues whose members include `userId`, across the tenant. */
+export async function queuesOfUser(db: Db, tenantId: string, userId: string) {
+  return db
+    .select({ id: queue.id, key: queue.key })
+    .from(queueMember)
+    .innerJoin(queue, eq(queue.id, queueMember.queueId))
+    .where(and(eq(queueMember.userId, userId), eq(queue.tenantId, tenantId)));
+}
+
 export async function createEmbedKey(
   db: Db,
   tenantId: string,

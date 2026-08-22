@@ -33,6 +33,8 @@
     "preemptive",
     "prefault",
     "quail",
+    "refetch",
+    "refetched",
     "signup",
     "slugifies",
     "slugify",
