@@ -9,17 +9,23 @@ describe('Routing', () => {
   const presence = vi.fn();
   let r: Routing;
 
+  /** Online agents; `support` is who the test offers may ring (queue membership). */
+  const support: string[] = [];
   const agent = (
     userId: string,
     queues = ['support'],
     status: 'available' | 'away' = 'available',
-  ) => r.setPresence({ userId, tenantId: 't1', name: userId, status, queues });
+  ) => {
+    if (queues.includes('support')) support.push(userId);
+    r.setPresence({ userId, tenantId: 't1', name: userId, status });
+  };
   const offersTo = () => sent.filter((s) => s.msg.type === 'call.offer').map((s) => s.to);
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     sent.length = 0;
+    support.length = 0;
     nobody.mockClear();
     accepted.mockClear();
     presence.mockClear();
@@ -40,12 +46,19 @@ describe('Routing', () => {
     agent('b');
     agent('c', ['sales']);
     agent('d', ['support'], 'away');
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', reason: 'billing', summary: 'x' });
+    r.offer({
+      callId: 'c1',
+      tenantId: 't1',
+      queueKey: 'support',
+      members: support,
+      reason: 'billing',
+      summary: 'x',
+    });
     expect(offersTo()).toEqual(['a']);
     expect(sent[0]!.msg).toMatchObject({ type: 'call.offer', reason: 'billing', summary: 'x' });
     expect(r.ringing('c1')).toBe('a');
     // duplicate offers are ignored
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
     expect(offersTo()).toEqual(['a']);
 
     r.decline('c1', 'b'); // not b's offer
@@ -74,7 +87,7 @@ describe('Routing', () => {
   it('moves on after the ring timeout and gives up when everyone was tried', () => {
     agent('a');
     agent('b');
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
     vi.advanceTimersByTime(10_000);
     expect(offersTo()).toEqual(['a', 'b']);
     vi.advanceTimersByTime(10_000);
@@ -84,7 +97,7 @@ describe('Routing', () => {
 
   it('gives up immediately when nobody is online for the queue', () => {
     agent('x', ['sales']);
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
     expect(nobody).toHaveBeenCalledTimes(1);
   });
 
@@ -92,7 +105,13 @@ describe('Routing', () => {
     agent('a');
     agent('b');
     agent('c');
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', giveUpAfterSec: 15 });
+    r.offer({
+      callId: 'c1',
+      tenantId: 't1',
+      queueKey: 'support',
+      members: support,
+      giveUpAfterSec: 15,
+    });
     expect(sent[0]!.msg).toMatchObject({ expiresAt: new Date(10_000).toISOString() });
     vi.advanceTimersByTime(10_000);
     expect(offersTo()).toEqual(['a', 'b']);
@@ -108,19 +127,19 @@ describe('Routing', () => {
   it('skips agents who are already ringing or busy and handles disconnects', () => {
     agent('a');
     agent('b');
-    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support' });
-    r.offer({ callId: 'c2', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c1', tenantId: 't1', queueKey: 'support', members: support });
+    r.offer({ callId: 'c2', tenantId: 't1', queueKey: 'support', members: support });
     expect(offersTo()).toEqual(['a', 'b']);
     r.removePresence('a'); // a's desk closed while ringing -> c1 moves on, but b is busy ringing c2
     expect(nobody).toHaveBeenCalledWith('c1', 't1');
     r.removePresence('nobody-here');
     r.accept('c2', 'b');
-    r.offer({ callId: 'c3', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c3', tenantId: 't1', queueKey: 'support', members: support });
     expect(nobody).toHaveBeenCalledWith('c3', 't1');
     // releasing an unknown call and cancelling a ringing offer
     r.release('c-unknown');
     agent('z');
-    r.offer({ callId: 'c4', tenantId: 't1', queueKey: 'support' });
+    r.offer({ callId: 'c4', tenantId: 't1', queueKey: 'support', members: support });
     r.release('c4');
     expect(sent.at(-1)).toMatchObject({
       to: 'z',

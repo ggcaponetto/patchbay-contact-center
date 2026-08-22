@@ -54,7 +54,7 @@ export class CcCallButton extends HTMLElement {
 
   /** Custom element lifecycle: leave the room if the element is removed mid-call. */
   disconnectedCallback(): void {
-    void this.room?.disconnect();
+    void this.room?.disconnect().catch(() => undefined);
     if (this.timer) clearInterval(this.timer);
   }
 

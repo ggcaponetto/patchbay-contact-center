@@ -109,7 +109,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: {
-      'content-type': 'application/json',
+      // Fastify rejects a JSON content-type without a body (e.g. DELETE), so only
+      // declare it when there is one.
+      ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
       ...(init.headers ?? {}),
     },

@@ -126,7 +126,7 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
       setState({ room, connected: true, muted: false, peers: peers() });
     })();
     return () => {
-      void room.disconnect();
+      void room.disconnect().catch(() => undefined);
       audioRef.current?.replaceChildren();
       setState({ room: null, connected: false, muted: false, peers: [] });
     };

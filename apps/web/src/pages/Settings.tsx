@@ -338,7 +338,11 @@ function EmbedCard() {
                 {k.allowedOrigins.length ? k.allowedOrigins.join(', ') : 'any origin'}
               </Typography>
             </Typography>
-            <IconButton size="small" onClick={() => remove.mutate(k.id)} aria-label="delete">
+            <IconButton
+              size="small"
+              onClick={() => remove.mutate(k.id)}
+              aria-label={`delete ${k.label}`}
+            >
               ✕
             </IconButton>
           </Stack>

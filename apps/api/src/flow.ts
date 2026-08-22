@@ -24,7 +24,7 @@ import type { DispatchMetadata, ServerMessage } from '@cc/shared';
 import { eq } from 'drizzle-orm';
 import type { EventEmitter } from 'node:events';
 import type { Db } from './db/client.ts';
-import { queue, user } from './db/schema.ts';
+import { queue, queueMember, user } from './db/schema.ts';
 import type { LiveKit } from './livekit.ts';
 import { Routing } from './routing.ts';
 import {
@@ -107,6 +107,7 @@ export class Flow {
     const call = await getCall(this.db, callId);
     if (!call || call.status === 'ended') return { outcome: 'nobody' };
     const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
+    const members = await this.queueMembers(call.queueId);
     await addEvent(this.db, callId, 'escalation.requested', { reason, summary });
     await this.status(callId, 'waiting_human');
     return new Promise<Outcome>((resolve) => {
@@ -120,8 +121,18 @@ export class Flow {
         reason,
         summary,
         ringSec,
+        members,
       });
     });
+  }
+
+  /** User ids belonging to the queue, read fresh so Settings changes apply immediately. */
+  private async queueMembers(queueId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ userId: queueMember.userId })
+      .from(queueMember)
+      .where(eq(queueMember.queueId, queueId));
+    return rows.map((r) => r.userId);
   }
 
   /**
@@ -133,7 +144,9 @@ export class Flow {
    * @param callId - The freshly created call.
    * @param fallback - Dispatch metadata for the AI agent, used only if nobody answers.
    */
-  humanFirst(callId: string, fallback: DispatchMetadata): void {
+  async humanFirst(callId: string, fallback: DispatchMetadata): Promise<void> {
+    const call = await getCall(this.db, callId);
+    const members = call ? await this.queueMembers(call.queueId) : [];
     this.waiters.set(callId, { resolve: () => undefined, fallback });
     this.routing.offer({
       callId,
@@ -141,6 +154,7 @@ export class Flow {
       queueKey: fallback.queueKey,
       giveUpAfterSec: fallback.settings.humanFirstTimeoutSec,
       ringSec: fallback.settings.offerTimeoutSec,
+      members,
     });
   }
 

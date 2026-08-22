@@ -15,25 +15,29 @@ describe('api', () => {
     setTenant('');
   });
 
-  it('prefixes /api, sends json headers and the tenant, parses the body', async () => {
+  it('prefixes /api, sends the tenant header, parses the body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
     setTenant('t1');
     await expect(api<{ ok: boolean }>('/me')).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith('/api/me', {
-      headers: { 'content-type': 'application/json', 'x-tenant-id': 't1' },
+      headers: { 'x-tenant-id': 't1' },
       credentials: 'include',
     });
   });
 
   it('omits the tenant header when none is selected and merges custom headers', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(json({}));
+    const fetchMock = vi.fn().mockImplementation(async () => json({}));
     vi.stubGlobal('fetch', fetchMock);
     await api('/x', { headers: { 'x-extra': '1' } });
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({ 'x-extra': '1' });
+    // a body (post/patch/put) declares JSON; DELETE must not, or Fastify answers 400
+    await post('/y', { a: 1 });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
       'content-type': 'application/json',
-      'x-extra': '1',
     });
+    await del('/z');
+    expect(fetchMock.mock.calls[2]?.[1]?.headers).not.toHaveProperty('content-type');
   });
 
   it('throws the error code of a non-ok body, or the status text', async () => {

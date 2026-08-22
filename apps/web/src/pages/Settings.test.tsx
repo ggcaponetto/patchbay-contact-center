@@ -140,7 +140,7 @@ describe('Settings', () => {
     const snippets = screen.getAllByLabelText(/Embed snippet/) as HTMLTextAreaElement[];
     expect(snippets[0]?.value).toContain(`<script src="${location.origin}/embed/call-button.js">`);
     expect(snippets[0]?.value).toContain('key="pk_1" queue="support"');
-    await userEvent.click(screen.getAllByRole('button', { name: 'delete' })[1]!);
+    await userEvent.click(screen.getAllByRole('button', { name: /^delete / })[1]!);
     await waitFor(() => expect(mocks.del).toHaveBeenCalledWith('/admin/embed-keys/k2'));
 
     const create = screen.getByRole('button', { name: 'Create key' });

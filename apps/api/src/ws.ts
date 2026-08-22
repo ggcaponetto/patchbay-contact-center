@@ -31,7 +31,7 @@ import type { WebSocket } from 'ws';
 import type { GetSession } from './auth.ts';
 import type { Db } from './db/client.ts';
 import type { Flow } from './flow.ts';
-import { membershipsOf, queuesOfUser } from './services/tenants.ts';
+import { membershipsOf } from './services/tenants.ts';
 
 /** One open desk socket. A user may have several (tabs); presence is per user. */
 type Conn = { socket: WebSocket; userId: string; tenantId: string; subscribed: Set<string> };
@@ -151,15 +151,12 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       subscribed: new Set(),
     };
     sockets.add(conn);
-    // Queue membership is read once per connection; reconnect after changing queues.
-    const queues = (await queuesOfUser(db, membership.tenantId, user.id)).map((q) => q.key);
     const presence = (status: 'available' | 'busy' | 'away') =>
       flow.routing.setPresence({
         userId: user.id,
         tenantId: membership.tenantId,
         name: user.name,
         status,
-        queues,
       });
 
     socket.on('close', () => {

@@ -20,11 +20,20 @@ const calls = vi.hoisted(() => ({
 }));
 vi.mock('./services/calls.ts', () => calls);
 
-/** Direct `db.select()` chains (queue and user lookups) resolve to no rows. */
-const empty: Record<string, unknown> = {};
-for (const m of ['select', 'from', 'where']) empty[m] = () => empty;
-empty.then = (resolve: (rows: never[]) => void) => resolve([]);
-const db = empty as unknown as Db;
+/**
+ * Direct `db.select()` chains resolve to no rows, except the queue-member lookup
+ * (`select({ userId })`), which returns whatever the test pushed into `membersOf`.
+ */
+const membersOf: { userId: string }[] = [];
+const chain = (rows: () => unknown[]) => {
+  const c: Record<string, unknown> = {};
+  for (const m of ['from', 'where']) c[m] = () => c;
+  c.then = (resolve: (rows: unknown[]) => void) => resolve(rows());
+  return c;
+};
+const db = {
+  select: (fields?: object) => chain(() => (fields ? membersOf : [])),
+} as unknown as Db;
 
 const call = { id: 'c1', tenantId: 't1', queueId: 'q-gone', roomName: 'room', status: 'ai' };
 
@@ -37,6 +46,7 @@ describe('Flow (defensive branches)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sent.length = 0;
+    membersOf.length = 0;
     hub = new EventEmitter();
     lk = fakeLiveKit();
     flow = new Flow(db, lk.livekit, hub, (userId, m) => sent.push([userId, m]));
@@ -56,6 +66,7 @@ describe('Flow (defensive branches)', () => {
       reason: 'why',
       summary: 'what',
       ringSec: 7,
+      members: [],
     });
     expect(calls.addEvent.mock.calls.map((c) => c[2])).toEqual([
       'escalation.requested',
@@ -71,8 +82,8 @@ describe('Flow (defensive branches)', () => {
       tenantId: 't1',
       name: 'Ghost',
       status: 'available',
-      queues: [''],
     });
+    membersOf.push({ userId: 'ghost' });
     const outcome = flow.escalate('c1', 'r', 's', 5);
     await vi.waitFor(() => expect(flow.routing.ringing('c1')).toBe('ghost'));
     expect(flow.routing.accept('c1', 'ghost')).toBe(true);

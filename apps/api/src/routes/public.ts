@@ -83,7 +83,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (app, { db, li
       ...(aiFirst ? { dispatchMetadata: JSON.stringify(metadata) } : {}),
     });
     await setCallStatus(db, id, aiFirst ? 'ai' : 'waiting_human');
-    if (!aiFirst) flow.humanFirst(id, metadata);
+    if (!aiFirst) void flow.humanFirst(id, metadata);
     return { callId: id, roomName, token, url: livekit.url };
   });
 };

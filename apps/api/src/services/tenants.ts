@@ -4,7 +4,7 @@
  * Plain async functions over the Drizzle client; no Fastify, no LiveKit. Routes in
  * `routes/admin.ts` call them almost one-to-one, `auth.ts` uses `bootstrapUser` on first
  * sign-in, `routes/public.ts` uses `resolveEmbedKey` / `originAllowed`, and `ws.ts` uses
- * `membershipsOf` / `queuesOfUser`.
+ * `membershipsOf`.
  *
  * Every function takes the tenant id explicitly and scopes its query to it, so a
  * supervisor can never reach another tenant's rows by guessing ids.
@@ -55,12 +55,13 @@ export async function createTenant(db: Db, name: string, userId: string) {
       settings: defaultTenantSettings(),
     })
     .returning();
-  await db
-    .insert(queue)
-    .values({ id: randomUUID(), tenantId: id, key: 'support', name: 'Support' });
+  const queueId = randomUUID();
+  await db.insert(queue).values({ id: queueId, tenantId: id, key: 'support', name: 'Support' });
   await db
     .insert(membership)
     .values({ id: randomUUID(), userId, tenantId: id, role: 'supervisor' });
+  // The creator can take calls right away; more members are managed in Settings.
+  await db.insert(queueMember).values({ queueId, userId });
   return row!;
 }
 
@@ -219,15 +220,6 @@ export async function setQueueMembers(
     await db.insert(queueMember).values(userIds.map((userId) => ({ queueId, userId })));
   }
   return true;
-}
-
-/** Queues whose members include `userId`, across the tenant. */
-export async function queuesOfUser(db: Db, tenantId: string, userId: string) {
-  return db
-    .select({ id: queue.id, key: queue.key })
-    .from(queueMember)
-    .innerJoin(queue, eq(queue.id, queueMember.queueId))
-    .where(and(eq(queueMember.userId, userId), eq(queue.tenantId, tenantId)));
 }
 
 /**

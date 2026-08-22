@@ -28,8 +28,6 @@ export type Presence = {
   status: AgentStatus;
   /** Call the agent accepted and is still on, or `null`. Set by `accept`, cleared by `release`. */
   callId: string | null;
-  /** Queue keys the agent is a member of. */
-  queues: string[];
 };
 
 /** Ring cycle for one call. Private to the router; exposed to tests only through behavior. */
@@ -49,6 +47,8 @@ type Offer = {
   giveUpAt: number | null;
   /** How long each agent rings before the next one is tried. */
   ringMs: number;
+  /** User ids that may take this call (members of the queue at offer time). */
+  members: Set<string>;
 };
 
 /** Callbacks through which the router talks to the rest of the system. */
@@ -142,6 +142,8 @@ export class Routing {
     giveUpAfterSec?: number;
     /** Seconds each agent rings before the next one is tried. */
     ringSec?: number;
+    /** Members of the queue; only these agents are rung. */
+    members: string[];
   }): void {
     if (this.offers.has(input.callId)) return;
     const offer: Offer = {
@@ -155,6 +157,7 @@ export class Routing {
       timer: null,
       giveUpAt: input.giveUpAfterSec ? this.now() + input.giveUpAfterSec * 1000 : null,
       ringMs: input.ringSec ? input.ringSec * 1000 : this.offerTimeoutMs,
+      members: new Set(input.members),
     };
     this.offers.set(input.callId, offer);
     this.advance(offer);
@@ -217,7 +220,7 @@ export class Routing {
         a.tenantId === offer.tenantId &&
         a.status === 'available' &&
         a.callId === null &&
-        a.queues.includes(offer.queueKey) &&
+        offer.members.has(a.userId) &&
         !offer.tried.has(a.userId) &&
         !this.isRingingSomeone(a.userId),
     );
