@@ -77,6 +77,11 @@ describe('buildServer', () => {
     });
     const health = await app.inject({ url: '/api/health' });
     expect(health.json()).toEqual({ ok: true });
+    expect(health.headers['x-content-type-options']).toBe('nosniff');
+    expect(health.headers['x-frame-options']).toBe('DENY');
+    const root = await app.inject({ url: '/' });
+    expect(root.headers['content-type']).toContain('text/html');
+    expect(root.body).toContain('/api/health');
     const me = await app.inject({ url: '/api/me' });
     expect(me.json()).toEqual({
       user: { id: 'u1', email: 'boss@example.com', name: 'Boss' },

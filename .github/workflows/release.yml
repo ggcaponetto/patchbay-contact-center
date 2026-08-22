@@ -1,0 +1,26 @@
+# Publishes a GitHub release for every semantic-version tag (`vMAJOR.MINOR.PATCH`)
+# pushed from a git-flow release or hotfix branch. Release notes are generated from
+# the merged pull requests and commits since the previous tag; the `CHANGELOG.md`
+# section stays the human-written source of truth.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the tag matches package.json
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          test "$pkg" = "$tag" || { echo "package.json is $pkg but the tag is $tag"; exit 1; }
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

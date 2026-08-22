@@ -1,0 +1,8 @@
+# OWASP ZAP baseline rule levels (used by build/dast.mjs). One rule per line:
+# <rule id>	<IGNORE|WARN|FAIL>	(<name>)
+# Rules not listed keep the default (WARN). Promote a rule to FAIL once the API
+# satisfies it so a regression fails the DAST workflow.
+10021	FAIL	(X-Content-Type-Options Header Missing)
+10038	WARN	(Content Security Policy (CSP) Header Not Set)
+10063	WARN	(Permissions Policy Header Not Set)
+10020	FAIL	(Missing Anti-clickjacking Header)

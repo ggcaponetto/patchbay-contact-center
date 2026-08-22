@@ -238,3 +238,6 @@ docs/api/
 tests/e2e/report/
 tests/e2e/results/
 tests/load/.env.load
+
+# security scan reports (build/sast.mjs, build/dast.mjs)
+reports/

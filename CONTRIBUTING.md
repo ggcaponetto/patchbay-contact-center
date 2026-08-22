@@ -46,8 +46,15 @@ is usually a green PR. Typical fixes:
 - **Style** is enforced by Prettier and ESLint; no enums, namespaces or parameter properties
   (Node strips types at runtime, see `tsconfig.base.json`).
 
-## Commits and pull requests
+Security scanners (`npm run sast`, `npm run dast`) need Docker and run in their own
+workflows on `main`; run them locally before touching auth, the public API or dependencies.
 
+## Branches, commits and pull requests
+
+- **Git flow.** `main` holds released code only; day-to-day work branches off `develop`
+  as `feature/<topic>` and comes back through a pull request into `develop`. Releases go
+  through `release/<version>`, urgent fixes through `hotfix/<version>`; both merge into
+  `main` (tagged `v<version>`) and back into `develop`. See [Releasing](docs/guide/releasing.md).
 - Small, focused commits with an imperative subject line (`Add …`, `Fix …`), body explaining why.
 - One PR per concern; link the TODO.md item or issue it addresses.
 - CI must be green. The optional `e2e` job runs only when LiveKit secrets are configured.

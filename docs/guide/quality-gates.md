@@ -31,7 +31,7 @@ If a hook fails, fix the cause; do not use `--no-verify`.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pushes to `main` and `contact-center-poc`, on pull requests and manually. It is a three-OS matrix (Ubuntu, Windows, macOS) with `fail-fast: false`:
+`.github/workflows/ci.yml` runs on pushes to `main` and `develop`, on pull requests and manually. It is a three-OS matrix (Ubuntu, Windows, macOS) with `fail-fast: false`:
 
 - OS-independent gates (format, lint, knip, cspell, loc, docs) run only on Linux.
 - `typecheck` and `build` run everywhere.
@@ -39,6 +39,19 @@ If a hook fails, fix the cause; do not use `--no-verify`.
 - Agent evals run only when the `LIVEKIT_*` repository secrets exist.
 
 **Codecov** (`codecov.yml`) receives `coverage/lcov.info` and **SonarQube** (`sonar-project.properties`) scans the checkout; both run only when their token secret is set and are informational — `fail_ci_if_error: false`, no quality gate blocks the workflow. The hard gate is vitest's 90% threshold.
+
+### Security scans (SAST and DAST)
+
+Two more workflows run on pushes and pull requests to `main` (and manually), each with its own badge in the README. Both just call the local scripts, so a laptop with Docker gets the same result:
+
+| Workflow   | Command        | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sast.yml` | `npm run sast` | **Static analysis** (`build/sast.mjs`): `npm audit --omit=dev --audit-level=high` on the production dependency tree (a second, full audit is advisory), then [Semgrep](https://semgrep.dev) with the `p/default`, `p/typescript`, `p/nodejs` and `p/secrets` rulesets — the local binary if installed, otherwise the `semgrep/semgrep` Docker image. ERROR findings fail, WARNING/INFO are printed. Tests are excluded via `.semgrepignore`. |
+| `dast.yml` | `npm run dast` | **Dynamic analysis** (`build/dast.mjs`): boots the API on `:4010` against Postgres with the dev bypass off, then runs the [OWASP ZAP baseline scan](https://www.zaproxy.org/docs/docker/baseline-scan/) (spider + passive rules, no attacks) from the `ghcr.io/zaproxy/zaproxy:stable` image. Rules listed as `FAIL` in `build/zap-rules.tsv` break the run; everything else is a warning.                                                   |
+
+Reports are written to `reports/sast` (SARIF + JSON, also uploaded to GitHub code scanning) and `reports/dast` (HTML + JSON), git-ignored locally and attached as workflow artifacts in CI. `npm run security` runs both. They are deliberately **not** part of `validate`: they need Docker and a few minutes, which is too much for a pre-push hook.
+
+**Triage.** A Semgrep ERROR on code you believe is safe: fix it if you can (the rule is usually right), otherwise add a `// nosemgrep: <rule-id>` comment with a reason. A ZAP `FAIL`: add the missing header in `apps/api/src/server.ts` (the `onSend` hook sets the baseline hardening headers). To turn a ZAP warning into a gate once the API satisfies it, set the rule to `FAIL` in `build/zap-rules.tsv`. A vulnerable production dependency: upgrade it; if no fix exists yet, document it in `SECURITY.md` and re-check on the next release.
 
 The separate `docs.yml` workflow builds the VitePress site and publishes it to GitHub Pages on pushes to `main` that touch `docs/**`, `packages/shared/**` or `typedoc.json`.
 

@@ -1,0 +1,3 @@
+# Semgrep (build/sast.mjs): tests are not shipped code.
+**/*.test.ts
+**/*.test.tsx

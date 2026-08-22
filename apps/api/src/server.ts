@@ -78,7 +78,7 @@ declare module 'fastify' {
 /**
  * Builds the Fastify instance (not listening, so tests can `inject()`) and its event hub.
  *
- * Registration order: CORS and `/api/health` first, then the static embed bundle (only if
+ * Registration order: CORS, the hardening headers hook and `/api/health` first, then the static embed bundle (only if
  * `apps/embed/dist` exists), the auth handler, `/api/me`, the route groups and finally the
  * websocket. Route groups are Fastify plugins that receive their dependencies as plugin
  * options, so each file lists exactly what it uses.
@@ -99,7 +99,26 @@ export async function buildServer(deps: ServerDeps) {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
   app.decorateRequest('ctx');
   await app.register(cors, { origin: true, credentials: true });
+  // Baseline hardening headers on every reply (checked by the DAST scan, build/dast.mjs).
+  app.addHook('onSend', async (_request, reply) => {
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'no-referrer');
+  });
   app.get('/api/health', async () => ({ ok: true }));
+  // Root page: tells a human what this origin is and gives crawlers (the DAST spider,
+  // build/dast.mjs) the unauthenticated surface to walk.
+  app.get('/', async (_request, reply) =>
+    reply
+      .type('text/html; charset=utf-8')
+      .send(
+        '<!doctype html><title>Contact Center API</title><h1>Contact Center API</h1>' +
+          '<ul><li><a href="/api/health">/api/health</a></li>' +
+          '<li><a href="/embed/call-button.js">/embed/call-button.js</a></li>' +
+          '<li><a href="/api/auth/get-session">/api/auth/get-session</a></li>' +
+          '<li><a href="/api/me">/api/me</a></li></ul>',
+      ),
+  );
   // Serve the built call button so websites can load it from the API origin.
   const embedDist = fileURLToPath(new URL('../../embed/dist/', import.meta.url));
   if (existsSync(embedDist)) {
