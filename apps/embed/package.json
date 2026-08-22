@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "livekit-client": "^2.22.0"
   },
   "devDependencies": {
