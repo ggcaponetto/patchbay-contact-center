@@ -113,6 +113,8 @@ The `/embed/call-button.js` route exists only after `npm run build -w apps/embed
 
 ## Troubleshooting
 
+**The desk shows the Google button even though `DEV_USER_EMAIL` is set, and the browser console logs 502s for `/api/auth/get-session`.** The Vite proxy cannot reach the API — almost always because the API failed to start. Look for `Port 4000 is already in use` in the `[api]` output of `npm run dev` (with `node --watch` the crashed process stays alive, so the other apps keep running).
+
 **Port 4000 is already in use (for example by NoMachine's `nxd.exe`).** Start the API on another port and point the Vite proxy at it: set `PORT=4100` and `API_PORT=4100` in `.env.local` (the agent also needs `API_ORIGIN=http://localhost:4100`). Alternatively change NoMachine's port.
 
 **The customer connects but the AI never joins.** Check, in order:

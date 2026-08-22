@@ -47,6 +47,17 @@ export async function start(env: NodeJS.ProcessEnv = process.env, deps: BootDeps
     livekit: deps.createLiveKit(),
     ...(devUser ? { devUserEmail: devUser } : { auth: deps.createAuth(db) }),
   });
-  await app.listen({ port: Number(env.PORT ?? 4000), host: '0.0.0.0' });
+  const port = Number(env.PORT ?? 4000);
+  try {
+    await app.listen({ port, host: '0.0.0.0' });
+  } catch (err) {
+    // A taken port (e.g. NoMachine on 4000) is the most common first-run failure.
+    if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      app.log.fatal(
+        `Port ${port} is already in use. Set PORT (API), API_PORT (web proxy) and API_ORIGIN (agent) in .env.local to a free port such as 4100.`,
+      );
+    }
+    throw err;
+  }
   return app;
 }

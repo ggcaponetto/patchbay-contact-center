@@ -3,8 +3,11 @@
  * auth cookies stay first-party; set `API_PORT` when the API does not listen on 4000.
  */
 import react from '@vitejs/plugin-react';
+import dotenv from 'dotenv';
 import { defineConfig } from 'vite';
 
+// The repo-root .env.local is the single source of truth for ports (see .env.example).
+dotenv.config({ path: ['.env.local', '../../.env.local'], quiet: true });
 const apiPort = process.env.API_PORT ?? '4000';
 
 export default defineConfig({

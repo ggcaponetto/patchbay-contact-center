@@ -6,7 +6,7 @@ function fakeDeps() {
   const db = { tag: 'db' };
   const livekit = { tag: 'livekit' };
   const auth = { tag: 'auth' };
-  const app = { listen: vi.fn(async () => undefined) };
+  const app = { listen: vi.fn(async () => undefined), log: { fatal: vi.fn() } };
   const spies = {
     runMigrations: vi.fn(async () => undefined),
     createDb: vi.fn(() => ({ db, close: async () => undefined })),
@@ -51,5 +51,18 @@ describe('start', () => {
     const f = fakeDeps();
     await start({}, f.deps);
     expect(f.spies.createAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains a taken port and rethrows; other listen errors are rethrown silently', async () => {
+    const f = fakeDeps();
+    const busy = Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' });
+    f.app.listen.mockRejectedValueOnce(busy);
+    await expect(start({ PORT: '4000' }, f.deps)).rejects.toBe(busy);
+    expect(f.app.log.fatal).toHaveBeenCalledWith(expect.stringContaining('Port 4000'));
+
+    const other = new Error('boom');
+    f.app.listen.mockRejectedValueOnce(other);
+    await expect(start({}, f.deps)).rejects.toBe(other);
+    expect(f.app.log.fatal).toHaveBeenCalledTimes(1);
   });
 });
