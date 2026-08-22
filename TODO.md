@@ -31,4 +31,3 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 - [ ] Recording consent / audio recordings (LiveKit Egress) if audio, not just transcripts, should be kept.
 - [ ] Human-first mode: while the call is still ringing humans (no AI in the room yet), a customer who hangs up leaves the call in `waiting_human`/`ringing` — nobody reports the end. Use a LiveKit webhook (`room_finished`) or have the API watch the room to mark such calls `ended`.
 - [ ] `Flow.join(mode: 'takeover')` and `Flow.escalate` accept any non-ended status, so `human → waiting_human` is technically reachable; guard the transitions explicitly.
-- [ ] After a desk websocket reconnect the agent is `away` until they toggle again; persist the last status client-side and resend it on reconnect.

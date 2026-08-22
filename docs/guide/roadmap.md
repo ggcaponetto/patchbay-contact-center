@@ -63,7 +63,7 @@ Out of scope for this round (each would be a later channel or module): PSTN/SIP 
 
 Each phase adds contracts to `packages/shared`, routes to the API (all public, permissioned), screens to the desk, rows to the e2e plan, and tests next to the code — `npm run validate` at every step.
 
-### 1. Foundations
+### 1. Foundations — ✅ done
 
 - **Contact model**: `contact` (channel, queue, priority, skills required, preferred agent, timestamps, outcome) replacing the call-centric columns; `call` stays the voice leg.
 - **Routing engine in Postgres**: waiting contacts and offers as rows, selection as a query + scoring function; the in-memory `Routing` becomes a worker loop.
