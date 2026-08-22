@@ -3,7 +3,6 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'packages/shared/**', 'typedoc.json', '.github/workflows/docs.yml']
   workflow_dispatch:
 
 permissions:
