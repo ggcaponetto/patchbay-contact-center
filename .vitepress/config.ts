@@ -27,6 +27,7 @@ const guide = [
   { text: 'Call lifecycle', link: '/docs/guide/call-lifecycle' },
   { text: 'Testing', link: '/docs/guide/testing' },
   { text: 'Quality gates', link: '/docs/guide/quality-gates' },
+  { text: 'Releasing', link: '/docs/guide/releasing' },
   { text: 'Deployment', link: '/docs/guide/deployment' },
   { text: 'Glossary', link: '/docs/guide/glossary' },
 ];
@@ -94,6 +95,7 @@ export default withMermaid(
             text: 'Repository',
             items: [
               { text: 'README', link: '/' },
+              { text: 'Changelog', link: '/CHANGELOG' },
               { text: 'TODO', link: '/TODO' },
               { text: 'AGENTS.md', link: '/AGENTS' },
               { text: 'Contributing', link: '/CONTRIBUTING' },

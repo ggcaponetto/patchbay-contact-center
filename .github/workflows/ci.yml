@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, contact-center-poc]
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 

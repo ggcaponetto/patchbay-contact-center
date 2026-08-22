@@ -1,0 +1,50 @@
+# Dynamic application security testing on the main branch: `npm run dast` boots the
+# API against Postgres and runs the OWASP ZAP baseline scan against it (see
+# build/dast.mjs). Same script as on a laptop; the HTML/JSON report is uploaded as a
+# workflow artifact.
+name: DAST
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dast:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://cc:cc@localhost:5432/cc
+      INTERNAL_API_SECRET: ci-secret
+      BETTER_AUTH_SECRET: ci-secret-that-is-at-least-32-characters
+      WEB_ORIGIN: http://localhost:3000
+      LIVEKIT_URL: wss://dast.invalid
+      LIVEKIT_API_KEY: dast
+      LIVEKIT_API_SECRET: dast-secret
+    steps:
+      - name: Start Postgres
+        run: |
+          docker run -d --name pg -e POSTGRES_USER=cc -e POSTGRES_PASSWORD=cc -e POSTGRES_DB=cc -p 5432:5432 postgres:17-alpine
+          for i in $(seq 1 30); do docker exec pg pg_isready -U cc && break; sleep 1; done
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The API serves apps/embed/dist when it exists; build it so the scan covers it.
+      - run: npm run -w apps/embed build
+      - run: npm run dast
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-report
+          path: reports/dast

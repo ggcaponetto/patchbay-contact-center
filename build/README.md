@@ -24,3 +24,13 @@ loc:   5577  total (11% of the 50000 budget)
 ### Why
 
 The budget exists for solo-developer maintainability: the repo must stay small enough for one person to hold in their head. Raising `BUDGET` in `build/loc.mjs` is a product decision, not a fix for a failing gate — delete or simplify code instead.
+
+## `sast.mjs` — static security scan
+
+`npm run sast` runs `npm audit --omit=dev --audit-level=high` (blocking) and a full `npm audit` (advisory), then Semgrep with the community TypeScript/Node/secrets rulesets — the local `semgrep` binary when present, otherwise the `semgrep/semgrep` Docker image mounted on the checkout. Only ERROR-severity findings fail the run; the JSON and SARIF reports go to `reports/sast/`. Test files are excluded via `.semgrepignore`. Runs in `.github/workflows/sast.yml`.
+
+## `dast.mjs` — dynamic security scan
+
+`npm run dast` starts the API on `DAST_PORT` (default `4010`, dev bypass off, `NODE_ENV=production`) against the local Postgres, waits for `/api/health`, runs the OWASP ZAP baseline scan from `ghcr.io/zaproxy/zaproxy:stable` against `host.docker.internal:<port>`, then stops the API. `zap-rules.tsv` decides which rules are `FAIL` (break the run), `WARN` (reported) or `IGNORE`. The API's root page links the public endpoints so the spider has something to walk. Reports go to `reports/dast/`. Runs in `.github/workflows/dast.yml`.
+
+Both scanners are described in [Quality gates](/docs/guide/quality-gates#security-scans-sast-and-dast).

@@ -10,6 +10,9 @@ Postgres for the next LLM to act on.
 
 [![CI](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml/badge.svg)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml)
 [![Docs](https://github.com/ggcaponetto/livekit-playground/actions/workflows/docs.yml/badge.svg)](https://ggcaponetto.github.io/livekit-playground/)
+[![SAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml)
+[![DAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml)
+[![Release](https://img.shields.io/github/v/release/ggcaponetto/livekit-playground?sort=semver)](https://github.com/ggcaponetto/livekit-playground/releases)
 [![codecov](https://codecov.io/gh/ggcaponetto/livekit-playground/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/livekit-playground)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ggcaponetto_livekit-playground)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=ncloc)](https://sonarcloud.io/summary/overall?id=ggcaponetto_livekit-playground)
@@ -113,7 +116,7 @@ walkthrough, env var reference and troubleshooting are in
 | `packages/shared` | zod contracts shared by every app (settings, statuses, WebSocket protocol)                     |
 | `tests/`          | Playwright end-to-end (`e2e/`) and Artillery load (`load/`) suites                             |
 | `docs/`           | Hand-written guides (`guide/`) and the generated API reference (`api/`)                        |
-| `build/`          | Repo tooling (LOC budget gate)                                                                 |
+| `build/`          | Repo tooling (LOC budget gate, SAST/DAST scanners)                                             |
 
 Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so there is no build step in the dev loop.
 
@@ -127,6 +130,8 @@ Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so ther
 | `npm run test:integration` | `*.integration.test.ts` — Postgres routes/flow, LLM-as-judge agent evals               |
 | `npm run test:e2e`         | Playwright against the real stack incl. LiveKit Cloud (opt-in)                         |
 | `npm run test:load`        | Artillery HTTP + WebSocket profile against a running API on :4100 (opt-in)             |
+| `npm run sast`             | static security scan: `npm audit` (prod deps) + Semgrep via Docker                     |
+| `npm run dast`             | dynamic security scan: boots the API, OWASP ZAP baseline via Docker (needs Postgres)   |
 | `npm run docs:dev`         | VitePress docs site with the typedoc API reference and mermaid diagrams                |
 | `npm run build`            | production builds of the web desk and the embed script                                 |
 | `npm run loc`              | size report against the 50k-line budget (POC target: under 20k)                        |
@@ -137,15 +142,22 @@ Every push runs `validate` on Linux, Windows and macOS: Prettier, ESLint, `tsc` 
 workspace, [knip](https://knip.dev) (dead code and dependencies), cspell, the LOC gate,
 vitest with **90 % coverage** on logic modules, the Vite builds, and the docs build —
 where typedoc **fails on any undocumented export** and VitePress fails on dead links.
-Husky runs Prettier + typecheck on commit and `validate` on push. Codecov and SonarCloud
-track trends (informational). Details: [Quality gates](docs/guide/quality-gates.md).
+Husky runs Prettier + typecheck on commit and `validate` on push. On `main`, two more
+workflows run the **SAST** (`npm audit` + Semgrep) and **DAST** (OWASP ZAP baseline against
+the booted API) scanners — the same `npm run sast` / `npm run dast` you can run locally with
+Docker. Codecov and SonarCloud track trends (informational). Details:
+[Quality gates](docs/guide/quality-gates.md).
+
+Development follows **git flow** (`develop` integrates, `main` only receives releases and
+hotfixes) and releases are tagged with **semantic versioning** (`v0.1.0`); see
+[Releasing](docs/guide/releasing.md).
 
 ## Documentation
 
 The docs are a VitePress site built from this repository — every folder's `README.md`
 is a page, so architecture notes live next to the code they describe:
 
-- **Guides:** [Getting started](docs/guide/getting-started.md), [Architecture](docs/guide/architecture.md), [Call lifecycle](docs/guide/call-lifecycle.md), [Testing](docs/guide/testing.md), [Quality gates](docs/guide/quality-gates.md), [Deployment](docs/guide/deployment.md), [Glossary](docs/guide/glossary.md)
+- **Guides:** [Getting started](docs/guide/getting-started.md), [Architecture](docs/guide/architecture.md), [Call lifecycle](docs/guide/call-lifecycle.md), [Testing](docs/guide/testing.md), [Quality gates](docs/guide/quality-gates.md), [Releasing](docs/guide/releasing.md), [Deployment](docs/guide/deployment.md), [Glossary](docs/guide/glossary.md)
 - **Apps:** [API](apps/api/README.md) (+ [core modules](apps/api/src/README.md), [routes](apps/api/src/routes/README.md), [services](apps/api/src/services/README.md), [database](apps/api/src/db/README.md)), [AI agent](apps/agent/README.md), [Web desk](apps/web/README.md), [Embed button](apps/embed/README.md), [Shared contracts](packages/shared/README.md), [Tests](tests/README.md)
 - **API reference:** generated by typedoc from the TSDoc comments (`npm run docs:api`)
 
@@ -171,7 +183,8 @@ MCP tools.
 Issues and PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the
 `npm run validate` gate and conventions (tests next to sources, TSDoc on every export,
 a `README.md` per folder), and mind the [Code of Conduct](CODE_OF_CONDUCT.md).
-Security issues: see [SECURITY.md](SECURITY.md).
+Branching and versioning: [Releasing](docs/guide/releasing.md). Security issues: see
+[SECURITY.md](SECURITY.md).
 
 ## License
 

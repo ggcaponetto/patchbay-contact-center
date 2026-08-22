@@ -5,6 +5,7 @@
  * embed key through the admin API and passes it to Artillery as LOAD_EMBED_KEY.
  */
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const API = process.env.LOAD_API ?? 'http://localhost:4100';
 const res = await fetch(`${API}/api/admin/embed-keys`, {
@@ -19,9 +20,14 @@ if (!res.ok) {
 }
 const { publicKey } = await res.json();
 console.log(`seeded embed key ${publicKey}`);
-const run = spawnSync('npx', ['artillery', 'run', 'tests/load/api.yml'], {
+// Run Artillery's JS entry with the current node rather than `npx` through a shell
+// (no shell: nothing to quote, and Windows refuses to spawn .cmd shims without one).
+const artillery = fileURLToPath(import.meta.resolve('artillery/package.json')).replace(
+  /package\.json$/,
+  'bin/run',
+);
+const run = spawnSync(process.execPath, [artillery, 'run', 'tests/load/api.yml'], {
   stdio: 'inherit',
-  shell: true,
   env: { ...process.env, LOAD_EMBED_KEY: publicKey },
 });
 process.exit(run.status ?? 1);
