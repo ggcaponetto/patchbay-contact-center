@@ -7,9 +7,11 @@
  * Agent states (`/state`, wrap-up, the supervisor's force-state) are REST too: every
  * operation of the desk has a public API.
  *
- * Authorization: `member` = signed in and has a membership in the selected tenant
- * (`x-tenant-id` header or the first membership); `supervisor` = member with the
- * `supervisor` role. Every call id is checked against the caller's tenant before use.
+ * Authorization by permission (see `Permission` in `@cc/shared`): reads need
+ * `calls:read`, taking and leaving calls and one's own state `calls:answer`, listen-in /
+ * take-over / force-state `calls:supervise`. The tenant is the one selected by
+ * `x-tenant-id` (or the first membership; an API key's own). Every call id is checked
+ * against the caller's tenant before use.
  *
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
@@ -19,14 +21,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
+import type { Guards } from '../server.ts';
 import { callDetail, listCalls } from '../services/calls.ts';
 import { getTenant } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
-import type { Hook } from './admin.ts';
 import { parseBody } from './util.ts';
 
-/** Plugin options for {@link deskRoutes}. `authenticate` comes from `server.ts`. */
-export type DeskOpts = { db: Db; authenticate: Hook; flow: Flow; sockets: DeskSockets };
+/** Plugin options for {@link deskRoutes}. `guards` come from `server.ts`. */
+export type DeskOpts = { db: Db; guards: Guards; flow: Flow; sockets: DeskSockets };
 
 type P = { Params: { id: string } };
 
@@ -42,23 +44,14 @@ const ForceStateBody = z.union([AgentStateRequest, z.object({ state: z.literal('
  */
 export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   app,
-  { db, authenticate, flow, sockets },
+  { db, guards: { authorize }, flow, sockets },
 ) => {
-  const member: Hook = async (request, reply) => {
-    const denied = await authenticate(request, reply);
-    if (denied !== undefined) return denied;
-    if (!request.ctx.tenantId) return reply.code(403).send({ error: 'no_tenant' });
-    return undefined;
-  };
-  const supervisor: Hook = async (request, reply) => {
-    const denied = await member(request, reply);
-    if (denied !== undefined) return denied;
-    if (request.ctx.role !== 'supervisor') return reply.code(403).send({ error: 'forbidden' });
-    return undefined;
-  };
+  const read = authorize('calls:read');
+  const answer = authorize('calls:answer');
+  const supervise = authorize('calls:supervise');
 
   /** The tenant settings every member needs at the desk (reason codes, wrap-up length). */
-  app.get('/settings', { preHandler: member }, async (request) => {
+  app.get('/settings', { preHandler: read }, async (request) => {
     const tenant = await getTenant(db, request.ctx.tenantId);
     return {
       notReadyReasons: tenant?.settings.notReadyReasons ?? [],
@@ -67,7 +60,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   });
 
   /** Everyone online in the tenant with their state (the `presence` message, on demand). */
-  app.get('/agents', { preHandler: member }, async (request) =>
+  app.get('/agents', { preHandler: read }, async (request) =>
     flow.routing.snapshot(request.ctx.tenantId),
   );
 
@@ -76,7 +69,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     flow.routing.snapshot(tenantId).find((a) => a.userId === userId);
 
   /** Go `ready` or `not_ready` (with a reason code). 409 `offline` / `on_call`. */
-  app.post('/state', { preHandler: member }, async (request, reply) => {
+  app.post('/state', { preHandler: answer }, async (request, reply) => {
     const body = parseBody(AgentStateRequest, request.body, reply);
     if (!body) return undefined;
     const err = flow.routing.setState(request.ctx.user.id, body.state, body.reason);
@@ -85,7 +78,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   });
 
   /** Add the tenant's `acwSec` to my running wrap-up. 409 `not_in_acw`. */
-  app.post('/acw/extend', { preHandler: member }, async (request, reply) => {
+  app.post('/acw/extend', { preHandler: answer }, async (request, reply) => {
     const tenant = await getTenant(db, request.ctx.tenantId);
     const ok = flow.routing.extendAcw(request.ctx.user.id, tenant?.settings.acwSec ?? 30);
     if (!ok) return reply.code(409).send({ error: 'not_in_acw' });
@@ -93,7 +86,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   });
 
   /** Finish wrap-up early: straight to `ready`. */
-  app.post('/acw/done', { preHandler: member }, async (request, reply) => {
+  app.post('/acw/done', { preHandler: answer }, async (request, reply) => {
     const me = mine(request.ctx.user.id, request.ctx.tenantId);
     if (me?.state !== 'acw') return reply.code(409).send({ error: 'not_in_acw' });
     flow.routing.setState(request.ctx.user.id, 'ready');
@@ -107,7 +100,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
    */
   app.post<{ Params: { userId: string } }>(
     '/agents/:userId/state',
-    { preHandler: supervisor },
+    { preHandler: supervise },
     async (request, reply) => {
       const body = parseBody(ForceStateBody, request.body, reply);
       if (!body) return undefined;
@@ -128,10 +121,10 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   );
 
   /** Latest 50 calls of the tenant, newest first. */
-  app.get('/calls', { preHandler: member }, async (request) => listCalls(db, request.ctx.tenantId));
+  app.get('/calls', { preHandler: read }, async (request) => listCalls(db, request.ctx.tenantId));
 
   /** One call with participants, transcript and events. */
-  app.get<P>('/calls/:id', { preHandler: member }, async (request, reply) => {
+  app.get<P>('/calls/:id', { preHandler: read }, async (request, reply) => {
     const detail = await callDetail(db, request.ctx.tenantId, request.params.id);
     return detail ?? reply.code(404).send({ error: 'not_found' });
   });
@@ -140,7 +133,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
    * Accept the offer currently ringing this agent; returns the LiveKit token to join.
    * `routing.accept` is the gate: only the agent being rung right now gets through.
    */
-  app.post<P>('/calls/:id/accept', { preHandler: member }, async (request, reply) => {
+  app.post<P>('/calls/:id/accept', { preHandler: answer }, async (request, reply) => {
     const { id } = request.params;
     if (!(await callDetail(db, request.ctx.tenantId, id))) {
       return reply.code(404).send({ error: 'not_found' });
@@ -153,13 +146,13 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   });
 
   /** Same as the `offer.decline` socket message; always `{ ok: true }`. */
-  app.post<P>('/calls/:id/decline', { preHandler: member }, async (request) => {
+  app.post<P>('/calls/:id/decline', { preHandler: answer }, async (request) => {
     flow.routing.decline(request.params.id, request.ctx.user.id);
     return { ok: true };
   });
 
   /** Supervisors: listen in silently or take the call over. Returns a LiveKit token. */
-  app.post<P>('/calls/:id/join', { preHandler: supervisor }, async (request, reply) => {
+  app.post<P>('/calls/:id/join', { preHandler: supervise }, async (request, reply) => {
     const body = parseBody(z.object({ mode: z.enum(['listen', 'takeover']) }), request.body, reply);
     if (!body) return undefined;
     const { id } = request.params;
@@ -171,7 +164,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
   });
 
   /** The desk left the room. A human agent leaving ends the call. */
-  app.post<P>('/calls/:id/leave', { preHandler: member }, async (request, reply) => {
+  app.post<P>('/calls/:id/leave', { preHandler: answer }, async (request, reply) => {
     const body = parseBody(
       z.object({ role: z.enum(['human', 'supervisor']).default('human') }),
       request.body ?? {},

@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { ApiKeysCard } from '../components/ApiKeysCard.tsx';
 import {
   type EmbedKey,
   type Invite,
@@ -49,6 +50,9 @@ export function Settings() {
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <EmbedCard />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <ApiKeysCard />
       </Grid>
     </Grid>
   );

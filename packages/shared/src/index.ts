@@ -197,15 +197,60 @@ export const AgentPresence = z.object({
 export type AgentPresence = z.infer<typeof AgentPresence>;
 
 /**
- * Role of a user inside a tenant (membership row), checked by the API's desk routes.
+ * Role of a user inside a tenant (membership row). A role is a fixed set of
+ * {@link Permission}s ({@link ROLE_PERMISSIONS}); API keys carry an explicit set instead.
  *
  * - `agent`: can take calls.
- * - `supervisor`: can additionally edit {@link TenantSettings}, manage queues and
- *   listen in on / take over calls.
+ * - `supervisor`: can additionally edit {@link TenantSettings}, manage queues, members,
+ *   API keys, and listen in on / take over calls.
  */
 export const MembershipRole = z.enum(['agent', 'supervisor']);
 /** Inferred type of {@link MembershipRole}. */
 export type MembershipRole = z.infer<typeof MembershipRole>;
+
+/**
+ * What a route requires. Every API operation names exactly one permission; a signed-in
+ * user has the permissions of their role in the selected tenant, an API key the ones it
+ * was created with.
+ *
+ * - `calls:read`: list calls, call detail, who is online, desk settings.
+ * - `calls:answer`: accept / decline / leave calls, change one's own state and wrap-up.
+ * - `calls:supervise`: listen in, take over, force agent states, log agents out.
+ * - `tenant:read`: tenant settings, members, invites, queues, embed keys, API keys (read).
+ * - `tenant:write`: change all of the above.
+ * - `api-keys:manage`: create and revoke API keys.
+ */
+export const Permission = z.enum([
+  'calls:read',
+  'calls:answer',
+  'calls:supervise',
+  'tenant:read',
+  'tenant:write',
+  'api-keys:manage',
+]);
+/** Inferred type of {@link Permission}. */
+export type Permission = z.infer<typeof Permission>;
+
+/** The permissions of each {@link MembershipRole}. */
+export const ROLE_PERMISSIONS: Record<MembershipRole, readonly Permission[]> = {
+  agent: ['calls:read', 'calls:answer'],
+  supervisor: [
+    'calls:read',
+    'calls:answer',
+    'calls:supervise',
+    'tenant:read',
+    'tenant:write',
+    'api-keys:manage',
+  ],
+};
+
+/** Body of `POST /api/admin/api-keys`. */
+export const ApiKeyRequest = z.object({
+  name: z.string().min(1).max(80),
+  permissions: z.array(Permission).min(1),
+});
+/** Inferred type of {@link ApiKeyRequest}. */
+export type ApiKeyRequest = z.infer<typeof ApiKeyRequest>;
 
 /**
  * Job metadata the API passes to the AI agent worker when dispatching it.

@@ -80,6 +80,16 @@ export type Invite = { id: string; email: string; role: string; acceptedAt: stri
  * empty `allowedOrigins` means any website may use the key.
  */
 export type EmbedKey = { id: string; label: string; publicKey: string; allowedOrigins: string[] };
+/** `GET /api/admin/api-keys`; `POST` additionally returns `secret` once. */
+export type ApiKey = {
+  id: string;
+  name: string;
+  prefix: string;
+  permissions: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
 
 /** The tenant every request is scoped to; set once after sign-in. */
 let tenantId = '';

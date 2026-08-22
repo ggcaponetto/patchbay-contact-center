@@ -198,6 +198,25 @@ export const embedKey = pgTable('embed_key', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+/**
+ * Machine credentials for the public API (`Authorization: Bearer ak_…`). Only the SHA-256
+ * of the secret is stored; `prefix` (the first 12 characters) identifies the key in lists.
+ * `permissions` is an explicit subset of `Permission` from `@cc/shared`.
+ */
+export const apiKey = pgTable('api_key', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id')
+    .notNull()
+    .references(() => tenant.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  prefix: text('prefix').notNull(),
+  hash: text('hash').notNull().unique(),
+  permissions: jsonb('permissions').$type<string[]>().default([]).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+});
+
 /** One customer call = one LiveKit room. `status` is the `CallStatus` state machine. */
 export const call = pgTable(
   'call',

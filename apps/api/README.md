@@ -89,6 +89,9 @@ Three kinds of callers, three route groups, one orchestrator:
 
 - **Embed → `/api/public`**: unauthenticated, protected by embed key + origin allow-list.
   Creates the call and returns the customer's LiveKit token.
+- **Integrations → any `/api/desk` or `/api/admin` route**: `Authorization: Bearer ak_…`
+  API key with an explicit permission set (Settings → API keys). Same routes, same
+  contracts as the desk; see `routes/README.md` → Authorization.
 - **Web desk → `/api/desk`, `/api/admin`, `/api/ws`**: cookie session. REST for anything
   that returns data (accepting an offer returns a token), websocket for pushes.
 - **AI agent worker → `/api/internal`**: shared secret. The worker has no database; it

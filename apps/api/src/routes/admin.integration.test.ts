@@ -139,6 +139,105 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
     expect(me.json().memberships).toHaveLength(1);
   });
 
+  it('issues API keys that act as the tenant with exactly their permissions', async () => {
+    const boss = await createUser(db, 'boss@example.com');
+    const tenantId = (await createTenant(db, 'T', boss.id)).id;
+    const bad = await as(boss).inject({
+      method: 'POST',
+      url: '/api/admin/api-keys',
+      payload: { name: 'crm', permissions: ['nope'] },
+    });
+    expect(bad.statusCode).toBe(400);
+    const created = await as(boss).inject({
+      method: 'POST',
+      url: '/api/admin/api-keys',
+      payload: { name: 'crm', permissions: ['calls:read'] },
+    });
+    const { id, secret, prefix } = created.json();
+    expect(secret).toMatch(/^ak_[0-9a-f]{64}$/);
+    expect(prefix).toBe(secret.slice(0, 12));
+    expect(created.json()).not.toHaveProperty('hash');
+
+    const bearer = { authorization: `Bearer ${secret}` };
+    const me = await as(null).inject({ url: '/api/me', headers: bearer });
+    expect(me.json()).toMatchObject({
+      user: { id: `key:${id}`, name: 'crm' },
+      permissions: ['calls:read'],
+      memberships: [],
+    });
+    expect((await as(null).inject({ url: '/api/desk/calls', headers: bearer })).statusCode).toBe(
+      200,
+    );
+    expect((await as(null).inject({ url: '/api/desk/agents', headers: bearer })).json()).toEqual(
+      [],
+    );
+    // not granted: state changes, supervision, tenant admin
+    expect(
+      (
+        await as(null).inject({
+          method: 'POST',
+          url: '/api/desk/state',
+          headers: bearer,
+          payload: { state: 'ready' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await as(null).inject({ url: '/api/admin/tenant', headers: bearer })).statusCode).toBe(
+      403,
+    );
+    // unknown / malformed keys are 401
+    expect(
+      (
+        await as(null).inject({
+          url: '/api/desk/calls',
+          headers: { authorization: 'Bearer ak_00' },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await as(null).inject({ url: '/api/desk/calls', headers: { authorization: 'Bearer nope' } }))
+        .statusCode,
+    ).toBe(401);
+
+    const list = await as(boss).inject({ url: '/api/admin/api-keys' });
+    expect(list.json()).toMatchObject([{ id, name: 'crm', prefix, revokedAt: null }]);
+    expect(list.json()[0].lastUsedAt).not.toBeNull();
+    expect(
+      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).json(),
+    ).toEqual({ ok: true });
+    expect(
+      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).statusCode,
+    ).toBe(404);
+    expect((await as(null).inject({ url: '/api/desk/calls', headers: bearer })).statusCode).toBe(
+      401,
+    );
+    expect(
+      (await as(boss).inject({ url: '/api/admin/api-keys' })).json()[0].revokedAt,
+    ).not.toBeNull();
+    // keys are tenant-scoped: another tenant's supervisor cannot revoke them
+    const other = await createUser(db, 'other@example.com');
+    await createTenant(db, 'O', other.id);
+    const theirs = (
+      await as(boss).inject({
+        method: 'POST',
+        url: '/api/admin/api-keys',
+        payload: { name: 'k', permissions: ['tenant:read'] },
+      })
+    ).json();
+    expect(
+      (await as(other).inject({ method: 'DELETE', url: `/api/admin/api-keys/${theirs.id}` }))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await as(null).inject({
+          url: '/api/admin/tenant',
+          headers: { authorization: `Bearer ${theirs.secret}` },
+        })
+      ).json().id,
+    ).toBe(tenantId);
+  });
+
   it('manages settings, queues, members and embed keys', async () => {
     const boss = await createUser(db, 'boss@example.com');
     const t = (

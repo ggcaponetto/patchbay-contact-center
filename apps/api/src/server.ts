@@ -18,6 +18,7 @@
  * @see apps/api/README.md
  * @packageDocumentation
  */
+import { type Permission, ROLE_PERMISSIONS } from '@cc/shared';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -32,6 +33,7 @@ import { adminRoutes } from './routes/admin.ts';
 import { deskRoutes } from './routes/desk.ts';
 import { internalRoutes } from './routes/internal.ts';
 import { publicRoutes } from './routes/public.ts';
+import { resolveApiKey } from './services/apiKeys.ts';
 import { membershipsOf } from './services/tenants.ts';
 import { DeskSockets, registerWs } from './ws.ts';
 
@@ -66,9 +68,28 @@ export type ServerDeps = {
  * Per-request context filled by the `authenticate` preHandler.
  *
  * `tenantId` is `''` when the user has no membership at all; route hooks turn that into a
- * 403 (`no_tenant`). `role` is the user's role in that tenant.
+ * 403 (`no_tenant`). `role` is the user's role in that tenant and `permissions` what that
+ * role (or the API key) allows — routes are guarded by permission, never by role directly.
+ * An API key acts as a synthetic user `key:<id>` named after the key.
  */
-type Ctx = { user: SessionUser; tenantId: string; role: 'agent' | 'supervisor' };
+type Ctx = {
+  user: SessionUser;
+  tenantId: string;
+  role: 'agent' | 'supervisor';
+  permissions: ReadonlySet<Permission>;
+  actor: 'user' | 'api_key';
+};
+
+/** A preHandler that either replies (401/403) or returns `undefined` to let the route run. */
+export type Hook = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
+
+/** What `buildServer` hands every route plugin to guard its routes. */
+export type Guards = {
+  /** Signed in (cookie or API key); fills `request.ctx`. 401 otherwise. */
+  authenticate: Hook;
+  /** `authenticate` + a tenant + the permission. 403 `no_tenant` / `forbidden` otherwise. */
+  authorize: (permission: Permission) => Hook;
+};
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -142,20 +163,54 @@ export async function buildServer(deps: ServerDeps) {
    * Replies 401 when there is no session; otherwise fills `request.ctx` and returns
    * `undefined` so the route handler runs. Route files wrap this to add role checks.
    */
-  const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
+  const authenticate: Hook = async (request, reply) => {
+    const bearer = /^Bearer\s+(ak_[0-9a-f]+)$/i.exec(String(request.headers.authorization ?? ''));
+    if (bearer) {
+      const key = await resolveApiKey(deps.db, bearer[1]!);
+      if (!key) return reply.code(401).send({ error: 'unauthenticated' });
+      request.ctx = {
+        user: { id: `key:${key.id}`, email: '', name: key.name },
+        tenantId: key.tenantId,
+        role: 'agent',
+        permissions: new Set(key.permissions as Permission[]),
+        actor: 'api_key',
+      };
+      return undefined;
+    }
     const user = await getSession(request.headers);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
     const memberships = await membershipsOf(deps.db, user.id);
     const wanted = request.headers['x-tenant-id'];
     const m = wanted ? memberships.find((x) => x.tenantId === wanted) : memberships[0];
-    request.ctx = { user, tenantId: m?.tenantId ?? '', role: m?.role ?? 'agent' };
+    const role = m?.role ?? 'agent';
+    request.ctx = {
+      user,
+      tenantId: m?.tenantId ?? '',
+      role,
+      permissions: new Set(m ? ROLE_PERMISSIONS[role] : []),
+      actor: 'user',
+    };
     return undefined;
   };
+  const authorize =
+    (permission: Permission): Hook =>
+    async (request, reply) => {
+      const denied = await authenticate(request, reply);
+      if (denied !== undefined) return denied;
+      if (!request.ctx.tenantId) return reply.code(403).send({ error: 'no_tenant' });
+      if (!request.ctx.permissions.has(permission)) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      return undefined;
+    };
+  const guards: Guards = { authenticate, authorize };
 
   app.get('/api/me', { preHandler: authenticate }, async (request) => ({
     user: request.ctx.user,
     isAdmin: adminEmails.includes(request.ctx.user.email.toLowerCase()),
-    memberships: await membershipsOf(deps.db, request.ctx.user.id),
+    memberships:
+      request.ctx.actor === 'api_key' ? [] : await membershipsOf(deps.db, request.ctx.user.id),
+    permissions: [...request.ctx.permissions],
     // The desk shows the "switch user" menu only under the dev-auth bypass.
     devMode: Boolean(deps.devUserEmail),
   }));
@@ -167,8 +222,8 @@ export async function buildServer(deps: ServerDeps) {
   const sockets = new DeskSockets();
   const flow = new Flow(deps.db, deps.livekit, hub, (userId, m) => sockets.toUser(userId, m));
 
-  await app.register(adminRoutes, { prefix: '/api/admin', db: deps.db, authenticate, adminEmails });
-  await app.register(deskRoutes, { prefix: '/api/desk', db: deps.db, authenticate, flow, sockets });
+  await app.register(adminRoutes, { prefix: '/api/admin', db: deps.db, guards, adminEmails });
+  await app.register(deskRoutes, { prefix: '/api/desk', db: deps.db, guards, flow, sockets });
   await app.register(publicRoutes, {
     prefix: '/api/public',
     db: deps.db,

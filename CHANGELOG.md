@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- RBAC and API keys (Phase 1 Foundations): every route names a permission
+  (`calls:read`, `calls:answer`, `calls:supervise`, `tenant:read`, `tenant:write`,
+  `api-keys:manage`); roles are permission sets; supervisors create scoped API keys in
+  Settings (`/api/admin/api-keys`) that act as bearer tokens on the same routes.
 - Contact fields on calls (Phase 1 Foundations): `channel`, `priority`, `requiredSkills`,
   `preferredAgentId`, `language` — the routing inputs every later channel shares. The
   embed sends the customer's language (`language` attribute or `<html lang>`).
