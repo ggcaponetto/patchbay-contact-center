@@ -120,6 +120,60 @@ export const TenantSettings = z.object({
     })
     .prefault({}),
 });
+/**
+ * How a queue picks the next agent to ring, applied after skill filtering:
+ *
+ * - `longest_idle`: ready for the longest time (default; fair by wait).
+ * - `least_occupied`: fewest calls handled since connecting.
+ * - `round_robin`: least-recently offered a call.
+ * - `most_skilled` / `least_skilled`: highest / lowest proficiency sum over the
+ *   required skills (expert-first or keep-experts-free).
+ * - `linear`: fixed order (connection order), like a hunt group.
+ */
+export const RoutingAlgorithm = z.enum([
+  'longest_idle',
+  'least_occupied',
+  'round_robin',
+  'most_skilled',
+  'least_skilled',
+  'linear',
+]);
+/** Inferred type of {@link RoutingAlgorithm}. */
+export type RoutingAlgorithm = z.infer<typeof RoutingAlgorithm>;
+
+/** One skill requirement on a queue: members need `skill` at `min` proficiency or more. */
+export const SkillRequirement = z.object({
+  /** Skill key, e.g. `billing` or `lang:de`. */
+  skill: z.string().min(1).max(40),
+  /** Minimum proficiency 1–5. */
+  min: z.number().int().min(1).max(5).default(1),
+});
+/** Inferred type of {@link SkillRequirement}. */
+export type SkillRequirement = z.infer<typeof SkillRequirement>;
+
+/**
+ * Per-queue routing configuration (stored on the queue row, edited in Settings).
+ * Everything defaults to the pre-skills behavior: no requirements, longest idle.
+ */
+export const QueueConfig = z.object({
+  /** Selection algorithm, see {@link RoutingAlgorithm}. */
+  algorithm: RoutingAlgorithm.default('longest_idle'),
+  /** Skills a member must have to be rung for this queue. */
+  requiredSkills: z.array(SkillRequirement).max(20).default([]),
+  /** Require the caller's language as a `lang:<tag>` skill when the call carries one. */
+  languageRouting: z.boolean().default(false),
+});
+/** Inferred type of {@link QueueConfig}. */
+export type QueueConfig = z.infer<typeof QueueConfig>;
+
+/** One skill a user holds, with proficiency 1–5 (5 = expert). */
+export const UserSkill = z.object({
+  skill: z.string().min(1).max(40),
+  proficiency: z.number().int().min(1).max(5),
+});
+/** Inferred type of {@link UserSkill}. */
+export type UserSkill = z.infer<typeof UserSkill>;
+
 /** Inferred type of {@link TenantSettings}. */
 export type TenantSettings = z.infer<typeof TenantSettings>;
 /** A fresh settings object with every default applied (used for new tenants and tests). */

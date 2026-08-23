@@ -65,6 +65,10 @@ export function admin(request: APIRequestContext) {
       ),
     setQueueMembers: (id: string, userIds: string[]) =>
       json<unknown>(request.put(`${base}/queues/${id}/members`, { data: { userIds } })),
+    setQueueConfig: (id: string, config: Record<string, unknown>) =>
+      json<unknown>(request.put(`${base}/queues/${id}/config`, { data: config })),
+    setSkills: (userId: string, skills: { skill: string; proficiency: number }[]) =>
+      json<unknown>(request.put(`${base}/members/${userId}/skills`, { data: { skills } })),
     createKey: (label: string, allowedOrigins: string[] = []) =>
       json<{ id: string; publicKey: string }>(
         request.post(`${base}/embed-keys`, { data: { label, allowedOrigins } }),

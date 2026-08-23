@@ -26,7 +26,9 @@ const data: Record<string, unknown> = {
     { id: 'i1', email: 'new@x', role: 'agent', acceptedAt: null },
     { id: 'i2', email: 'old@x', role: 'agent', acceptedAt: '2026-01-01T00:00:00Z' },
   ],
-  '/admin/queues': [{ id: 'q1', key: 'support', name: 'Support', memberIds: ['u1'] }],
+  '/admin/queues': [{ id: 'q1', key: 'support', name: 'Support', memberIds: ['u1'], config: {} }],
+  '/admin/members/u1/skills': [{ skill: 'billing', proficiency: 2 }],
+  '/admin/members/u2/skills': [],
   '/admin/embed-keys': [
     { id: 'k1', label: 'Shop', publicKey: 'pk_1', allowedOrigins: ['https://shop'] },
     { id: 'k2', label: 'Blog', publicKey: 'pk_2', allowedOrigins: [] },
@@ -121,11 +123,51 @@ describe('Settings', () => {
     );
   });
 
+  it('edits queue routing and member skills', async () => {
+    renderSettings();
+    expect(await screen.findByText('(support)')).toBeTruthy();
+    // queue routing: algorithm, parsed skill requirements, language toggle
+    await select('Ring order', 'Most skilled');
+    const req = screen.getByLabelText(/Required skills for Support/);
+    await userEvent.type(req, 'billing=3, vip, broken=9');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Match caller language' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save routing' }));
+    await waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith('/admin/queues/q1/config', {
+        algorithm: 'most_skilled',
+        requiredSkills: [
+          { skill: 'billing', min: 3 },
+          { skill: 'vip', min: 1 }, // no level = 1
+          { skill: 'broken', min: 5 }, // levels clamp to 1-5
+        ],
+        languageRouting: true,
+      }),
+    );
+
+    // member skills prefill from the API and save the parsed list
+    const ann = await screen.findByLabelText('Skills of Ann (skill=level, ...)');
+    expect((ann as HTMLInputElement).value).toBe('billing=2');
+    await userEvent.clear(ann);
+    await userEvent.type(ann, 'lang:de=4');
+    await userEvent.click(
+      within(ann.closest('div')!.parentElement!.parentElement!).getByRole('button', {
+        name: 'Save skills',
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.put).toHaveBeenLastCalledWith('/admin/members/u1/skills', {
+        skills: [{ skill: 'lang:de', proficiency: 4 }],
+      }),
+    );
+  });
+
   it('manages queues and their members', async () => {
     renderSettings();
     expect(await screen.findByText('(support)')).toBeTruthy();
     const card = screen.getByText('Queues').parentElement!;
-    const [ann, bob] = within(card).getAllByRole('checkbox');
+    // the first checkbox is now the queue's "Match caller language" toggle
+    const ann = within(card).getByRole('checkbox', { name: 'Ann' });
+    const bob = within(card).getByRole('checkbox', { name: 'Bob' });
     expect(ann).toHaveProperty('checked', true);
     expect(bob).toHaveProperty('checked', false);
     await userEvent.click(bob!);

@@ -76,6 +76,121 @@ describe.skipIf(!hasDb)('Routing (Postgres)', () => {
     });
   });
 
+  /** Gives a user a skill at a proficiency. */
+  const skill = async (userId: string, name: string, proficiency: number) => {
+    const { userSkill } = await import('./db/schema.ts');
+    await db.insert(userSkill).values({ tenantId, userId, skill: name, proficiency });
+  };
+
+  it('filters candidates by required skills', async () => {
+    const a = await agent('a');
+    const b = await agent('b');
+    await skill(a, 'billing', 3);
+    await callRow('cs1');
+    await r.offer({
+      callId: 'cs1',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      skills: [{ skill: 'billing', min: 2 }],
+    });
+    await flush();
+    expect(offersTo()).toEqual([a]); // b never qualifies
+    await r.decline('cs1', a);
+    await flush();
+    expect(nobody).toHaveBeenCalledWith('cs1', tenantId, null);
+  });
+
+  it('orders by proficiency for the skilled algorithms', async () => {
+    const a = await agent('a');
+    const b = await agent('b');
+    await skill(a, 'billing', 1);
+    await skill(b, 'billing', 5);
+    await callRow('cs2');
+    await r.offer({
+      callId: 'cs2',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      algorithm: 'most_skilled',
+      skills: [{ skill: 'billing', min: 1 }],
+    });
+    await flush();
+    expect(offersTo()).toEqual([b]); // the expert first
+    await r.release('cs2');
+    messages.length = 0;
+    await callRow('cs3');
+    await r.offer({
+      callId: 'cs3',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      algorithm: 'least_skilled',
+      skills: [{ skill: 'billing', min: 1 }],
+    });
+    await flush();
+    expect(offersTo()).toEqual([a]); // keep the expert free
+    await r.release('cs3');
+  });
+
+  it('orders by idle time, occupancy and round robin', async () => {
+    // b has been ready longer than a (the clock moves between connects)
+    const b = await agent('b');
+    clock = 5_000;
+    const a = await agent('a');
+    await callRow('cl1');
+    await r.offer({ callId: 'cl1', tenantId, queueKey: 'support', members: [a, b] });
+    await flush();
+    expect(offersTo()).toEqual([b]); // longest idle (the default)
+    await r.accept('cl1', b); // b handled one call
+    await r.release('cl1');
+    messages.length = 0;
+
+    // least_occupied now prefers a (0 handled vs 1)
+    await callRow('cl2');
+    await r.offer({
+      callId: 'cl2',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      algorithm: 'least_occupied',
+    });
+    await flush();
+    expect(offersTo()).toEqual([a]);
+    await r.release('cl2');
+    messages.length = 0;
+
+    // round robin prefers b: a was offered a call more recently
+    await callRow('cl3');
+    await r.offer({
+      callId: 'cl3',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      algorithm: 'round_robin',
+    });
+    await flush();
+    expect(offersTo()).toEqual([b]);
+    await r.release('cl3');
+  });
+
+  it('rings the preferred (sticky) agent first when they are ready', async () => {
+    const a = await agent('a');
+    clock = 5_000;
+    const b = await agent('b'); // b connected later: would lose every ordering
+    await callRow('cp1');
+    await r.offer({
+      callId: 'cp1',
+      tenantId,
+      queueKey: 'support',
+      members: [a, b],
+      preferredUserId: b,
+    });
+    await flush();
+    expect(offersTo()).toEqual([b]);
+    await r.release('cp1');
+  });
+
   it('rings ready queue members one at a time and hands the call to the acceptor', async () => {
     const a = await agent('a');
     const b = await agent('b');
@@ -209,16 +324,17 @@ describe.skipIf(!hasDb)('Routing (Postgres)', () => {
     expect(await of(a)).toMatchObject({ state: 'ready', acwUntil: null });
     await r.busy('c1', 'nobody-here');
 
-    // disconnect while ringing moves the offer on; the other agent is busy ringing c3
+    // disconnect while ringing moves the offer on; the other agent is busy ringing c2.
+    // Longest idle rings b first for c2: a's ready stint restarted just now, b's did not.
     await callRow('c2');
     await callRow('c3');
     await r.offer({ callId: 'c2', tenantId, queueKey: 'support', members: [a, b] });
     await r.offer({ callId: 'c3', tenantId, queueKey: 'support', members: [a, b] });
     await flush();
-    expect(offersTo().slice(-2)).toEqual([a, b]);
+    expect(offersTo().slice(-2)).toEqual([b, a]);
     await r.disconnect(a);
     await r.disconnect('nobody-here');
-    expect(nobody).toHaveBeenCalledWith('c2', tenantId, null);
+    expect(nobody).toHaveBeenCalledWith('c3', tenantId, null);
     expect(await r.presenceOf(a)).toBeUndefined();
 
     // a dead instance's users are swept by the tick (heartbeat older than 30 s)

@@ -183,6 +183,11 @@ export async function setTags(db: Db, id: string, tags: string[]) {
   await db.update(call).set({ tags }).where(eq(call.id, id));
 }
 
+/** Remembers the accepting agent for last-agent (sticky) routing on this call. */
+export async function setPreferredAgent(db: Db, id: string, userId: string) {
+  await db.update(call).set({ preferredAgentId: userId }).where(eq(call.id, id));
+}
+
 /** Persists the recording state of a call together with the active egress id. */
 export async function setRecording(
   db: Db,

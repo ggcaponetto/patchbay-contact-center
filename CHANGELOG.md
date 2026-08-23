@@ -15,6 +15,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Skills-based routing and selection algorithms (Phase 4): members hold skills with
+  proficiency 1-5 (edited in Settings, reskilling applies to the next ring), queues carry
+  a routing configuration — required skills, language routing (`lang:<tag>` from the
+  caller's language) and a selection algorithm (longest idle by default, least occupied,
+  round robin, most/least skilled, fixed order). Sticky last-agent routing per call,
+  and ring priority ages by one per waiting minute.
 - Wallboard and threshold alerts (Phase 3): `GET /api/desk/stats` computes waiting /
   active calls with their oldest ages, agents by state and today's totals on demand;
   `TenantSettings.alerts` thresholds (calls waiting, longest wait, longest call) render

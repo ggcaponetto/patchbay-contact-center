@@ -22,7 +22,7 @@
  * @see apps/api/src/README.md
  * @packageDocumentation
  */
-import type { DispatchMetadata } from '@cc/shared';
+import { type DispatchMetadata, QueueConfig, type SkillRequirement } from '@cc/shared';
 import { eq } from 'drizzle-orm';
 import type { EventEmitter } from 'node:events';
 import type { Bus } from './bus.ts';
@@ -38,6 +38,7 @@ import {
   markParticipantLeft,
   setCallStatus,
   setHeld,
+  setPreferredAgent,
   setRecording,
 } from './services/calls.ts';
 import { getTenant } from './services/tenants.ts';
@@ -137,6 +138,7 @@ export class Flow {
         summary,
         ringSec,
         members,
+        ...this.routingOf(call, q),
       });
     });
   }
@@ -151,6 +153,42 @@ export class Flow {
   }
 
   /**
+   * Routing inputs derived from the queue's `QueueConfig` and the call's contact
+   * fields: the selection algorithm, the skill requirements (queue skills, the
+   * caller's language as `lang:<tag>` when language routing is on, plus any skills
+   * pinned on the call), the sticky agent and the priority.
+   */
+  private routingOf(
+    call: {
+      language: string | null;
+      requiredSkills: string[];
+      preferredAgentId: string | null;
+      priority: number;
+    },
+    q: { config: Record<string, unknown> } | undefined,
+  ): {
+    algorithm: QueueConfig['algorithm'];
+    skills: SkillRequirement[];
+    preferredUserId?: string;
+    priority: number;
+  } {
+    const cfg = QueueConfig.parse(q?.config ?? {});
+    const skills: SkillRequirement[] = [
+      ...cfg.requiredSkills,
+      ...(cfg.languageRouting && call.language != null
+        ? [{ skill: `lang:${call.language}`, min: 1 }]
+        : []),
+      ...(call.requiredSkills ?? []).map((skill) => ({ skill, min: 1 })),
+    ];
+    return {
+      algorithm: cfg.algorithm,
+      skills,
+      ...(call.preferredAgentId != null ? { preferredUserId: call.preferredAgentId } : {}),
+      priority: call.priority ?? 0,
+    };
+  }
+
+  /**
    * Human-first: ring the queue; if nobody picks up in time, dispatch the AI with `fallback`.
    *
    * Fire-and-forget: the public route returns the customer's token right away while the
@@ -162,6 +200,9 @@ export class Flow {
   async humanFirst(callId: string, fallback: DispatchMetadata): Promise<void> {
     const call = await getCall(this.db, callId);
     const members = call ? await this.queueMembers(call.queueId) : [];
+    const [q] = call
+      ? await this.db.select().from(queue).where(eq(queue.id, call.queueId))
+      : [undefined];
     await this.routing.offer({
       callId,
       tenantId: fallback.tenantId,
@@ -170,6 +211,7 @@ export class Flow {
       ringSec: fallback.settings.offerTimeoutSec,
       members,
       fallback,
+      ...(call ? this.routingOf(call, q) : {}),
     });
   }
 
@@ -330,7 +372,11 @@ export class Flow {
     const members = target.kind === 'queue' ? await this.queueMembers(target.id) : [target.id];
     if (members.length === 0) return 'empty_target';
     const tenant = await getTenant(this.db, call.tenantId);
-    const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
+    // For a queue transfer, ring with the *target* queue's key and configuration.
+    const [q] = await this.db
+      .select()
+      .from(queue)
+      .where(eq(queue.id, target.kind === 'queue' ? target.id : call.queueId));
     await markParticipantLeft(this.db, callId, `human:${from.id}`);
     await addEvent(this.db, callId, 'transfer', { userId: from.id, target });
     await this.routing.free(from.id, { acwSec: tenant?.settings.acwSec ?? 0 });
@@ -344,6 +390,12 @@ export class Flow {
       ...(tenant ? { ringSec: tenant.settings.offerTimeoutSec } : {}),
       members,
       retrieveOnAccept: true,
+      // A directed transfer must ring exactly the chosen colleague: no skill gate,
+      // no stickiness. A queue transfer routes like a fresh call on that queue.
+      ...(target.kind === 'queue'
+        ? { algorithm: this.routingOf(call, q).algorithm, skills: this.routingOf(call, q).skills }
+        : {}),
+      priority: call.priority,
     });
     return null;
   }
@@ -487,6 +539,8 @@ export class Flow {
   /** `Routing.onAccepted`: record the event and hand the agent's name to the waiter. */
   private async accepted(callId: string, userId: string): Promise<void> {
     const [u] = await this.db.select().from(user).where(eq(user.id, userId));
+    // Last-agent (sticky) routing: later ring cycles on this call prefer this agent.
+    await setPreferredAgent(this.db, callId, userId);
     await addEvent(this.db, callId, 'offer.accepted', { userId });
     await this.bus.publish({
       kind: 'offer',

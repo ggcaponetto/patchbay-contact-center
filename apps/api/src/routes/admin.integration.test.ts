@@ -300,6 +300,87 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
       payload: { userIds: [] },
     });
     expect(missing.statusCode).toBe(404);
+    // queue routing configuration: stored, defaulted, 404 on foreign queues
+    const cfgPut = await as(boss).inject({
+      method: 'PUT',
+      url: `/api/admin/queues/${sales.id}/config`,
+      headers: hdr,
+      payload: {
+        algorithm: 'most_skilled',
+        requiredSkills: [{ skill: 'billing', min: 2 }],
+        languageRouting: true,
+      },
+    });
+    expect(cfgPut.statusCode).toBe(200);
+    queues = (await as(boss).inject({ url: '/api/admin/queues', headers: hdr })).json();
+    expect(queues.find((q: { key: string }) => q.key === 'sales').config).toMatchObject({
+      algorithm: 'most_skilled',
+      requiredSkills: [{ skill: 'billing', min: 2 }],
+      languageRouting: true,
+    });
+    expect(
+      (
+        await as(boss).inject({
+          method: 'PUT',
+          url: '/api/admin/queues/nope/config',
+          headers: hdr,
+          payload: { algorithm: 'linear' },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await as(boss).inject({
+          method: 'PUT',
+          url: `/api/admin/queues/${sales.id}/config`,
+          headers: hdr,
+          payload: { algorithm: 'psychic' },
+        })
+      ).statusCode,
+    ).toBe(400);
+
+    // member skills: replace, read back, clear
+    const skillsPut = await as(boss).inject({
+      method: 'PUT',
+      url: `/api/admin/members/${boss.id}/skills`,
+      headers: hdr,
+      payload: {
+        skills: [
+          { skill: 'billing', proficiency: 4 },
+          { skill: 'lang:de', proficiency: 2 },
+        ],
+      },
+    });
+    expect(skillsPut.statusCode).toBe(200);
+    const held = (
+      await as(boss).inject({ url: `/api/admin/members/${boss.id}/skills`, headers: hdr })
+    ).json();
+    expect(held).toEqual(
+      expect.arrayContaining([
+        { skill: 'billing', proficiency: 4 },
+        { skill: 'lang:de', proficiency: 2 },
+      ]),
+    );
+    expect(
+      (
+        await as(boss).inject({
+          method: 'PUT',
+          url: `/api/admin/members/${boss.id}/skills`,
+          headers: hdr,
+          payload: { skills: [{ skill: 'billing', proficiency: 9 }] },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await as(boss).inject({
+      method: 'PUT',
+      url: `/api/admin/members/${boss.id}/skills`,
+      headers: hdr,
+      payload: { skills: [] },
+    });
+    expect(
+      (await as(boss).inject({ url: `/api/admin/members/${boss.id}/skills`, headers: hdr })).json(),
+    ).toEqual([]);
+
     const members = (await as(boss).inject({ url: '/api/admin/members', headers: hdr })).json();
     expect(members).toHaveLength(1);
     const invites = (await as(boss).inject({ url: '/api/admin/invites', headers: hdr })).json();

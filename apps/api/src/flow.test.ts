@@ -18,6 +18,7 @@ const calls = vi.hoisted(() => ({
   addEvent: vi.fn(async () => undefined),
   addParticipant: vi.fn(async () => undefined),
   markParticipantLeft: vi.fn(async () => undefined),
+  setPreferredAgent: vi.fn(async () => undefined),
 }));
 vi.mock('./services/calls.ts', () => calls);
 vi.mock('./services/tenants.ts', () => ({ getTenant: async () => undefined }));
@@ -76,6 +77,43 @@ describe('Flow (defensive branches)', () => {
     calls.setCallStatus.mockResolvedValue(undefined);
   });
 
+  it('derives routing inputs from the queue config and the contact fields', () => {
+    const routingOf = (
+      flow as unknown as {
+        routingOf: (c: unknown, q: unknown) => unknown;
+      }
+    ).routingOf.bind(flow);
+    expect(
+      routingOf(
+        { language: 'de', requiredSkills: ['vip'], preferredAgentId: 'u9', priority: 3 },
+        {
+          config: {
+            algorithm: 'round_robin',
+            requiredSkills: [{ skill: 'billing', min: 2 }],
+            languageRouting: true,
+          },
+        },
+      ),
+    ).toEqual({
+      algorithm: 'round_robin',
+      skills: [
+        { skill: 'billing', min: 2 },
+        { skill: 'lang:de', min: 1 },
+        { skill: 'vip', min: 1 },
+      ],
+      preferredUserId: 'u9',
+      priority: 3,
+    });
+    // language routing off, nothing pinned: bare defaults
+    expect(
+      routingOf({ language: 'de', requiredSkills: [], preferredAgentId: null }, undefined),
+    ).toEqual({
+      algorithm: 'longest_idle',
+      skills: [],
+      priority: 0,
+    });
+  });
+
   it('escalates with an empty queue key when the queue row is missing', async () => {
     const updated = vi.fn();
     hub.on('call.updated', updated);
@@ -92,6 +130,9 @@ describe('Flow (defensive branches)', () => {
       summary: 'what',
       ringSec: 7,
       members: [],
+      algorithm: 'longest_idle',
+      skills: [],
+      priority: 0,
     });
     expect(calls.addEvent.mock.calls.map((c) => c[2])).toEqual([
       'escalation.requested',
