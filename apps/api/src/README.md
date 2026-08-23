@@ -45,8 +45,17 @@ time-in-state timers. Logged out = no desk socket.
 - `setState` refuses while `busy` (`on_call`): a state change must never free an agent
   on a call. Leaving `acw` by hand ends the wrap-up.
 - An agent is a **candidate** for an offer when: same tenant, state `ready`, member of
-  the offer's queue, not already tried for this offer, and not currently being rung for
-  another call. The first match in insertion order is taken; there is no load balancing.
+  the offer's queue, not already tried for this offer, not currently being rung for
+  another call, and holding every `skills` requirement; the queue's `RoutingAlgorithm`
+  orders the rest (sticky agent first).
+- **Skill relaxation**: the offer's `skills` are the queue's `requiredSkills` plus the
+  call-pinned ones (`callSkills`: the AI's `escalateToHuman` tags and `lang:<tag>` when
+  language routing is on). When no candidate qualifies and `relaxAt` (offer time +
+  `QueueConfig.relaxAfterSec`) is still ahead, the offer waits instead of reporting
+  nobody (`currentUserId = null`, `ringUntil = relaxAt`); when the tick reaches it,
+  `advance` drops `callSkills` from `skills`, records `escalation.relaxed { dropped }`,
+  marks the offer `relaxed` (visible on `call.offer`) and looks again. Queue skills are
+  never dropped, `relaxAfterSec: 0` never waits, and `giveUpAt` still wins.
 - A ring that times out parks the agent: `not_ready` with reason `RONA` (redirect on no
   answer). Declines and disconnects do not.
 - `release` (call ended or a desk participant left) puts whoever was on the call into
@@ -60,6 +69,8 @@ stateDiagram-v2
   [*] --> ringing: offer(callId)
   ringing --> ringing: decline, timer or disconnect, next candidate
   ringing --> accepted: accept(callId, current)
+  ringing --> waiting: nobody qualified, relaxAt ahead
+  waiting --> ringing: relaxAt reached, callSkills dropped
   ringing --> nobody: no candidate left, or giveUpAt reached
   ringing --> cancelled: release(callId)
   accepted --> [*]: onAccepted

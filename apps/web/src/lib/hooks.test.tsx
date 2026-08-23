@@ -6,7 +6,12 @@ import { useDeskSocket, useLiveRoom, useNow, useRoute } from './hooks.ts';
 /** In-memory stand-ins for `livekit-client`, hoisted so the module mock can use them. */
 const lk = vi.hoisted(() => {
   type Handler = (...args: unknown[]) => void;
-  type Participant = { identity: string; name?: string; attributes: Record<string, string> };
+  type Participant = {
+    identity: string;
+    name?: string;
+    attributes: Record<string, string>;
+    trackPublications?: Map<string, { setSubscribed: (v: boolean) => void }>;
+  };
   const rooms: FakeRoom[] = [];
   class FakeRoom {
     handlers = new Map<string, Handler[]>();
@@ -33,6 +38,7 @@ const lk = vi.hoisted(() => {
       ParticipantDisconnected: 'participantDisconnected',
       ParticipantAttributesChanged: 'participantAttributesChanged',
       TrackSubscribed: 'trackSubscribed',
+      TrackUnsubscribed: 'trackUnsubscribed',
       Disconnected: 'disconnected',
     },
     Track: { Kind: { Audio: 'audio', Video: 'video' } },
@@ -153,10 +159,13 @@ describe('useLiveRoom', () => {
   const join = { token: 'tok', url: 'wss://lk', publish: true };
   const listenOnly = { ...join, publish: false };
 
-  it('does nothing without join info', () => {
+  it('does nothing without join info', async () => {
     const { result } = renderHook(() => useLiveRoom(null));
     expect(result.current.connected).toBe(false);
     expect(lk.rooms).toHaveLength(0);
+    // hold without a room is a no-op
+    await result.current.setHeld(true);
+    expect(result.current.muted).toBe(false);
   });
 
   it('connects, publishes, tracks peers and audio, mutes and cleans up', async () => {
@@ -206,6 +215,77 @@ describe('useLiveRoom', () => {
 
     unmount();
     expect(room.disconnect).toHaveBeenCalled();
+    expect(holder.children).toHaveLength(0);
+  });
+
+  it('holds and retrieves in order, skipping the media participant', async () => {
+    const { result } = renderHook(() => useLiveRoom(join));
+    const room = lk.rooms[0]!;
+    await act(async () => {});
+    expect(result.current.connected).toBe(true);
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    const calls: string[] = [];
+    const pub = (name: string) => ({ setSubscribed: (v: boolean) => calls.push(`${name}:${v}`) });
+    room.remoteParticipants.set('customer:1', {
+      identity: 'customer:1',
+      attributes: { role: 'customer' },
+      trackPublications: new Map([['a', pub('customer')]]),
+    });
+    room.remoteParticipants.set('media:1', {
+      identity: 'media:1',
+      attributes: { role: 'media' },
+      trackPublications: new Map([['b', pub('media')]]),
+    });
+    // The microphone round-trip is slow: the subscribe loop must not wait for it.
+    let release: () => void = () => undefined;
+    room.localParticipant.setMicrophoneEnabled.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    let first: Promise<void>;
+    await act(async () => {
+      first = result.current.setHeld(true);
+    });
+    expect(calls).toEqual(['customer:false']);
+    expect(result.current.muted).toBe(true);
+    // Two more requests while the first is in flight: only the last one is applied.
+    let second: Promise<void>;
+    await act(async () => {
+      void result.current.setHeld(false);
+      second = result.current.setHeld(true);
+    });
+    expect(calls).toEqual(['customer:false']);
+    release();
+    await act(async () => {
+      await first;
+      await second;
+    });
+    // still held: the intermediate retrieve was superseded before it ran
+    expect(calls).toEqual(['customer:false']);
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
+    await act(() => result.current.setHeld(false));
+    expect(calls).toEqual(['customer:false', 'customer:true']);
+    expect(result.current.muted).toBe(false);
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true);
+    // A failing microphone call does not wedge the chain.
+    room.localParticipant.setMicrophoneEnabled.mockRejectedValueOnce(new Error('mic'));
+    await act(async () => {
+      await result.current.setHeld(true).catch(() => undefined);
+    });
+    await act(() => result.current.setHeld(false));
+    expect(calls).toEqual(['customer:false', 'customer:true', 'customer:false', 'customer:true']);
+  });
+
+  it('removes the audio element when a track is unsubscribed', async () => {
+    const { result } = renderHook(() => useLiveRoom(join));
+    const room = lk.rooms[0]!;
+    const holder = document.createElement('div');
+    result.current.audioRef.current = holder;
+    await act(async () => {});
+    const audioEl = document.createElement('audio');
+    const track = { kind: 'audio', attach: () => audioEl, detach: () => [audioEl] };
+    act(() => room.emit(lk.RoomEvent.TrackSubscribed, track));
+    expect([...holder.children]).toEqual([audioEl]);
+    act(() => room.emit(lk.RoomEvent.TrackUnsubscribed, track));
     expect(holder.children).toHaveLength(0);
   });
 

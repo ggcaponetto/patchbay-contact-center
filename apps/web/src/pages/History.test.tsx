@@ -19,6 +19,7 @@ const calls: CallSummary[] = [
     endedAt: '2026-01-01T00:01:05Z',
     aiSummary: 'Asked about refunds',
     customerMeta: {},
+    requiredSkills: ['vip', 'lang:de'],
   },
   {
     id: 'c2',
@@ -35,7 +36,13 @@ describe('History', () => {
   afterEach(cleanup);
 
   it('lists calls and opens one', async () => {
-    api.mockResolvedValue(calls);
+    api.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/desk/settings'
+          ? { skills: [{ key: 'vip', label: 'VIP customers', description: '' }] }
+          : calls,
+      ),
+    );
     const desk = { state: initialState, dispatch: vi.fn(), send: vi.fn(), setStatus: vi.fn() };
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -47,8 +54,27 @@ describe('History', () => {
     expect(screen.getByText('1:05')).toBeTruthy();
     expect(screen.getByText('Ended')).toBeTruthy();
     expect(screen.getByText('With AI')).toBeTruthy();
+    // the Skills column labels the call's pinned skills via the catalogue
+    expect(screen.getByRole('columnheader', { name: 'Skills' })).toBeTruthy();
+    expect(await screen.findByText('VIP customers')).toBeTruthy();
+    expect(screen.getByText('Language: Deutsch')).toBeTruthy();
     await userEvent.click(screen.getByText('sales'));
     expect(location.hash).toBe('#/calls/c2');
     location.hash = '';
+    // rows are keyboard-operable: Enter and Space open the call, other keys do nothing
+    const row = screen.getByRole('row', { name: 'Open call c1 (support)' });
+    row.focus();
+    await userEvent.keyboard('{Tab}');
+    await userEvent.keyboard('x');
+    expect(location.hash).toBe('');
+    row.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(location.hash).toBe('#/calls/c1');
+    location.hash = '';
+    row.focus();
+    await userEvent.keyboard(' ');
+    expect(location.hash).toBe('#/calls/c1');
+    location.hash = '';
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Calls');
   });
 });

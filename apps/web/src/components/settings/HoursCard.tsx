@@ -49,7 +49,7 @@ export function HoursCard() {
   const set = (patchPart: Partial<TenantSettings['hours']>) => setDraft({ ...hours, ...patchPart });
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('hours.title')}
       </Typography>
       <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 2 }}>
@@ -58,7 +58,7 @@ export function HoursCard() {
           label={t('hours.mode')}
           value={hours.mode}
           onChange={(e) => set({ mode: e.target.value as TenantSettings['hours']['mode'] })}
-          sx={{ minWidth: 190 }}
+          sx={{ minWidth: { xs: '100%', sm: 190 } }}
         >
           {(['off', 'auto', 'open', 'closed', 'emergency'] as const).map((m) => (
             <MenuItem key={m} value={m}>
@@ -82,7 +82,7 @@ export function HoursCard() {
             setWindows(e.target.value);
             set({ open: parseWindows(e.target.value) });
           }}
-          sx={{ flex: 1, minWidth: 260 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 260 } }}
         />
         <TextField
           label={t('hours.holidays')}
@@ -98,7 +98,7 @@ export function HoursCard() {
                 .filter((l) => /^\d{4}-\d{2}-\d{2}$/.test(l)),
             });
           }}
-          sx={{ flex: 1, minWidth: 260 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 260 } }}
         />
       </Stack>
       <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 2 }}>
@@ -106,13 +106,13 @@ export function HoursCard() {
           label={t('hours.closedMessage')}
           value={hours.closedMessage}
           onChange={(e) => set({ closedMessage: e.target.value })}
-          sx={{ flex: 1, minWidth: 260 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 260 } }}
         />
         <TextField
           label={t('hours.emergencyMessage')}
           value={hours.emergencyMessage}
           onChange={(e) => set({ emergencyMessage: e.target.value })}
-          sx={{ flex: 1, minWidth: 260 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 260 } }}
         />
       </Stack>
       <Button variant="contained" onClick={() => save.mutate(hours)} disabled={save.isPending}>

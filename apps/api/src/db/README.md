@@ -172,6 +172,21 @@ Constraints worth knowing:
 | `call.queue_id` no cascade               | a queue with call history cannot be deleted silently       |
 | every other FK `ON DELETE CASCADE`       | deleting a tenant or call removes its children             |
 
+### `ring_offer` (routing state)
+
+One row per call that is ringing (see `routing.ts`). Besides the identity columns:
+
+| Column                                                 | Meaning                                                                                                                                                               |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `members`, `tried`, `current_user_id`, `ring_until`    | who may be rung, who was, who is being rung and until when                                                                                                            |
+| `give_up_at`, `ring_ms`, `fallback`                    | whole-cycle deadline (human-first), per-agent ring time, AI dispatch metadata for `onNobody`                                                                          |
+| `algorithm`, `skills`, `preferred_user_id`, `priority` | queue selection algorithm, `SkillRequirement[]` a candidate must meet, sticky agent, priority (+1 per waiting minute)                                                 |
+| `call_skills`                                          | the keys of `skills` that came from the call (AI tags, `lang:<tag>`) and may be dropped; queue skills are never in it                                                 |
+| `relax_at`                                             | when `call_skills` get dropped if nobody qualified answered; `null` = never / already relaxed. While waiting, `current_user_id` is `null` and `ring_until = relax_at` |
+| `relaxed`                                              | true once `call_skills` were dropped (the `call.offer` frame carries it)                                                                                              |
+| `language`                                             | the caller's language, copied into the `call.offer` frame                                                                                                             |
+| `retrieve_on_accept`                                   | blind transfer: whoever accepts also takes the customer off hold                                                                                                      |
+
 Indexes: `call (tenant_id, started_at)`, `transcript_segment (call_id, created_at)`,
 `call_event (call_id, at)`, `media_asset (tenant_id)`, plus Better Auth's `user_id` /
 `identifier` indexes.

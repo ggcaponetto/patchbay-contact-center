@@ -33,12 +33,13 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const remote = (identity: string, role?: string) =>
   ({ identity, attributes: role ? { role } : {} }) as unknown as RemoteParticipant;
 
-const metadata = (overrides: Record<string, unknown> = {}) =>
+const metadata = (overrides: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
     callId: 'c1',
     tenantId: 't1',
     queueKey: 'support',
     settings: { aiAgent: { instructions: 'Acme', greeting: 'Say hi.' }, ...overrides },
+    ...extra,
   });
 
 /** Fake `JobContext`: room events, shutdown callbacks and the connect/shutdown spies. */
@@ -92,7 +93,7 @@ const setup = (meta?: string, participants?: RemoteParticipant[]) => {
   const summaryLlm = { chat: vi.fn(() => ({ collect: async () => ({ text: 'Summary.' }) })) };
   const deps: WorkerDeps = {
     createApi: vi.fn(() => api as unknown as WorkerApi),
-    createSession: () => session as unknown as voice.AgentSession,
+    createSession: vi.fn(() => session as unknown as voice.AgentSession),
     createStt: vi.fn(() => ({ model: 'fake-stt' }) as never),
     createSummaryLlm: () => summaryLlm as unknown as llm.LLM,
     createAgent: vi.fn((opts: AgentOptions) => {
@@ -120,6 +121,20 @@ const setup = (meta?: string, participants?: RemoteParticipant[]) => {
 };
 
 describe('createEntry', () => {
+  it('passes the skill catalogue and the language to the agent and the STT', async () => {
+    const skills = [{ key: 'billing', label: 'Billing', description: 'Invoices' }];
+    const t = setup(metadata({ skills }, { language: 'de-CH' }));
+    await t.entry(t.ctx);
+    expect(t.agentOptions()).toMatchObject({ skills, language: 'de-CH' });
+    expect(t.deps.createSession).toHaveBeenCalledWith('de');
+    // no language on the call: English, and no `language` option for the agent
+    const plain = setup();
+    await plain.entry(plain.ctx);
+    expect(plain.deps.createSession).toHaveBeenCalledWith('en');
+    expect(plain.agentOptions()).not.toHaveProperty('language');
+    expect(plain.agentOptions().skills).toEqual([]);
+  });
+
   it('starts the session before connecting, registers itself and greets', async () => {
     const t = setup();
     await t.entry(t.ctx);
@@ -174,7 +189,18 @@ describe('createEntry', () => {
       'Tell the caller that Sam is joining the call now.',
     );
     expect(t.session.say).toHaveBeenCalledWith(expect.stringMatching(/one moment/i));
-    expect(t.api.escalate).toHaveBeenCalledWith('r', 's', 25);
+    expect(t.api.escalate).toHaveBeenCalledWith({ reason: 'r', summary: 's', ringSec: 25 });
+    // the AI's routing tags travel to the API; empty lists are left out
+    await escalate({ reason: 'r', summary: 's', skills: ['billing'], language: 'it' });
+    expect(t.api.escalate).toHaveBeenLastCalledWith({
+      reason: 'r',
+      summary: 's',
+      ringSec: 25,
+      skills: ['billing'],
+      language: 'it',
+    });
+    await escalate({ reason: 'r', summary: 's', skills: [] });
+    expect(t.api.escalate).toHaveBeenLastCalledWith({ reason: 'r', summary: 's', ringSec: 25 });
     t.api.escalate.mockResolvedValueOnce({ outcome: 'nobody' } as never);
     await expect(escalate({ reason: 'r', summary: 's' })).resolves.toMatch(/no colleague/);
 
@@ -303,9 +329,9 @@ describe('defaultDeps', () => {
     vi.stubEnv('INTERNAL_API_SECRET', 'internal-secret');
     const deps = defaultDeps();
     expect(deps.createApi('c1')).toBeInstanceOf(ApiClient);
-    expect((deps.createStt() as unknown as { model: string }).model).toBe(STT_MODEL);
+    expect((deps.createStt('de') as unknown as { model: string }).model).toBe(STT_MODEL);
     expect(deps.createSummaryLlm()).toBeDefined();
-    expect(deps.createSession()).toBeInstanceOf(voice.AgentSession);
+    expect(deps.createSession('en')).toBeInstanceOf(voice.AgentSession);
     expect(deps.inputOptions()).toEqual({
       noiseCancellation: { enhancement: { model: 'quail-vf-s' } },
     });

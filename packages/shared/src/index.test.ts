@@ -14,6 +14,7 @@ import {
   ServerMessage,
   SoundUrl,
   TenantSettings,
+  baseLanguage,
   defaultTenantSettings,
   roomNameFor,
 } from './index.ts';
@@ -44,7 +45,16 @@ describe('TenantSettings', () => {
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
       sounds: {},
+      skills: [],
     });
+  });
+
+  it('validates the routing skill catalogue', () => {
+    const t = TenantSettings.parse({ skills: [{ key: 'billing', label: 'Billing' }] });
+    expect(t.skills).toEqual([{ key: 'billing', label: 'Billing', description: '' }]);
+    expect(() => TenantSettings.parse({ skills: [{ key: 'Billing', label: 'x' }] })).toThrow();
+    expect(() => TenantSettings.parse({ skills: [{ key: 'lang:de', label: 'x' }] })).toThrow();
+    expect(() => TenantSettings.parse({ skills: [{ key: 'ok', label: '' }] })).toThrow();
   });
 
   it('keeps explicit values and rejects invalid ones', () => {
@@ -83,6 +93,9 @@ describe('sounds', () => {
     expect(t.sounds).toEqual({ ringtone: '/api/public/media/r1' });
     expect(() => TenantSettings.parse({ sounds: { ringback: 'nope' } })).toThrow();
     expect(QueueConfig.parse({}).holdMusicUrl).toBeUndefined();
+    expect(QueueConfig.parse({}).relaxAfterSec).toBe(20);
+    expect(QueueConfig.parse({ relaxAfterSec: 0 }).relaxAfterSec).toBe(0);
+    expect(() => QueueConfig.parse({ relaxAfterSec: 301 })).toThrow();
     expect(QueueConfig.parse({ holdMusicUrl: 'https://x/h.wav' }).holdMusicUrl).toBe(
       'https://x/h.wav',
     );
@@ -123,6 +136,8 @@ describe('DispatchMetadata', () => {
     );
     expect(meta.customerMeta).toEqual({});
     expect(meta.settings.routingMode).toBe('ai-first');
+    expect(meta.language).toBeUndefined();
+    expect(DispatchMetadata.parse({ ...meta, language: 'de-CH' }).language).toBe('de-CH');
   });
 });
 
@@ -136,8 +151,31 @@ describe('websocket messages', () => {
     expect(ServerMessage.parse({ type: 'call.updated', callId: 'c1', status: 'human' }).type).toBe(
       'call.updated',
     );
+    expect(
+      ServerMessage.parse({ type: 'call.updated', callId: 'c1', status: 'human', heldAt: null }),
+    ).toMatchObject({ heldAt: null });
+    expect(
+      ServerMessage.parse({
+        type: 'call.offer',
+        callId: 'c1',
+        queueKey: 'support',
+        expiresAt: '2026-01-01T00:00:00.000Z',
+        requiredSkills: ['billing'],
+        language: 'de',
+        relaxed: true,
+      }),
+    ).toMatchObject({ requiredSkills: ['billing'], language: 'de', relaxed: true });
     expect(() => ClientMessage.parse({ type: 'nope' })).toThrow();
     expect(() => ServerMessage.parse({ type: 'presence', agents: [{ userId: 'u' }] })).toThrow();
+  });
+});
+
+describe('baseLanguage', () => {
+  it('keeps the lowercase primary language', () => {
+    expect(baseLanguage('de-CH')).toBe('de');
+    expect(baseLanguage('EN_us')).toBe('en');
+    expect(baseLanguage(' it ')).toBe('it');
+    expect(baseLanguage('')).toBe('');
   });
 });
 

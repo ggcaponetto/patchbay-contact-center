@@ -75,6 +75,9 @@ export function createWorker(deps: WorkerDeps) {
       return;
     }
     room.onClosed(() => void session.stop());
+    // The room may already be gone (a `moh.stop` raced the join and the room was deleted,
+    // or `onClosed` fired synchronously): never publish into a disconnected room.
+    if (state.cancelled) return;
     deps.log(`moh started for ${cmd.callId} in ${cmd.roomName} (${cmd.music ?? style})`);
     await room.publish(loop, SAMPLE_RATE, FRAME_SAMPLES);
   };

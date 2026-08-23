@@ -80,7 +80,7 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
       priority: 0,
       requiredSkills: [],
       language: 'de-CH',
-      participants: [{ kind: 'customer' }],
+      participants: [{ kind: 'customer', name: null }],
     });
     expect((await srv.as(boss).inject({ url: '/api/desk/calls' })).json()[0]).toMatchObject({
       channel: 'voice',

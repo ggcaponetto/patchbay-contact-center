@@ -35,6 +35,8 @@ describe('RoutingCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(screen.getByText('Coffee')).toBeTruthy();
     await userEvent.click(screen.getByText('Coffee').parentElement!.querySelector('svg')!);
+    // routing skill catalogue: the seeded entry can be removed
+    await userEvent.click(screen.getByRole('button', { name: 'remove skill German tax' }));
     // wrap-up codes: examples, then a custom one with the code derived from the label
     await userEvent.click(screen.getByRole('button', { name: 'Add examples' }));
     expect(screen.getAllByLabelText('Code')).toHaveLength(5);
@@ -44,6 +46,14 @@ describe('RoutingCard', () => {
     await userEvent.type(labels[labels.length - 1]!, 'Billing / Refund');
     const codes = screen.getAllByLabelText('Code') as HTMLInputElement[];
     expect(codes[codes.length - 1]!.value).toBe('billing/refund');
+    // routing skill catalogue: add one with a derived key (the seeded one went above)
+    await userEvent.click(screen.getByRole('button', { name: '+ Add skill' }));
+    await userEvent.type(screen.getAllByLabelText('Label').at(-1)!, 'VIP customers');
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('vip-customers');
+    await userEvent.type(
+      screen.getByLabelText(/Description \(what the AI should match\)/),
+      'Gold and platinum members',
+    );
     await userEvent.click(screen.getByLabelText(/Disposition required/));
     await userEvent.clear(screen.getByLabelText(/AI greeting instruction/));
     await userEvent.type(screen.getByLabelText(/AI greeting instruction/), 'Say hi');
@@ -65,6 +75,13 @@ describe('RoutingCard', () => {
         ],
         dispositionRequired: true,
         aiAgent: { greeting: 'Say hi', instructions: '' },
+        skills: [
+          {
+            key: 'vip-customers',
+            label: 'VIP customers',
+            description: 'Gold and platinum members',
+          },
+        ],
       }),
     );
     expect(toastText()).toContain('saved');

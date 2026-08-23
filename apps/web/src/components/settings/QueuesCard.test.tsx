@@ -22,7 +22,16 @@ describe('QueuesCard', () => {
       'https://cdn.example/loop.wav',
     );
     await userEvent.type(screen.getByLabelText('Required skills for Support'), 'lang:de{Enter}');
+    // the catalogue's keys are suggested for queue requirements too
+    await userEvent.click(screen.getByLabelText('Required skills for Support'));
+    await userEvent.click(await screen.findByRole('option', { name: 'german-tax' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Add', exact: true })[0]!);
+    expect(screen.getByText('german-tax · min 3')).toBeTruthy();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Match caller language' }));
+    const relax = screen.getByLabelText(/Relax skill requirements after/) as HTMLInputElement;
+    expect(relax.value).toBe('20');
+    await userEvent.clear(relax);
+    await userEvent.type(relax, '0');
     await userEvent.click(screen.getByRole('button', { name: 'Save routing of Support' }));
     await waitFor(() =>
       expect(mocks.put).toHaveBeenCalledWith('/admin/queues/q1/config', {
@@ -30,8 +39,10 @@ describe('QueuesCard', () => {
         requiredSkills: [
           { skill: 'vip', min: 2 },
           { skill: 'lang:de', min: 3 },
+          { skill: 'german-tax', min: 3 },
         ],
         languageRouting: true,
+        relaxAfterSec: 0,
         moh: 'calm',
         holdMusicUrl: 'https://cdn.example/loop.wav',
       }),

@@ -16,7 +16,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLiveRoom, useNow } from '../lib/hooks.ts';
 
@@ -42,8 +42,11 @@ type Props = {
   /**
    * Hold state owned by the parent (`POST /calls/:id/hold` / `/retrieve`); the panel
    * shows the button + timer and applies the local audio side (mute + unsubscribe).
+   * `heldAt: undefined` means "not known yet": the panel keeps the last applied state.
    */
-  hold?: { heldAt: string | null; onToggle: () => void; reminderAfterSec: number };
+  hold?: { heldAt: string | null | undefined; onToggle: () => void; reminderAfterSec: number };
+  /** Speaker label per transcript segment (see `speakerLabel` in `lib/store.ts`); defaults to the raw speaker. */
+  labelFor?: (segment: TranscriptSegmentInput) => string;
 };
 
 /**
@@ -54,16 +57,23 @@ type Props = {
  * {@link Transcript} and a hidden container where remote audio elements are attached.
  * No API calls of its own; the parent owns accept/join/leave.
  */
-export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Props) {
+export function CallPanel({ join, title, transcript, onLeave, extras, hold, labelFor }: Props) {
   const { t } = useTranslation();
   const room = useLiveRoom(join);
   const now = useNow();
   const heldFor = hold?.heldAt ? Math.floor((now - Date.parse(hold.heldAt)) / 1000) : 0;
-  // The audio side of hold follows the server state the parent passes down.
+  // The audio side of hold follows the server state the parent passes down; an unknown
+  // state (`undefined`, detail not fetched yet) changes nothing.
   const held = Boolean(hold?.heldAt);
+  const heldKnown = hold?.heldAt !== undefined;
+  const appliedHold = useRef<boolean | null>(null);
   useEffect(() => {
-    if (room.connected) void room.setHeld(held);
-  }, [held, room.connected]);
+    if (!room.connected) appliedHold.current = null;
+    else if (heldKnown && appliedHold.current !== held) {
+      appliedHold.current = held;
+      void room.setHeld(held);
+    }
+  }, [held, heldKnown, room.connected]);
   const [sawCustomer, setSawCustomer] = useState(false);
   const [wasConnected, setWasConnected] = useState(false);
   // Dropped from the room (consult drop, room deleted): fold the panel via onLeave —
@@ -85,8 +95,14 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
 
   return (
     <Paper sx={{ p: 2 }}>
-      <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center' }}>
-        <Typography variant="h6">{title}</Typography>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+      >
+        <Typography variant="h6" component="h2">
+          {title}
+        </Typography>
         <Chip
           size="small"
           color={room.connected ? 'success' : 'default'}
@@ -111,7 +127,7 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
           {join.publish ? t('callPanel.hangUp') : t('callPanel.stopListening')}
         </Button>
       </Stack>
-      <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', rowGap: 1 }}>
         {room.peers.map((p) => (
           <Chip key={p.identity} label={`${p.role}${p.name ? `: ${p.name}` : ''}`} />
         ))}
@@ -122,20 +138,32 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
         </Alert>
       )}
       {extras}
-      <Transcript segments={transcript} />
+      <Transcript segments={transcript} labelFor={labelFor} />
       <div ref={room.audioRef} />
     </Paper>
   );
 }
 
 /**
- * Dense scrollable list of transcript segments (text + speaker role). Shows a
- * placeholder when empty. Index keys are fine: segments are append-only.
+ * Dense scrollable list of transcript segments (text + speaker label). Shows a
+ * placeholder when empty; announces new segments politely to screen readers. Index keys
+ * are fine: segments are append-only. `labelFor` turns a segment into its speaker
+ * label (default: the raw `speaker` role).
  */
-export function Transcript({ segments }: { segments: TranscriptSegmentInput[] }) {
+export function Transcript({
+  segments,
+  labelFor = (s) => s.speaker,
+}: {
+  segments: TranscriptSegmentInput[];
+  labelFor?: ((segment: TranscriptSegmentInput) => string) | undefined;
+}) {
   const { t } = useTranslation();
   return (
-    <List dense sx={{ maxHeight: 360, overflow: 'auto', bgcolor: 'action.hover', borderRadius: 1 }}>
+    <List
+      dense
+      aria-live="polite"
+      sx={{ maxHeight: 360, overflow: 'auto', bgcolor: 'action.hover', borderRadius: 1 }}
+    >
       {segments.length === 0 && (
         <ListItem>
           <ListItemText secondary={t('callPanel.noTranscript')} />
@@ -143,7 +171,7 @@ export function Transcript({ segments }: { segments: TranscriptSegmentInput[] })
       )}
       {segments.map((s, i) => (
         <ListItem key={i}>
-          <ListItemText primary={s.text} secondary={s.speaker} />
+          <ListItemText primary={s.text} secondary={labelFor(s)} />
         </ListItem>
       ))}
     </List>

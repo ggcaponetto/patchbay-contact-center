@@ -5,17 +5,18 @@
  * {@link App} inside it:
  * - i18next (`lib/i18n.ts`) in the language `detectLanguage()` finds (the `cc_lng`
  *   cookie, else the browser), through `I18nextProvider`; `<html lang>` follows.
- * - MUI theme with a dark color scheme available (follows the OS preference) and the
- *   MUI locale bundle of the current language, plus `CssBaseline`.
+ * - MUI theme with a dark color scheme available (follows the OS preference), the MUI
+ *   locale bundle of the current language, responsive font sizes, scrollable tabs and a
+ *   visible focus ring by default, plus `CssBaseline`.
  * - `ToastProvider`: the one snackbar every save confirms itself in.
  * - A TanStack Query client: one retry, data considered fresh for 5 s. Pages re-fetch by
- *   changing query keys (see `callsVersion` in `lib/store.ts`) rather than polling.
+ *   invalidating on `callsVersion` (see `lib/store.ts`) rather than polling.
  *
  * Before anything renders, `bootDevUser()` adopts a dev identity named in the URL
  * (`#/?as=email`, see `lib/devUser.ts`), so the very first request is already that person.
  */
 import { type Language, detectLanguage, normalizeLanguage } from '@cc/i18n';
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import { CssBaseline, ThemeProvider, createTheme, responsiveFontSizes } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode, StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -30,7 +31,36 @@ function LocalizedTheme({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation();
   const lng: Language = normalizeLanguage(i18n.language);
   const theme = useMemo(
-    () => createTheme({ colorSchemes: { dark: true } }, MUI_LOCALES[lng]),
+    () =>
+      responsiveFontSizes(
+        createTheme(
+          {
+            colorSchemes: { dark: true },
+            components: {
+              // Tab strips never overflow the page: they scroll, with arrows on phones too.
+              MuiTabs: {
+                defaultProps: {
+                  variant: 'scrollable',
+                  scrollButtons: 'auto',
+                  allowScrollButtonsMobile: true,
+                },
+              },
+              // A visible focus ring for keyboard users on every button, tab and menu item.
+              MuiButtonBase: {
+                styleOverrides: {
+                  root: {
+                    '&.Mui-focusVisible': {
+                      outline: '2px solid currentColor',
+                      outlineOffset: 2,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          MUI_LOCALES[lng],
+        ),
+      ),
     [lng],
   );
   useEffect(() => {

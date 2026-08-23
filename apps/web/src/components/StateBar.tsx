@@ -69,7 +69,7 @@ export function StateBar({ name, me, now, onError }: Props) {
               : t('common.connecting')
           }
         />
-        <ButtonGroup size="small" disabled={!me || onCall}>
+        <ButtonGroup disabled={!me || onCall}>
           <Button
             variant={state === 'ready' ? 'contained' : 'outlined'}
             color="success"
@@ -122,7 +122,7 @@ export function StateBar({ name, me, now, onError }: Props) {
                   post(`/desk/calls/${me.callId}/disposition`, { code: e.target.value }),
                 );
               }}
-              sx={{ minWidth: 220 }}
+              sx={{ minWidth: { xs: '100%', sm: 220 } }}
             >
               {(settings.data?.dispositions ?? []).map((d) => (
                 <MenuItem key={d.code} value={d.code}>

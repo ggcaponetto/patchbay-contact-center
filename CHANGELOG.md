@@ -7,7 +7,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Attribute-based routing**: a tenant skill catalogue (Settings → Routing & AI →
+  Routing skills), `escalateToHuman(reason, summary, skills?, language?)` — the AI tags
+  catalogue keys and the caller's spoken language, the API stores them on the call and
+  rings only qualified agents; per-queue **relaxation** (`relaxAfterSec`, default 20 s):
+  when nobody qualified is Ready the offer waits, then drops the call-pinned skills and
+  rings anyone (`escalation.relaxed` event). Requested skills, language and the relaxed
+  state are visible in the ring dialog, on the call page and in history. The STT follows
+  the call's language.
+- Transcripts name their speakers: "Ann · Agent", "Customer 1a2b3c4d", "AI assistant"
+  (`GET /desk/calls/:id` participants carry the user's name).
+- Responsive, accessible desk: scrollable header tabs and a compact account menu on
+  phones, skip link and `main` landmark, one `h1` per page, keyboard-operable history
+  rows, full-screen ring dialog on small screens, live regions for the transcript and the
+  ring countdown, focus-visible outlines, wrapping toolbars and responsive settings
+  fields.
+- The embed demo is a credible "Acme Bikes" landing page with the call button in a
+  floating bottom-right launcher (demo-only; the element stays inline); the button gets
+  44 px targets, focus rings, dark-page colors and a polite live region.
+
 ### Fixed
+
+- Retrieve after hold no longer leaves the agent muted/unsubscribed: `call.updated`
+  frames carry `heldAt` (sent before the music stops), the desk keeps its call detail
+  during refetches, `setHeld` is serialized and skips the media participant, and
+  unsubscribed audio elements are removed; the media worker no longer publishes into a
+  room it was told to leave.
 
 - Google sign-in failed with `syntax error at or near "="` on the callback: Better Auth
   1.7 looks OAuth accounts up by `(issuer, account_id)` and the `account` table had no

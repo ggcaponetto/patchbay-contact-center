@@ -22,7 +22,12 @@
  * @see apps/api/src/README.md
  * @packageDocumentation
  */
-import { type DispatchMetadata, QueueConfig, type SkillRequirement } from '@cc/shared';
+import {
+  type DispatchMetadata,
+  QueueConfig,
+  type SkillRequirement,
+  baseLanguage,
+} from '@cc/shared';
 import { eq } from 'drizzle-orm';
 import type { EventEmitter } from 'node:events';
 import type { Bus } from './bus.ts';
@@ -42,6 +47,7 @@ import {
   setRecording,
 } from './services/calls.ts';
 import { getTenant } from './services/tenants.ts';
+import type { CallUpdated } from './ws.ts';
 
 /**
  * Result of a ring cycle, returned to the AI agent worker by the escalation long-poll.
@@ -52,12 +58,28 @@ export type Outcome = { outcome: 'accepted'; agentName: string } | { outcome: 'n
 /** A pending escalation long-poll on this instance. */
 type Waiter = { resolve: (o: Outcome) => void };
 
+/** Input of {@link Flow.escalate}. */
+export type EscalateInput = {
+  /** Call the AI is on. */
+  callId: string;
+  /** Why the AI escalates; shown to the ringing agent. */
+  reason: string;
+  /** What was said so far; shown to the ringing agent. */
+  summary: string;
+  /** Seconds each agent rings before the next one is tried. */
+  ringSec: number;
+  /** Skill keys the AI tagged (already persisted on the call); journaled in the event. */
+  skills?: string[];
+  /** The caller's language (already persisted on the call); journaled in the event. */
+  language?: string;
+};
+
 /**
  * Ties routing to persistence and LiveKit: escalations, human-first ringing,
  * accept / take-over tokens. One instance per API process.
  *
  * Hub events emitted: `presence` (`{ tenantId }`) whenever presence changes, and
- * `call.updated` (`{ tenantId, callId, status }`) after every status write.
+ * `call.updated` (`{ tenantId, callId, status, heldAt }`) after every status or hold write.
  */
 export class Flow {
   /** The router; `ws.ts` feeds it presence, desk routes call `accept` / `decline`. */
@@ -105,26 +127,26 @@ export class Flow {
   /**
    * The AI asked for a human. Resolves when someone accepted or nobody could.
    *
-   * Side effects before ringing: records an `escalation.requested` event and moves the
-   * call to `waiting_human`. Resolves immediately with `nobody` for unknown or ended calls.
+   * Side effects before ringing: records an `escalation.requested` event (with the
+   * AI's `skills` / `language` tags when given) and moves the call to `waiting_human`.
+   * Resolves immediately with `nobody` for unknown or ended calls. The route persists
+   * the tags on the call row before calling this, so `routingOf` picks them up.
    *
-   * @param callId - Call the AI is on.
-   * @param reason - Why the AI escalates; shown to the ringing agent.
-   * @param summary - What was said so far; shown to the ringing agent.
-   * @param ringSec - Seconds each agent rings before the next one is tried.
+   * @param input - See {@link EscalateInput}.
    * @returns Resolves with the {@link Outcome}; never rejects.
    */
-  async escalate(
-    callId: string,
-    reason: string,
-    summary: string,
-    ringSec: number,
-  ): Promise<Outcome> {
+  async escalate(input: EscalateInput): Promise<Outcome> {
+    const { callId, reason, summary, ringSec } = input;
     const call = await getCall(this.db, callId);
     if (!call || call.status === 'ended') return { outcome: 'nobody' };
     const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
     const members = await this.queueMembers(call.queueId);
-    await addEvent(this.db, callId, 'escalation.requested', { reason, summary });
+    await addEvent(this.db, callId, 'escalation.requested', {
+      reason,
+      summary,
+      ...(input.skills ? { skills: input.skills } : {}),
+      ...(input.language ? { language: input.language } : {}),
+    });
     await this.status(callId, 'waiting_human');
     return new Promise<Outcome>((resolve) => {
       // The waiter must exist before `offer` runs: with no agents online, `onNobody`
@@ -155,8 +177,10 @@ export class Flow {
   /**
    * Routing inputs derived from the queue's `QueueConfig` and the call's contact
    * fields: the selection algorithm, the skill requirements (queue skills, the
-   * caller's language as `lang:<tag>` when language routing is on, plus any skills
-   * pinned on the call), the sticky agent and the priority.
+   * caller's language as `lang:<base tag>` when language routing is on, plus any skills
+   * pinned on the call), the call-pinned subset that `relaxAfterSec` may drop
+   * (`callSkills`; a key the queue itself requires is never in it), the call's
+   * language, the sticky agent and the priority.
    */
   private routingOf(
     call: {
@@ -169,23 +193,49 @@ export class Flow {
   ): {
     algorithm: QueueConfig['algorithm'];
     skills: SkillRequirement[];
+    callSkills: string[];
+    relaxAfterSec: number;
+    language?: string;
     preferredUserId?: string;
     priority: number;
   } {
     const cfg = QueueConfig.parse(q?.config ?? {});
+    const lang = call.language ? baseLanguage(call.language) : '';
+    const queueSkills = new Set(cfg.requiredSkills.map((r) => r.skill));
+    const callSkills = [
+      ...new Set([
+        ...(cfg.languageRouting && lang ? [`lang:${lang}`] : []),
+        ...(call.requiredSkills ?? []),
+      ]),
+    ].filter((skill) => !queueSkills.has(skill));
     const skills: SkillRequirement[] = [
       ...cfg.requiredSkills,
-      ...(cfg.languageRouting && call.language != null
-        ? [{ skill: `lang:${call.language}`, min: 1 }]
-        : []),
-      ...(call.requiredSkills ?? []).map((skill) => ({ skill, min: 1 })),
+      ...callSkills.map((skill) => ({ skill, min: 1 })),
     ];
     return {
       algorithm: cfg.algorithm,
       skills,
+      callSkills,
+      relaxAfterSec: cfg.relaxAfterSec,
+      ...(call.language ? { language: call.language } : {}),
       ...(call.preferredAgentId != null ? { preferredUserId: call.preferredAgentId } : {}),
       priority: call.priority ?? 0,
     };
+  }
+
+  /** Announces the call's current status and hold state to the tenant's desks. */
+  private updated(call: {
+    tenantId: string;
+    id: string;
+    status: CallUpdated['status'];
+    heldAt: Date | null;
+  }): void {
+    this.hub.emit('call.updated', {
+      tenantId: call.tenantId,
+      callId: call.id,
+      status: call.status,
+      heldAt: call.heldAt?.toISOString() ?? null,
+    } satisfies CallUpdated);
   }
 
   /**
@@ -276,7 +326,7 @@ export class Flow {
     // `accept` already marked the agent busy; a take-over marks the supervisor.
     if (handling && mode !== 'agent') await this.routing.busy(callId, u.id);
     if (handling) await this.status(callId, 'human');
-    else this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+    else this.updated(call);
     return { token, url: this.livekit.url };
   }
 
@@ -293,9 +343,7 @@ export class Flow {
     await addEvent(this.db, callId, `${role}.left`, { userId: u.id });
     if (role === 'supervisor') {
       const call = await getCall(this.db, callId);
-      if (call) {
-        this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
-      }
+      if (call) this.updated(call);
       return;
     }
     if ((await this.humansOn(callId, u.id)) > 0) {
@@ -322,14 +370,18 @@ export class Flow {
     await this.routing.free(userId, { acwSec: tenant?.settings.acwSec ?? 0 });
   }
 
-  /** Takes the customer off hold: state, event, and the media worker's stop command. */
+  /**
+   * Takes the customer off hold: state, event, `call.updated { heldAt: null }` to the
+   * desks, and only then the media worker's stop command (the desk must learn about the
+   * retrieve before the music dies).
+   */
   async unhold(callId: string): Promise<void> {
     const call = await getCall(this.db, callId);
     if (!call || !call.heldAt) return;
     await setHeld(this.db, callId, false);
     await addEvent(this.db, callId, 'retrieve', {});
+    this.updated({ ...call, heldAt: null });
     await this.bus.publish({ kind: 'media', command: { action: 'moh.stop', callId } });
-    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
   }
 
   /** Puts the customer on hold: state, event, and the media worker's start command
@@ -342,7 +394,7 @@ export class Flow {
     const cfg = QueueConfig.parse(q?.config ?? {});
     const tenant = await getTenant(this.db, call.tenantId);
     const music = cfg.holdMusicUrl ?? tenant?.settings.sounds.holdMusic;
-    await setHeld(this.db, callId, true);
+    const heldAt = await setHeld(this.db, callId, true);
     await addEvent(this.db, callId, 'hold', {});
     const token = await this.livekit.createToken({
       room: call.roomName,
@@ -362,7 +414,7 @@ export class Flow {
         ...(music ? { music } : {}),
       },
     });
-    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+    this.updated({ ...call, heldAt: heldAt ?? new Date() });
   }
 
   /**
@@ -400,12 +452,21 @@ export class Flow {
       retrieveOnAccept: true,
       // A directed transfer must ring exactly the chosen colleague: no skill gate,
       // no stickiness. A queue transfer routes like a fresh call on that queue.
-      ...(target.kind === 'queue'
-        ? { algorithm: this.routingOf(call, q).algorithm, skills: this.routingOf(call, q).skills }
-        : {}),
+      ...(target.kind === 'queue' ? this.transferRouting(this.routingOf(call, q)) : {}),
       priority: call.priority,
     });
     return null;
+  }
+
+  /** The subset of `routingOf` a queue transfer keeps (no stickiness, no priority). */
+  private transferRouting(r: ReturnType<Flow['routingOf']>) {
+    return {
+      algorithm: r.algorithm,
+      skills: r.skills,
+      callSkills: r.callSkills,
+      relaxAfterSec: r.relaxAfterSec,
+      ...(r.language ? { language: r.language } : {}),
+    };
   }
 
   /**
@@ -461,7 +522,7 @@ export class Flow {
       await markParticipantLeft(this.db, callId, consultant.identity);
       await addEvent(this.db, callId, 'consult.dropped', { userId: consultant.userId });
       if (consultant.userId) await this.freeUser(callId, consultant.userId);
-      this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+      this.updated(call);
       return null;
     }
     await this.unhold(callId);
@@ -471,7 +532,7 @@ export class Flow {
     if (mode === 'transfer') {
       await markParticipantLeft(this.db, callId, `human:${from.id}`);
       await this.freeUser(callId, from.id);
-      this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+      this.updated({ ...call, heldAt: null });
     }
     return null;
   }
@@ -508,7 +569,7 @@ export class Flow {
       userId: by.id,
       ...(egressId === null ? {} : { egressId }),
     });
-    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+    this.updated(call);
     return null;
   }
 
@@ -579,6 +640,6 @@ export class Flow {
     status: 'waiting_human' | 'human' | 'ai' | 'ended',
   ): Promise<void> {
     const row = await setCallStatus(this.db, callId, status);
-    if (row) this.hub.emit('call.updated', { tenantId: row.tenantId, callId, status });
+    if (row) this.updated(row);
   }
 }

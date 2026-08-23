@@ -65,7 +65,8 @@ src/
     LanguageMenu.tsx    app-bar language selector (English / Deutsch / Italiano)
     ApiKeysCard.tsx     Settings → API keys (create, revoke, delete)
     settings/           one card per settings tab: RoutingCard (+ CodesEditor for wrap-up
-                        codes), HoursCard, TeamCard (+ SkillsEditor chips), QueuesCard,
+                        codes, SkillCatalogEditor for routing skills), HoursCard, TeamCard
+                        (+ SkillsEditor chips), QueuesCard,
                         SoundsCard (hold music / ringtone / ringback: URL or upload), EmbedCard
   lib/
     api.ts              fetch wrapper, auth client, DTO types, uploadMediaAsset
@@ -153,6 +154,20 @@ Notes for the curious:
   `not_ready` again — and, since the state comes from the server, the desk shows that.
 - A `logout` frame (supervisor forced it) stops the reconnect loop and shows a banner.
 
+## Attribute-based routing in the desk
+
+When the AI hands over it tags the call with skill keys from the tenant's **routing skill
+catalogue** and the caller's language; the API routes to matching agents and the desk
+shows what was asked for. The ring dialog lists the pinned skills and the language as
+chips (`skillLabel` in `lib/store.ts` turns `vip` into its catalogue label and `lang:it`
+into "Language: Italiano") plus a warning chip "Requirements relaxed" once the queue's
+`relaxAfterSec` dropped the skills. The call page repeats the chips in its header and
+narrates the `escalation.requested` / `escalation.relaxed` events; History has a Skills
+column (hidden on phones). The catalogue itself is edited in Settings → Routing & AI
+("Routing skills": label, key derived from the label, description for the AI); its keys
+are suggested in every skills editor (Team & skills, queue requirements), and each queue
+sets "Relax skill requirements after (s, 0 = never)".
+
 ## Supervisors: listen in and take over
 
 On a live call's page (`#/calls/<id>`) a supervisor gets two buttons. Both call
@@ -176,10 +191,12 @@ calls it whenever the selected membership changes. Non-2xx responses throw an
 **`store.ts`** — `reduce(state, action)` and `initialState`. Actions are either local
 (`socket`, `myStatus`, `offer.clear`) or `{ type: 'server', message }` wrapping a
 `ServerMessage`. The reducer keeps: connection flag, own status, current offer, presence
-list, latest status per call, live transcript segments per call and `callsVersion`,
+list, latest status per call, live transcript segments per call, the hold state per
+call (`held`, from the `call.updated` frames that carry `heldAt`) and `callsVersion`,
 a counter bumped on every `call.updated`. Helpers: `secondsLeft`, `formatDuration`,
-`statusLabel` / `statusColor`, `parseRoute`. Everything here is pure and covered by
-`store.test.ts`.
+`statusLabel` / `statusColor`, `parseRoute`, `speakerLabel` (transcript speaker →
+"Ann · Agent", "Customer 1a2b3c4d", "AI assistant"). Everything here is pure and
+covered by `store.test.ts`.
 
 **`hooks.ts`**
 
@@ -190,7 +207,11 @@ a counter bumped on every `call.updated`. Helpers: `secondsLeft`, `formatDuratio
 - `useLiveRoom(join)` wraps a `livekit-client` `Room`: connects with `join.token`,
   enables the microphone when `join.publish`, attaches every subscribed audio track into
   the element referenced by `audioRef`, tracks remote peers (identity, name, `role`
-  attribute) and exposes `toggleMute`. Disconnects on unmount or when `join` changes.
+  attribute) and exposes `toggleMute` and `setHeld`. Disconnects on unmount or when
+  `join` changes. `setHeld` is serialized (calls queue behind each other and the latest
+  requested state wins), unsubscribes remote audio before the microphone round-trip,
+  skips the `media` participant and removes detached `<audio>` elements on
+  `TrackUnsubscribed`.
 - `useRoute()` and `useNow()` are the tiny helpers described above.
 
 ## Conventions
@@ -200,10 +221,13 @@ a counter bumped on every `call.updated`. Helpers: `secondsLeft`, `formatDuratio
 - **Routing**: hash routes only; add cases to `Route` / `parseRoute` rather than a
   router dependency.
 - **Server data**: `useQuery` with array keys. Lists that must refresh when a call
-  changes include `desk.state.callsVersion` in their key
-  (`['calls', callsVersion]`, `['call', id, callsVersion]`), so a `call.updated`
-  websocket frame is all it takes to re-fetch. Mutations call
-  `queryClient.invalidateQueries` on success.
+  changes include `desk.state.callsVersion` in their key (`['calls', callsVersion]`),
+  so a `call.updated` websocket frame is all it takes to re-fetch. Anything a control
+  depends on (the hold button, recording state) must **not** use a key that changes —
+  `data` is `undefined` while a new key loads and the control flickers. Keep the key
+  stable (`['call', id]`) and `invalidateQueries` when `callsVersion` changes: the old
+  data stays until the new one arrives. Prefer the socket's value where it exists
+  (`state.held[id]` over `detail.heldAt`). Mutations call `invalidateQueries` on success.
 - **Feedback**: every settings mutation reports through `useToast()` (`onSuccess` →
   "… saved", `onError` → the API's error code) and disables its button while pending.
   Destructive actions go through `ConfirmButton`. No free-text mini-languages in forms:
@@ -217,6 +241,37 @@ a counter bumped on every `call.updated`. Helpers: `secondsLeft`, `formatDuratio
   from `Shell`.
 - **Formatting/linting**: root `npm run format` and `npm run lint`; imports are sorted
   by the prettier plugin.
+
+## Accessibility and responsiveness
+
+The desk is used on laptops but also checked on a phone (`tests/e2e/specs/desk/mobile.spec.ts`,
+390 px wide). The conventions:
+
+- **Landmarks and headings**: `Shell` renders the page inside `<main id="main">`, with a
+  "Skip to content" link that is visually hidden until focused. Every page renders
+  exactly one `h1` (`<Typography variant="h5" component="h1">`, e.g. "Desk", "Calls",
+  "Settings"); cards use `component="h2"`. Big numbers on the wallboard are `div`s,
+  not headings.
+- **Theme defaults** (`main.tsx`): `MuiTabs` are `scrollable` with scroll buttons on
+  mobile, so tab strips never overflow; `MuiButtonBase` gets a visible focus ring
+  (`.Mui-focusVisible`); `responsiveFontSizes` scales the headings down on phones.
+- **App bar**: below the `md` breakpoint the language select, tenant select, dev-user
+  menu and Sign out fold into an account `IconButton` (`aria-label` "Account") that
+  opens a `Menu` with the same controls. Above `md` they are inline.
+- **Layout**: rows of buttons and inputs are `Stack direction="row"` with
+  `flexWrap: 'wrap', rowGap`; fixed input widths become responsive
+  (`{ xs: '100%', sm: 200 }`). Tables sit in a `TableContainer` with
+  `overflowX: 'auto'` and hide secondary columns on `xs` (`display: { xs: 'none', md:
+'table-cell' }`); the page body must never scroll horizontally.
+- **Keyboard**: clickable table rows carry `tabIndex={0}`, an `aria-label` and open on
+  Enter / Space. Icon-only buttons always have an `aria-label`. Primary actions keep the
+  default button size (40 px touch target); `size="small"` is for secondary actions in
+  dense lists.
+- **Dialogs and live regions**: the incoming-call dialog is `fullScreen` below `sm`,
+  has `aria-labelledby` / `aria-describedby`, focuses Accept and announces the
+  countdown with `aria-live="polite"`; the transcript list is `aria-live="polite"` too.
+- **Locators**: the Playwright page objects (`tests/e2e/support/pages.ts`) find things
+  by role and name — keep headings, labels and button texts stable when restyling.
 
 ## Internationalization
 

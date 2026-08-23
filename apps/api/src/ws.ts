@@ -94,6 +94,14 @@ export class DeskSockets {
   }
 }
 
+/** Payload of the hub's `call.updated` event (`Flow`, routes); `heldAt` is ISO or `null` when known. */
+export type CallUpdated = {
+  tenantId: string;
+  callId: string;
+  status: CallStatus;
+  heldAt?: string | null;
+};
+
 /** Dependencies of {@link registerWs}; `server.ts` provides them. */
 export type WsDeps = {
   db: Db;
@@ -128,11 +136,16 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
   // get them, then deliver bus messages to the sockets held here.
   hub.on(
     'call.updated',
-    ({ tenantId, callId, status }: { tenantId: string; callId: string; status: CallStatus }) =>
+    ({ tenantId, callId, status, heldAt }: CallUpdated) =>
       void sockets.bus.publish({
         kind: 'tenant',
         tenantId,
-        message: { type: 'call.updated', callId, status },
+        message: {
+          type: 'call.updated',
+          callId,
+          status,
+          ...(heldAt === undefined ? {} : { heldAt }),
+        },
       }),
   );
   hub.on(

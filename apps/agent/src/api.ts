@@ -25,6 +25,15 @@ import type { CallStatus, TranscriptSegmentInput } from '@cc/shared';
  */
 export type EscalationOutcome = { outcome: 'accepted'; agentName: string } | { outcome: 'nobody' };
 
+/** Body of `POST /api/internal/calls/:id/escalate` (see {@link ApiClient.escalate}). */
+export type EscalateRequest = {
+  reason: string;
+  summary: string;
+  ringSec: number;
+  skills?: string[];
+  language?: string;
+};
+
 /**
  * Minimal client for the API's `/api/internal` endpoints. Errors are logged, never thrown.
  *
@@ -82,13 +91,12 @@ export class ApiClient {
    * only answers this request once the outcome is known, so the promise can stay pending
    * for `ringSec` × (number of agents) seconds. Any transport error maps to `nobody`.
    *
-   * @param reason - Why the caller needs a human (shown on the desk offer).
-   * @param summary - Conversation so far (shown on the desk offer).
-   * @param ringSec - Seconds each agent's offer rings; usually `TenantSettings.offerTimeoutSec`.
+   * @param input - `reason` and `summary` are shown on the desk offer; `ringSec` is how
+   *   long each agent's offer rings (usually `TenantSettings.offerTimeoutSec`); `skills`
+   *   are catalogue keys to route by and `language` the caller's spoken language.
    */
-  async escalate(reason: string, summary: string, ringSec: number): Promise<EscalationOutcome> {
-    const res = (await this.post('/escalate', { reason, summary, ringSec })) as
-      EscalationOutcome | undefined;
+  async escalate(input: EscalateRequest): Promise<EscalationOutcome> {
+    const res = (await this.post('/escalate', input)) as EscalationOutcome | undefined;
     return res ?? { outcome: 'nobody' };
   }
 

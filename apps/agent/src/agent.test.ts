@@ -5,6 +5,7 @@
  */
 import { llm } from '@livekit/agents';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { z } from 'zod';
 import { type AgentActions, LLM_MODEL, createAgent, summarize } from './agent.ts';
 
 /** A `llm.LLM` stand-in whose `chat()` resolves to a fixed text; records the chat context. */
@@ -40,6 +41,41 @@ describe('createAgent', () => {
     const plain = createAgent({ actions: actions(), llm: fakeLlm('').llm });
     expect(plain.instructions).not.toContain('# Company instructions');
     expect(plain.instructions).toContain('# Escalation');
+    expect(plain.instructions).not.toContain('# Routing skills');
+  });
+
+  it('lists the routing skill catalogue and offers it as the skills enum', () => {
+    const skills = [
+      { key: 'billing', label: 'Billing', description: 'Invoices and refunds' },
+      { key: 'mechanical-engineering', label: 'Mechanical engineering', description: '' },
+    ];
+    const agent = createAgent({
+      skills,
+      language: 'de-CH',
+      actions: actions(),
+      llm: fakeLlm('').llm,
+    });
+    expect(agent.instructions).toContain(
+      [
+        '# Routing skills',
+        '',
+        '- billing — Billing: Invoices and refunds',
+        '- mechanical-engineering — Mechanical engineering',
+        '',
+      ].join('\n'),
+    );
+    expect(agent.instructions).toContain("caller's language as de-CH");
+    const params = agent.toolCtx.functionTools['escalateToHuman']!.parameters as z.ZodObject<
+      Record<string, z.ZodTypeAny>
+    >;
+    expect(params.safeParse({ reason: 'r', summary: 's', skills: ['billing'] }).success).toBe(true);
+    expect(params.safeParse({ reason: 'r', summary: 's', skills: ['nope'] }).success).toBe(false);
+    // without a catalogue there is no `skills` parameter at all, but `language` stays
+    const bare = createAgent({ actions: actions(), llm: fakeLlm('').llm });
+    const bareParams = bare.toolCtx.functionTools['escalateToHuman']!.parameters as z.ZodObject<
+      Record<string, z.ZodTypeAny>
+    >;
+    expect(Object.keys(bareParams.shape).sort()).toEqual(['language', 'reason', 'summary']);
   });
 
   it('builds the LiveKit Inference LLM by default', () => {
@@ -64,6 +100,8 @@ describe('createAgent', () => {
       escalate.execute({ reason: 'wants a human', summary: 'Bike broke.' }, toolOpts),
     ).resolves.toBe('Tell the caller Sam is joining.');
     expect(acts.escalate).toHaveBeenCalledWith({ reason: 'wants a human', summary: 'Bike broke.' });
+    await escalate.execute({ reason: 'r', summary: 's', language: 'it' }, toolOpts);
+    expect(acts.escalate).toHaveBeenLastCalledWith({ reason: 'r', summary: 's', language: 'it' });
 
     const endCall = tools['endCall']!;
     await expect(endCall.execute({}, toolOpts)).resolves.toMatch(/goodbye/i);

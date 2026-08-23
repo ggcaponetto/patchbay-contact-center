@@ -48,6 +48,8 @@ describe('TeamCard', () => {
     expect(save).toHaveProperty('disabled', true);
     const input = screen.getByLabelText('Add a skill to Ann');
     await userEvent.click(input);
+    // ... and so are the keys of the routing skill catalogue
+    expect(await screen.findByRole('option', { name: 'german-tax' })).toBeTruthy();
     await userEvent.click(await screen.findByRole('option', { name: 'vip' }));
     await userEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
     expect(screen.getByText('vip · level 3')).toBeTruthy();

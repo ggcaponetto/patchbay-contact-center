@@ -444,5 +444,17 @@ export const ringOffer = pgTable('ring_offer', {
   preferredUserId: text('preferred_user_id'),
   /** Call priority (higher first) plus aging when agents are contended. */
   priority: integer('priority').default(0).notNull(),
+  /**
+   * When the call-pinned skills (`callSkills`) get dropped if nobody qualified was rung
+   * by then; `null` = never (or already relaxed). While waiting, `currentUserId` is
+   * `null` and `ringUntil = relaxAt` so the tick advances the offer at that moment.
+   */
+  relaxAt: timestamp('relax_at', { withTimezone: true }),
+  /** Skill keys that came from the call (AI tags, `lang:`) and may be relaxed; queue skills stay. */
+  callSkills: jsonb('call_skills').$type<string[]>().default([]).notNull(),
+  /** True once `callSkills` were dropped from `skills`. */
+  relaxed: boolean('relaxed').default(false).notNull(),
+  /** The caller's language (BCP 47), carried into the `call.offer` frame. */
+  language: text('language'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

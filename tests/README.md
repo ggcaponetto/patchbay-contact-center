@@ -11,7 +11,7 @@ This folder holds the suites that vitest does not run: browser end-to-end tests 
 | End-to-end  | `tests/e2e/specs/**/*.spec.ts`        | Playwright, three tiers      | Postgres; `LIVEKIT_*` + agent worker for the `cloud` tier only       | `npm run test:e2e[:smoke   | :cloud | :all]` |
 | Load        | `tests/load/api.yml`, `seed.mjs`      | Artillery                    | A running API on `:4100` with `DEV_USER_EMAIL` set to an admin email | `npm run test:load`        |
 
-`npm test` = unit + integration with the coverage gate (part of `npm run validate`). The e2e `smoke` and `core` tiers run in CI on every push and PR, `cloud` on `main` and nightly; load is opt-in.
+`npm test` = unit + integration with the coverage gate (part of `npm run validate`). The integration tests use **`DATABASE_URL` itself** (truncated per file), so stop `npm run dev` first: a running dev API ticks the routing tables every second and randomly breaks `routing.integration.test.ts`, and its ports block the Playwright servers. The e2e `smoke` and `core` tiers run in CI on every push and PR, `cloud` on `main` and nightly; load is opt-in.
 
 ## Folder layout
 

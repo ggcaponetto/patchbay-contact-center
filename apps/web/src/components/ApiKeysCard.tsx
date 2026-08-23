@@ -63,7 +63,7 @@ export function ApiKeysCard() {
 
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('apiKeys.title')}
       </Typography>
       {secret && (
@@ -82,7 +82,12 @@ export function ApiKeysCard() {
         </Alert>
       )}
       {(keys.data ?? []).map((k) => (
-        <Stack key={k.id} direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+        <Stack
+          key={k.id}
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap', rowGap: 1 }}
+        >
           <Typography sx={{ flex: 1 }}>
             <b>{k.name}</b>{' '}
             <Typography component="span" color="text.secondary">

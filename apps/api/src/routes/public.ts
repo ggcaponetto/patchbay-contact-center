@@ -116,6 +116,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
         queueKey: queue.key,
         settings: tenant.settings,
         customerMeta: body.customerMeta,
+        ...(body.language ? { language: body.language } : {}),
       };
       const aiFirst = tenant.settings.routingMode === 'ai-first';
       const token = await livekit.createToken({

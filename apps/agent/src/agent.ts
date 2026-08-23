@@ -29,15 +29,34 @@ export type AgentActions = {
    * In production this awaits the escalation long-poll, so it may take tens of seconds;
    * the agent's tool call stays pending meanwhile.
    */
-  escalate(input: { reason: string; summary: string }): Promise<string>;
+  escalate(input: EscalateInput): Promise<string>;
   /** End the call after the goodbye (production schedules `ctx.shutdown`). */
   endCall(): Promise<void>;
+};
+
+/** What the `escalateToHuman` tool hands to {@link AgentActions.escalate}. */
+type EscalateInput = {
+  /** Why the caller needs a human, in a few words. */
+  reason: string;
+  /** Two or three sentences summarizing the conversation so far. */
+  summary: string;
+  /** Routing skill keys from the tenant catalogue that apply to this call. */
+  skills?: string[];
+  /** The caller's spoken language as a two-letter code, when not English. */
+  language?: string;
 };
 
 /** Options for {@link createAgent}. */
 export type AgentOptions = {
   /** Tenant-specific instructions appended to the base prompt. */
   instructions?: string;
+  /**
+   * Routing skill catalogue (`TenantSettings.skills`): listed in the prompt and offered
+   * as the `skills` enum of `escalateToHuman`. Empty or absent: no `skills` parameter.
+   */
+  skills?: { key: string; label: string; description: string }[];
+  /** The call's language (BCP 47) when the website set one; mentioned in the prompt. */
+  language?: string;
   /** Side effects of the tools. */
   actions: AgentActions;
   /** LiveKit Inference model id; defaults to {@link LLM_MODEL}. Ignored when `llm` is given. */
@@ -73,6 +92,7 @@ const baseInstructions = dedent`
   - When the caller asks for a human, a person, a real agent, or a supervisor, or when the request is outside what you can handle, use the escalateToHuman tool. Do not ask for permission first.
   - When you call escalateToHuman, include a short summary of the conversation so far and the reason.
   - After escalating, tell the caller exactly what the tool result says.
+  - When you call escalateToHuman, set language to the caller's spoken language as a two-letter code when it is not English or when they ask for another language.
 
   # Ending the call
 
@@ -108,14 +128,35 @@ const baseInstructions = dedent`
  */
 export function createAgent({
   instructions,
+  skills = [],
+  language,
   actions,
   llmModel = LLM_MODEL,
   llm: model = new inference.LLM({ model: llmModel }),
 }: AgentOptions) {
+  const keys = skills.map((s) => s.key);
+  const sections = [
+    baseInstructions,
+    ...(skills.length > 0
+      ? [
+          [
+            '# Routing skills',
+            '',
+            ...skills.map(
+              (s) => `- ${s.key} — ${s.label}${s.description ? `: ${s.description}` : ''}`,
+            ),
+            '',
+            'When you call escalateToHuman, set skills to every applicable key from this list (omit it if none applies).',
+          ].join('\n'),
+        ]
+      : []),
+    ...(language
+      ? [`# Caller language\n\nThe website reported the caller's language as ${language}.`]
+      : []),
+    ...(instructions ? [`# Company instructions\n\n${instructions}`] : []),
+  ];
   return Agent.create({
-    instructions: instructions
-      ? `${baseInstructions}\n\n# Company instructions\n\n${instructions}`
-      : baseInstructions,
+    instructions: sections.join('\n\n'),
     llm: model,
     tools: [
       tool({
@@ -129,8 +170,20 @@ export function createAgent({
           summary: z
             .string()
             .describe('Two or three sentences summarizing the conversation so far'),
+          ...(keys.length > 0
+            ? {
+                skills: z
+                  .array(z.enum(keys as [string, ...string[]]))
+                  .optional()
+                  .describe('Every routing skill key from the catalogue that applies'),
+              }
+            : {}),
+          language: z
+            .string()
+            .optional()
+            .describe("The caller's spoken language as a two-letter code, when not English"),
         }),
-        execute: async (input) => actions.escalate(input),
+        execute: async (input) => actions.escalate(input as EscalateInput),
       }),
       tool({
         name: 'endCall',

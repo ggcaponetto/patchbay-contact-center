@@ -84,4 +84,48 @@ describe.skipIf(!hasCloud)('contact center agent', () => {
     const summary = await summarize(new inference.LLM({ model: LLM_MODEL }), session.history);
     expect(summary.toLowerCase()).toMatch(/order|arrive|arrived|deliver/);
   });
+
+  describe('routing tags', () => {
+    const skills = [
+      {
+        key: 'mechanical-engineering',
+        label: 'Mechanical engineering',
+        description: 'Gearboxes, drive trains, brakes and other mechanical faults',
+      },
+      { key: 'billing', label: 'Billing', description: 'Invoices, payments and refunds' },
+    ];
+    let tagged: voice.AgentSession;
+    beforeEach(async () => {
+      tagged = new voice.AgentSession();
+      await tagged.start({
+        agent: createAgent({ instructions: 'The company is Acme Bikes.', skills, actions }),
+      });
+    });
+    afterEach(() => tagged?.close());
+
+    it('tags the escalation with the matching skill', { timeout: 45000 }, async () => {
+      const result = await tagged
+        .run({
+          userInput:
+            'My gearbox is grinding in third gear and I already tried adjusting it. Please let me talk to a person.',
+        })
+        .wait();
+      result.expect.containsFunctionCall({ name: 'escalateToHuman' });
+      const args = actions.escalate.mock.calls[0]![0] as { skills?: string[] };
+      expect(args.skills).toContain('mechanical-engineering');
+      expect(args.skills).not.toContain('billing');
+    });
+
+    it('reports the language the caller asks for', { timeout: 45000 }, async () => {
+      const result = await tagged
+        .run({
+          userInput:
+            'I only speak Italian, my English is bad. Can I talk to a person in Italian please?',
+        })
+        .wait();
+      result.expect.containsFunctionCall({ name: 'escalateToHuman' });
+      const args = actions.escalate.mock.calls[0]![0] as { language?: string };
+      expect(args.language?.toLowerCase()).toBe('it');
+    });
+  });
 });

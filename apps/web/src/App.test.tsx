@@ -56,6 +56,19 @@ const me = (memberships: Me['memberships']): Me => ({
   memberships,
 });
 
+/** `window.matchMedia` double: `narrow` makes every `max-width` query match (phone). */
+const matchMedia = (narrow: boolean) =>
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: narrow && query.includes('max-width'),
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }));
+
 const renderApp = () =>
   render(
     <QueryClientProvider
@@ -74,8 +87,12 @@ describe('App', () => {
     mocks.setTenant.mockReset();
     mocks.useDeskSocket.mockReset();
     location.hash = '';
+    matchMedia(false);
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it('spins while the session loads', () => {
     mocks.session = { isPending: true, data: null };
@@ -115,9 +132,34 @@ describe('App', () => {
     expect(screen.queryByRole('tab', { name: 'Settings' })).toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Contact center' })).toBeNull();
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Account' })).toBeNull();
+    expect(screen.getByRole('main').id).toBe('main');
+    expect(screen.getByText('Skip to content').getAttribute('href')).toBe('#main');
     await userEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(location.hash).toBe('#/history');
     await userEvent.click(screen.getByText('Sign out'));
+    expect(mocks.signOut).toHaveBeenCalled();
+  });
+
+  it('folds the account controls into a menu on narrow screens', async () => {
+    matchMedia(true);
+    mocks.api.mockResolvedValue({
+      ...me([
+        { tenantId: 't1', role: 'agent', tenantName: 'Acme' },
+        { tenantId: 't2', role: 'agent', tenantName: 'Orbit' },
+      ]),
+      devMode: true,
+    });
+    renderApp();
+    expect(await screen.findByText('DeskPage')).toBeTruthy();
+    expect(screen.queryByText('Sign out')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Language' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Account' }));
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('combobox', { name: 'Language' })).toBeTruthy();
+    expect(within(menu).getByRole('combobox', { name: 'Contact center' })).toBeTruthy();
+    expect(within(menu).getByText('Signed in as Ann')).toBeTruthy();
+    await userEvent.click(within(menu).getByText('Sign out'));
     expect(mocks.signOut).toHaveBeenCalled();
   });
 

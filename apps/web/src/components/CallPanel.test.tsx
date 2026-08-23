@@ -106,6 +106,38 @@ describe('CallPanel', () => {
     expect(screen.queryByText(/on hold for/)).toBeNull();
   });
 
+  it('applies the hold state once per change and ignores an unknown state', () => {
+    live.room = { ...live.room, connected: true, peers: [customer] };
+    const onToggle = vi.fn();
+    const heldAt = new Date().toISOString();
+    const view = (value: string | null | undefined) => (
+      <CallPanel
+        join={join}
+        title="T"
+        transcript={[]}
+        onLeave={vi.fn()}
+        hold={{ heldAt: value, onToggle, reminderAfterSec: 0 }}
+      />
+    );
+    const { rerender } = render(view(heldAt));
+    expect(live.room.setHeld).toHaveBeenCalledTimes(1);
+    expect(live.room.setHeld).toHaveBeenLastCalledWith(true);
+    // a re-render with the same state (refetch, timer tick) does not re-apply it
+    rerender(view(heldAt));
+    rerender(view(new Date(Date.now() - 1000).toISOString()));
+    expect(live.room.setHeld).toHaveBeenCalledTimes(1);
+    // unknown (detail not fetched yet) keeps what is applied
+    rerender(view(undefined));
+    expect(live.room.setHeld).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Hold')).toBeTruthy();
+    rerender(view(heldAt));
+    expect(live.room.setHeld).toHaveBeenCalledTimes(1);
+    // a real retrieve is applied exactly once
+    rerender(view(null));
+    expect(live.room.setHeld).toHaveBeenCalledTimes(2);
+    expect(live.room.setHeld).toHaveBeenLastCalledWith(false);
+  });
+
   it('leaves only when a customer who was here left', () => {
     const onLeave = vi.fn();
     // connected but the room is still filling up: no leave
@@ -127,17 +159,18 @@ describe('CallPanel', () => {
 describe('Transcript', () => {
   afterEach(cleanup);
 
-  it('renders text and speaker per segment', () => {
-    render(
-      <Transcript
-        segments={[
-          { speaker: 'customer', identity: 'customer:1', text: 'Hi' },
-          { speaker: 'human', identity: 'human:u', text: 'Hello' },
-        ]}
-      />,
-    );
+  it('renders text and speaker per segment, raw or through labelFor', () => {
+    const segments = [
+      { speaker: 'customer' as const, identity: 'customer:1', text: 'Hi' },
+      { speaker: 'human' as const, identity: 'human:u', text: 'Hello' },
+    ];
+    const { rerender } = render(<Transcript segments={segments} />);
     expect(screen.getByText('Hi')).toBeTruthy();
     expect(screen.getByText('human')).toBeTruthy();
     expect(screen.queryByText('No transcript yet.')).toBeNull();
+    expect(screen.getByRole('list').getAttribute('aria-live')).toBe('polite');
+    rerender(<Transcript segments={segments} labelFor={(s) => `<${s.identity}>`} />);
+    expect(screen.getByText('<human:u>')).toBeTruthy();
+    expect(screen.queryByText('human')).toBeNull();
   });
 });

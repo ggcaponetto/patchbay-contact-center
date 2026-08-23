@@ -133,6 +133,22 @@ describe('createWorker', () => {
     expect(worker.size()).toBe(0);
   });
 
+  it('never publishes when the room is already closed right after joining', async () => {
+    const deadRoom = {
+      publish: vi.fn(async () => undefined),
+      disconnect: vi.fn(async () => undefined),
+      // the room closed under us before the handler was even registered
+      onClosed: (handler: () => void) => handler(),
+    };
+    connect.mockResolvedValueOnce(deadRoom as never);
+    const worker = createWorker(deps);
+    await worker.handle(startCmd('c1'));
+    expect(deadRoom.publish).not.toHaveBeenCalled();
+    expect(deadRoom.disconnect).toHaveBeenCalledTimes(1);
+    expect(worker.size()).toBe(0);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('moh started for c1'));
+  });
+
   it('cleans up when the room closes under it, logs failures, closes all on shutdown', async () => {
     const worker = createWorker(deps);
     await worker.handle(startCmd('c1'));

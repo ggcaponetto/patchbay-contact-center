@@ -17,7 +17,10 @@
     },
     "notMember": "<b>{{email}}</b> non fa parte di alcun contact center. Chiedi un invito a un supervisore.",
     "loggedOutBy": "{{name}} ti ha disconnesso dalla postazione.",
-    "connecting": "Connessione alla postazione in corso…"
+    "connecting": "Connessione alla postazione in corso…",
+    "skipToContent": "Vai al contenuto",
+    "account": "Account",
+    "navigation": "Navigazione principale"
   },
   "common": {
     "cancel": "Annulla",
@@ -54,7 +57,11 @@
     "decline": "Rifiuta",
     "accept": "Accetta",
     "couldNotAccept": "Impossibile accettare: {{error}}",
-    "colleague": "collega"
+    "colleague": "collega",
+    "title": "Postazione",
+    "skills": "Requisiti di routing",
+    "language": "Lingua: {{name}}",
+    "relaxed": "Requisiti allentati"
   },
   "stateBar": {
     "greeting": "Ciao {{name}}, sei",
@@ -119,7 +126,8 @@
     "liveCalls": "Chiamate in corso ({{count}})",
     "noCalls": "Nessuna chiamata in corso.",
     "agentsOnline": "Operatori online ({{count}})",
-    "nobodyOnline": "Nessuno è online."
+    "nobodyOnline": "Nessuno è online.",
+    "title": "Dashboard"
   },
   "history": {
     "title": "Chiamate",
@@ -128,7 +136,11 @@
     "status": "Stato",
     "duration": "Durata",
     "disposition": "Esito",
-    "summary": "Riepilogo"
+    "summary": "Riepilogo",
+    "openCall": "Apri chiamata {{id}} ({{queue}})",
+    "columns": {
+      "skills": "Competenze"
+    }
   },
   "call": {
     "title": "Chiamata {{id}}",
@@ -148,7 +160,12 @@
     },
     "transcript": "Trascrizione",
     "aiSummary": "Riepilogo AI:",
-    "events": "Eventi"
+    "events": {
+      "title": "Eventi",
+      "relaxed": "Requisiti di competenza allentati: {{skills}}",
+      "requested": "Passaggio richiesto, competenze: {{skills}}"
+    },
+    "skills": "Competenze"
   },
   "wallboard": {
     "waiting": "In attesa",
@@ -161,7 +178,8 @@
     "notReady": "Non disponibili",
     "callsToday": "Chiamate oggi",
     "answeredByHuman": "Gestite da un operatore",
-    "avgHandleTime": "Tempo medio di gestione (s)"
+    "avgHandleTime": "Tempo medio di gestione (s)",
+    "title": "Wallboard"
   },
   "devUser": {
     "signedInAs": "Connesso come {{name}}",
@@ -171,6 +189,12 @@
     "defaultUser": "l'utente predefinito",
     "otherEmail": "Altra email…",
     "prompt": "Accedi come (email)"
+  },
+  "speakers": {
+    "agent": "Agente",
+    "supervisor": "Supervisore",
+    "customer": "Cliente {{id}}",
+    "ai": "Assistente IA"
   },
   "errors": {
     "generic": "Qualcosa è andato storto",
@@ -201,5 +225,8 @@
     "unknown_code": "Esito sconosciuto",
     "unknown_embed_key_or_queue": "Chiave del pulsante o coda sconosciuta",
     "unsupported_type": "Questo tipo di file non è supportato"
+  },
+  "skills": {
+    "language": "Lingua: {{name}}"
   }
 }

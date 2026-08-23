@@ -459,6 +459,66 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     ).toBe(404);
   });
 
+  it('routes an escalation by the skills the AI tagged, relaxing when nobody qualifies', async () => {
+    const { setSkills, updateSettings: update } = await import('./services/tenants.ts');
+    await update(db, tenantId, {
+      skills: [{ key: 'mechanical-engineering', label: 'Mechanical engineering' }],
+    });
+    await setSkills(db, tenantId, boss.id, [{ skill: 'mechanical-engineering', proficiency: 3 }]);
+    const { callId } = await startCall();
+    const sam = await desk(port, agent, current);
+    await vi.waitFor(() => expect(sam.last('presence')).toBeDefined());
+    await setState(agent, 'ready');
+    const bossDesk = await desk(port, boss, current);
+    await vi.waitFor(() => expect(bossDesk.last('presence')).toBeDefined());
+    await setState(boss, 'ready');
+
+    const escalation = srv.app.inject({
+      method: 'POST',
+      url: `/api/internal/calls/${callId}/escalate`,
+      headers: internal,
+      payload: {
+        reason: 'gearbox',
+        summary: 'Gearbox grinds in third gear.',
+        skills: ['mechanical-engineering', 'nonsense'],
+        language: 'de-CH',
+      },
+    });
+    // only the qualified agent (Boss) is rung, with the tags on the frame
+    await vi.waitFor(() =>
+      expect(bossDesk.last('call.offer')).toMatchObject({
+        callId,
+        requiredSkills: ['mechanical-engineering'],
+        language: 'de',
+      }),
+    );
+    expect(bossDesk.last('call.offer')).not.toHaveProperty('relaxed');
+    expect(sam.last('call.offer')).toBeUndefined();
+    // unknown keys were dropped, the rest pinned on the call, the language stored as base tag
+    const detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json() as {
+      requiredSkills: string[];
+      language: string | null;
+      events: { type: string; payload: Record<string, unknown> }[];
+    };
+    expect(detail.requiredSkills).toEqual(['mechanical-engineering']);
+    expect(detail.language).toBe('de');
+    expect(detail.events.find((e) => e.type === 'escalation.requested')?.payload).toEqual({
+      reason: 'gearbox',
+      summary: 'Gearbox grinds in third gear.',
+      skills: ['mechanical-engineering'],
+      language: 'de',
+    });
+    const list = (await asUser(boss).inject({ url: '/api/desk/calls' })).json() as {
+      id: string;
+      requiredSkills: string[];
+    }[];
+    expect(list.find((c) => c.id === callId)?.requiredSkills).toEqual(['mechanical-engineering']);
+    await asUser(boss).inject({ method: 'POST', url: `/api/desk/calls/${callId}/accept` });
+    expect((await escalation).json()).toEqual({ outcome: 'accepted', agentName: 'Boss' });
+    await sam.close();
+    await bossDesk.close();
+  });
+
   it('closes websockets without a session or membership', async () => {
     current.user = null;
     const anon = new WebSocket(`ws://127.0.0.1:${port}/api/ws`);

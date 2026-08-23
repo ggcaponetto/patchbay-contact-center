@@ -23,9 +23,10 @@ test(
     const callPage = new CallPage(supervisor.page);
     await callPage.goto(callRow!.id);
     await expect(callPage.statusChip()).toHaveText('With AI');
-    await expect(callPage.transcript().getByRole('listitem').first()).toContainText('ai', {
-      timeout: 45_000,
-    });
+    await expect(callPage.transcript().getByRole('listitem').first()).toContainText(
+      'AI assistant',
+      { timeout: 45_000 },
+    );
     const detail = await desk(supervisor.request).call(callRow!.id);
     expect(detail.events.map((e) => e.type)).toContain('ai.joined');
     expect(detail.participants.map((p) => p.kind)).toEqual(

@@ -16,7 +16,7 @@
  * In development `/api` is proxied to the API by Vite (see `vite.config.ts`), so every
  * request is same-origin and the auth cookie is first-party.
  */
-import type { MediaAsset, TenantSettings } from '@cc/shared';
+import type { MediaAsset, RoutingSkill, TenantSettings } from '@cc/shared';
 import { createAuthClient } from 'better-auth/react';
 import { devHeaders } from './devUser.ts';
 
@@ -66,6 +66,8 @@ export type DeskSettings = {
   /** Ringtone URL played while an offer rings (`TenantSettings.sounds.ringtone`), if set. */
   ringtone?: string;
   queues: { id: string; key: string; name: string }[];
+  /** The tenant's routing skill catalogue (`TenantSettings.skills`), to label skill keys. */
+  skills: RoutingSkill[];
 };
 
 /** `GET /api/desk/stats`: live tenant statistics and threshold alerts. */
@@ -102,6 +104,8 @@ export type CallSummary = {
   priority: number;
   /** Customer language (BCP 47), when known. */
   language: string | null;
+  /** Skill keys pinned on the call by the AI's escalation (`escalateToHuman` tags). */
+  requiredSkills: string[];
   /** Free-form data sent by the embed button, e.g. `{ page, userAgent }`. */
   customerMeta: Record<string, unknown>;
 };
@@ -112,6 +116,8 @@ export type CallDetail = CallSummary & {
     kind: string;
     identity: string;
     userId: string | null;
+    /** Display name of the person (humans and supervisors), `null` for customers and the AI. */
+    name: string | null;
     joinedAt: string;
     leftAt: string | null;
   }[];

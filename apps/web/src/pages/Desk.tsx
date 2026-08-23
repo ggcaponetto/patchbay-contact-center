@@ -15,8 +15,10 @@ import {
   Paper,
   Stack,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CallNotes } from '../components/CallNotes.tsx';
@@ -28,7 +30,7 @@ import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/a
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
 import { useRingtone, zipTone } from '../lib/sounds.ts';
-import { myPresence, secondsLeft } from '../lib/store.ts';
+import { languageName, myPresence, secondsLeft, skillLabel, speakerLabel } from '../lib/store.ts';
 
 /** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
@@ -56,6 +58,9 @@ export function Desk({ desk, me }: Props) {
     queryFn: () => api<DeskSettings>('/desk/settings'),
   });
   const now = useNow();
+  const qc = useQueryClient();
+  const theme = useTheme();
+  const smallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const mine = myPresence(state, me.user.id);
   // Caller and call info for the ring dialog (page, language, priority).
   const offered = useQuery({
@@ -63,14 +68,25 @@ export function Desk({ desk, me }: Props) {
     queryFn: () => api<CallDetail>(`/desk/calls/${state.offer!.callId}`),
     enabled: state.offer !== null,
   });
-  // The active call as the server sees it: hold state and who else is on it. Refetched
-  // on every call.updated (hold, retrieve, consult accept, drop all bump it).
+  // The active call as the server sees it: hold state and who else is on it. The key is
+  // stable so the previous data stays while a refetch runs; every call.updated (hold,
+  // retrieve, consult accept, drop all bump `callsVersion`) invalidates it instead.
   const activeDetail = useQuery({
-    queryKey: ['call', active?.callId, state.callsVersion],
+    queryKey: ['call', active?.callId],
     queryFn: () => api<CallDetail>(`/desk/calls/${active!.callId}`),
     enabled: active !== null,
   });
-  const heldAt = activeDetail.data?.heldAt ?? null;
+  const activeId = active?.callId;
+  useEffect(() => {
+    if (activeId) void qc.invalidateQueries({ queryKey: ['call', activeId] });
+  }, [activeId, state.callsVersion, qc]);
+  // The socket carries `heldAt` on hold / retrieve frames; the fetched row fills in until
+  // the first one arrives (a take-over of a call that is already on hold).
+  const heldAt = !activeId
+    ? undefined
+    : activeId in state.held
+      ? state.held[activeId]
+      : activeDetail.data?.heldAt;
   // Monitoring notification: a supervisor is on the call (listen / whisper / barge).
   const monitored =
     (settings.data?.monitorNotify ?? true) &&
@@ -141,8 +157,19 @@ export function Desk({ desk, me }: Props) {
   const ringing = Boolean(offerId) && !active && !autoAnswer;
   useRingtone(ringing, settings.data?.ringtone);
 
+  const labelFor = (segment: { identity: string; speaker: string }) =>
+    speakerLabel(
+      segment.identity,
+      segment.speaker,
+      { participants: activeDetail.data?.participants, agents: state.agents },
+      t,
+    );
+
   return (
     <Stack spacing={2}>
+      <Typography variant="h5" component="h1">
+        {t('desk.title')}
+      </Typography>
       <Paper sx={{ p: 2 }}>
         <StateBar name={me.user.name} me={mine} now={now} onError={setError} />
       </Paper>
@@ -156,6 +183,7 @@ export function Desk({ desk, me }: Props) {
           join={active.join}
           title={t('desk.customerCall')}
           transcript={state.transcripts[active.callId] ?? []}
+          labelFor={labelFor}
           onLeave={() => void leave()}
           extras={
             <>
@@ -195,10 +223,15 @@ export function Desk({ desk, me }: Props) {
       )}
       <Dialog
         open={state.offer !== null && !active}
+        fullScreen={smallScreen}
+        aria-labelledby="offer-title"
+        aria-describedby="offer-description"
         slotProps={{ paper: { 'data-ringing': ringing || undefined } as object }}
       >
-        <DialogTitle>{t('desk.incomingCall', { queue: state.offer?.queueKey })}</DialogTitle>
-        <DialogContent>
+        <DialogTitle id="offer-title">
+          {t('desk.incomingCall', { queue: state.offer?.queueKey })}
+        </DialogTitle>
+        <DialogContent id="offer-description">
           {offered.data && (
             <Typography gutterBottom color="text.secondary">
               {String(offered.data.customerMeta['page'] ?? '')}
@@ -218,7 +251,32 @@ export function Desk({ desk, me }: Props) {
               <b>{t('desk.soFar')}</b> {state.offer.summary}
             </Typography>
           )}
-          <Typography color="text.secondary">
+          {state.offer &&
+          ((state.offer.requiredSkills?.length ?? 0) > 0 ||
+            state.offer.language ||
+            state.offer.relaxed) ? (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ flexWrap: 'wrap', rowGap: 1, mb: 1 }}
+              aria-label={t('desk.skills')}
+            >
+              {(state.offer.requiredSkills ?? []).map((key) => (
+                <Chip key={key} size="small" label={skillLabel(key, settings.data?.skills, t)} />
+              ))}
+              {state.offer.language && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={t('desk.language', { name: languageName(state.offer.language) })}
+                />
+              )}
+              {state.offer.relaxed && (
+                <Chip size="small" color="warning" label={t('desk.relaxed')} />
+              )}
+            </Stack>
+          ) : null}
+          <Typography color="text.secondary" aria-live="polite">
             {state.offer
               ? t('desk.secondsToAnswer', { seconds: secondsLeft(state.offer, now) })
               : ''}
@@ -226,7 +284,7 @@ export function Desk({ desk, me }: Props) {
         </DialogContent>
         <DialogActions>
           <Button onClick={decline}>{t('desk.decline')}</Button>
-          <Button variant="contained" onClick={() => void accept()}>
+          <Button variant="contained" autoFocus onClick={() => void accept()}>
             {t('desk.accept')}
           </Button>
         </DialogActions>

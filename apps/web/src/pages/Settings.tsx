@@ -4,7 +4,7 @@
  * of the route (`#/settings/queues`) so it survives reloads and can be linked. Each card
  * owns its queries and mutations against `/api/admin/*` and confirms saves with a toast.
  */
-import { Box, Tab, Tabs } from '@mui/material';
+import { Box, Tab, Tabs, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { ApiKeysCard } from '../components/ApiKeysCard.tsx';
 import { EmbedCard } from '../components/settings/EmbedCard.tsx';
@@ -32,11 +32,13 @@ export function Settings({ tab }: { tab?: string | undefined }) {
   const Card = current.card;
   return (
     <Box>
+      <Typography variant="h5" component="h1" sx={{ mb: 1 }}>
+        {t('title')}
+      </Typography>
       <Tabs
         value={current.key}
         onChange={(_e, v: string) => (location.hash = `#/settings/${v}`)}
-        variant="scrollable"
-        scrollButtons="auto"
+        aria-label={t('title')}
         sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
       >
         {SETTINGS_TABS.map((tab) => (

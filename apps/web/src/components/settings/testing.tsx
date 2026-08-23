@@ -26,7 +26,15 @@ export const mocks = {
 
 /** Canned responses per `GET /api/admin/*` path. */
 export const data: Record<string, unknown> = {
-  '/admin/tenant': { id: 't', name: 'Acme', slug: 'acme', settings: defaultTenantSettings() },
+  '/admin/tenant': {
+    id: 't',
+    name: 'Acme',
+    slug: 'acme',
+    settings: {
+      ...defaultTenantSettings(),
+      skills: [{ key: 'german-tax', label: 'German tax', description: 'Tax questions' }],
+    },
+  },
   '/admin/members': [
     { userId: 'u1', name: 'Ann', email: 'ann@x', role: 'supervisor' },
     { userId: 'u2', name: 'Bob', email: 'bob@x', role: 'agent' },
