@@ -22,6 +22,7 @@ import type { Db } from '../db/client.ts';
 import type { Flow } from '../flow.ts';
 import type { LiveKit } from '../livekit.ts';
 import { addEvent, addParticipant, createCall, setCallStatus } from '../services/calls.ts';
+import { openState } from '../services/hours.ts';
 import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
@@ -62,7 +63,11 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
             token: z.string(),
             url: z.string(),
           }),
-          errors: ['400 invalid_body', '403 origin_not_allowed', '404 unknown_embed_key_or_queue'],
+          errors: [
+            '400 invalid_body',
+            '403 origin_not_allowed / closed',
+            '404 unknown_embed_key_or_queue',
+          ],
         },
       },
     },
@@ -75,6 +80,10 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
         return reply.code(403).send({ error: 'origin_not_allowed' });
       }
       const { tenant, queue } = resolved;
+      // Business hours: while closed (schedule, holiday, forced, emergency) no call
+      // is created; the embed shows the configured message instead of connecting.
+      const state = openState(tenant.settings.hours);
+      if (!state.open) return reply.code(403).send({ error: 'closed', message: state.message });
       const id = randomUUID();
       const roomName = roomNameFor(tenant.id, id);
       await createCall(db, {

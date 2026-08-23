@@ -332,10 +332,12 @@ export class Flow {
     this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
   }
 
-  /** Puts the customer on hold: state, event, and the media worker's start command. */
+  /** Puts the customer on hold: state, event, and the media worker's start command
+   * (with the queue's hold-music style). */
   async hold(callId: string): Promise<void> {
     const call = await getCall(this.db, callId);
     if (!call || call.heldAt || call.status === 'ended') return;
+    const [q] = await this.db.select().from(queue).where(eq(queue.id, call.queueId));
     await setHeld(this.db, callId, true);
     await addEvent(this.db, callId, 'hold', {});
     const token = await this.livekit.createToken({
@@ -352,6 +354,7 @@ export class Flow {
         roomName: call.roomName,
         token,
         url: this.livekit.url,
+        style: QueueConfig.parse(q?.config ?? {}).moh,
       },
     });
     this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });

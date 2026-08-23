@@ -7,21 +7,33 @@
 /** Samples per second of the generated loop (what LiveKit's `AudioSource` expects). */
 export const SAMPLE_RATE = 48_000;
 
-/** Notes of the loop (Hz): A major pentatonic across two octaves, up and back down. */
-const NOTES = [220, 246.94, 277.18, 329.63, 369.99, 440, 369.99, 329.63, 277.18, 246.94];
+/** Note sets (Hz) per style: `calm` is a low A-major pentatonic arpeggio, `bright` a
+ * quicker, higher D-major one (queues pick a style via `QueueConfig.moh`). */
+const STYLES = {
+  calm: {
+    notes: [220, 246.94, 277.18, 329.63, 369.99, 440, 369.99, 329.63, 277.18, 246.94],
+    noteSec: 0.8,
+  },
+  bright: {
+    notes: [293.66, 329.63, 369.99, 440, 493.88, 587.33, 493.88, 440, 369.99, 329.63],
+    noteSec: 0.5,
+  },
+} as const;
 
-/** Seconds per note; the full loop is `NOTES.length * NOTE_SEC` long. */
-const NOTE_SEC = 0.8;
+/** The available hold-music styles. */
+export type MusicStyle = keyof typeof STYLES;
 
 /**
- * Renders the loop. Each note is a sine with a softer octave overtone, an attack/release
- * envelope so notes never click, and a low overall volume (hold music sits in the
- * background). Deterministic: same output every call.
+ * Renders the loop of one style. Each note is a sine with a softer octave overtone, an
+ * attack/release envelope so notes never click, and a low overall volume (hold music
+ * sits in the background). Deterministic: same output every call.
  *
+ * @param style - Which note set to render, see {@link MusicStyle} (default `calm`).
  * @param volume - Peak amplitude, 0..1 (default 0.18).
  * @returns Mono 16-bit samples at {@link SAMPLE_RATE}.
  */
-export function renderLoop(volume = 0.18): Int16Array {
+export function renderLoop(style: MusicStyle = 'calm', volume = 0.18): Int16Array {
+  const { notes: NOTES, noteSec: NOTE_SEC } = STYLES[style];
   const perNote = Math.round(SAMPLE_RATE * NOTE_SEC);
   const samples = new Int16Array(perNote * NOTES.length);
   const attack = Math.round(SAMPLE_RATE * 0.05);

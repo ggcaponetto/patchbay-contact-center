@@ -42,6 +42,7 @@ export function Settings() {
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, md: 6 }}>
         <RoutingCard />
+        <HoursCard />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <TeamCard />
@@ -345,6 +346,114 @@ function TeamCard() {
  * `POST /api/admin/queues { key, name }` (key = name for now) and
  * `PUT /api/admin/queues/:id/members { userIds }` on every checkbox change.
  */
+/** Day names in `dow` order (0 = Sunday), for the business-hours window lines. */
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/** Parses `mon 09:00-17:00` lines into weekly windows; malformed lines are dropped. */
+function parseWindows(text: string): { dow: number; from: string; to: string }[] {
+  return text
+    .split('\n')
+    .map((line) => /^\s*(\w{3})\w*\s+(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$/.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ dow: DAYS.indexOf(m[1]!.toLowerCase()), from: m[2]!, to: m[3]! }))
+    .filter((w) => w.dow >= 0);
+}
+
+/**
+ * Business hours: mode (always open, weekly schedule, or forced open / closed /
+ * emergency), timezone, weekly windows, holidays and the messages shown to callers
+ * while closed. `PATCH /api/admin/tenant/settings { hours }`.
+ */
+function HoursCard() {
+  const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
+  const [draft, setDraft] = useState<TenantSettings['hours'] | null>(null);
+  const [windows, setWindows] = useState<string | null>(null);
+  const [holidays, setHolidays] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (hours: TenantSettings['hours']) => patch('/admin/tenant/settings', { hours }),
+  });
+  if (!tenant.data) return null;
+  const hours = draft ?? tenant.data.settings.hours;
+  const windowsText =
+    windows ?? hours.open.map((w) => `${DAYS[w.dow]} ${w.from}-${w.to}`).join('\n');
+  const holidaysText = holidays ?? hours.holidays.join('\n');
+  const set = (patchPart: Partial<TenantSettings['hours']>) => setDraft({ ...hours, ...patchPart });
+  return (
+    <Paper sx={{ p: 2 }}>
+      <Typography variant="h6" gutterBottom>
+        Business hours
+      </Typography>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          select
+          label="Mode"
+          value={hours.mode}
+          onChange={(e) => set({ mode: e.target.value as TenantSettings['hours']['mode'] })}
+          sx={{ minWidth: 190 }}
+        >
+          <MenuItem value="off">Always open</MenuItem>
+          <MenuItem value="auto">Follow the schedule</MenuItem>
+          <MenuItem value="open">Forced open</MenuItem>
+          <MenuItem value="closed">Forced closed</MenuItem>
+          <MenuItem value="emergency">Emergency</MenuItem>
+        </TextField>
+        <TextField
+          label="Timezone (IANA)"
+          value={hours.timezone}
+          onChange={(e) => set({ timezone: e.target.value })}
+        />
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Weekly windows (one per line: mon 09:00-17:00)"
+          multiline
+          minRows={2}
+          value={windowsText}
+          onChange={(e) => {
+            setWindows(e.target.value);
+            set({ open: parseWindows(e.target.value) });
+          }}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+        <TextField
+          label="Holidays (one date per line: 2026-12-25)"
+          multiline
+          minRows={2}
+          value={holidaysText}
+          onChange={(e) => {
+            setHolidays(e.target.value);
+            set({
+              holidays: e.target.value
+                .split('\n')
+                .map((l) => l.trim())
+                .filter((l) => /^\d{4}-\d{2}-\d{2}$/.test(l)),
+            });
+          }}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Closed message"
+          value={hours.closedMessage}
+          onChange={(e) => set({ closedMessage: e.target.value })}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+        <TextField
+          label="Emergency message"
+          value={hours.emergencyMessage}
+          onChange={(e) => set({ emergencyMessage: e.target.value })}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+      </Stack>
+      <Button variant="contained" onClick={() => save.mutate(hours)} disabled={save.isPending}>
+        Save hours
+      </Button>
+      {save.isError && <Typography color="error">{String(save.error)}</Typography>}
+    </Paper>
+  );
+}
+
 /** Parses `billing=3, lang:de=2` into skill/level pairs (levels clamp to 1-5). */
 function parseSkills(text: string): { skill: string; level: number }[] {
   return text
