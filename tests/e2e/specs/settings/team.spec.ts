@@ -13,7 +13,9 @@ test(
     const settings = new SettingsPage(page);
     await settings.goto();
     await settings.invite(email, 'agent');
-    await expect(page.getByText(email).locator('..')).toContainText('invited as agent');
+    await expect(page.getByText(email, { exact: true }).first().locator('..')).toContainText(
+      'invited as agent',
+    );
 
     // first sign-in accepts the invite (bootstrapUser)
     const newcomer = await actor(email);
@@ -25,6 +27,8 @@ test(
     );
     await page.reload();
     await expect(page.getByText('invited as agent')).toHaveCount(0);
-    await expect(page.getByText(email).locator('..')).toContainText('agent');
+    await expect(page.getByText(email, { exact: true }).first().locator('..')).toContainText(
+      'agent',
+    );
   },
 );

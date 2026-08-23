@@ -1,0 +1,205 @@
+{
+  "tabs": {
+    "routing": "Routing & AI",
+    "hours": "Business hours",
+    "team": "Team & skills",
+    "queues": "Queues",
+    "sounds": "Sounds",
+    "embed": "Call button",
+    "apiKeys": "API keys"
+  },
+  "common": {
+    "add": "Add",
+    "delete": "Delete",
+    "save": "Save"
+  },
+  "routing": {
+    "title": "Routing & AI",
+    "sections": {
+      "routing": "Routing",
+      "alerts": "Dashboard alerts",
+      "agents": "Agents",
+      "wrapUp": "Wrap-up",
+      "aiAgent": "AI agent"
+    },
+    "mode": {
+      "label": "Who answers first",
+      "aiFirst": "AI answers, escalates to humans",
+      "humanFirst": "Ring humans first, AI as fallback"
+    },
+    "handoff": {
+      "label": "When a human takes over, the AI",
+      "leave": "leaves the conversation (keeps transcribing)",
+      "listen": "stays muted and keeps listening"
+    },
+    "offerTimeout": "Ring each agent for (s)",
+    "humanFirstTimeout": "Human-first timeout (s)",
+    "holdReminder": "Hold reminder (s, 0 = off)",
+    "alerts": {
+      "maxWaiting": "Alert: calls waiting (0 = off)",
+      "maxWaitSec": "Alert: longest wait (s, 0 = off)",
+      "maxCallSec": "Alert: longest call (s, 0 = off)"
+    },
+    "autoAnswer": "Auto-answer offers with a zip tone",
+    "monitorNotify": "Tell agents when a supervisor is monitoring their call",
+    "notReadyReasons": "Not-ready reason codes",
+    "notReadyPlaceholder": "Break, Meeting…",
+    "acw": "Wrap-up time (s, 0 = off)",
+    "dispositionRequired": "Disposition required before finishing wrap-up",
+    "greeting": "AI greeting instruction",
+    "instructions": "Company instructions for the AI",
+    "instructionsPlaceholder": "Opening hours, products, what the AI may and may not do…",
+    "saved": "Routing settings saved"
+  },
+  "hours": {
+    "title": "Business hours",
+    "mode": "Mode",
+    "modes": {
+      "off": "Always open",
+      "auto": "Follow the schedule",
+      "open": "Forced open",
+      "closed": "Forced closed",
+      "emergency": "Emergency"
+    },
+    "timezone": "Timezone (IANA)",
+    "windows": "Weekly windows (one per line: mon 09:00-17:00)",
+    "holidays": "Holidays (one date per line: 2026-12-25)",
+    "closedMessage": "Closed message",
+    "emergencyMessage": "Emergency message",
+    "save": "Save hours",
+    "saved": "Business hours saved"
+  },
+  "codes": {
+    "title": "Wrap-up codes",
+    "hint": "Agents pick one of these after each call. Put a <code>/</code> in the code to group (<code>billing/refund</code>).",
+    "label": "Label",
+    "code": "Code",
+    "remove": "remove code {{label}}",
+    "add": "+ Add code",
+    "addExamples": "Add examples",
+    "examples": {
+      "resolved": "Resolved",
+      "ticket": "Created ticket",
+      "docs": "Documentation update",
+      "escalated": "Escalated",
+      "callback": "Callback scheduled"
+    }
+  },
+  "skills": {
+    "chip": "{{skill}} · {{levelWord}} {{level}}",
+    "levelWord": "level",
+    "minWord": "min",
+    "levelLabel": "Level",
+    "minLabel": "Min",
+    "placeholder": "billing, lang:de…"
+  },
+  "team": {
+    "title": "Team",
+    "roles": {
+      "agent": "agent",
+      "supervisor": "supervisor"
+    },
+    "invitedAs": "invited as {{role}}",
+    "inviteLabel": "Invite by Google email",
+    "invite": "Invite",
+    "invited": "{{email}} invited",
+    "addSkill": "Add a skill to {{name}}",
+    "saveSkills": "Save skills of {{name}}",
+    "skillsSaved": "Skills of {{name}} saved"
+  },
+  "queues": {
+    "title": "Queues",
+    "algorithms": {
+      "longest_idle": "Longest idle",
+      "least_occupied": "Least occupied",
+      "round_robin": "Round robin",
+      "most_skilled": "Most skilled",
+      "least_skilled": "Least skilled",
+      "linear": "Fixed order"
+    },
+    "ringOrder": "Ring order",
+    "matchLanguage": "Match caller language",
+    "mohStyle": "Hold music style",
+    "moh": {
+      "calm": "Calm",
+      "bright": "Bright"
+    },
+    "holdMusicUrl": "Hold music URL for {{name}} (WAV, optional)",
+    "holdMusicPlaceholder": "Uses the tenant's hold music when empty",
+    "requiredSkills": "Required skills for {{name}}",
+    "saveRouting": "Save routing of {{name}}",
+    "routingSaved": "Routing of {{name}} saved",
+    "added": "Queue {{name}} added",
+    "archived": "Queue {{name}} archived (it has call history)",
+    "deleted": "Queue {{name}} deleted",
+    "deleteAria": "delete queue {{name}}",
+    "deleteTitle": "Delete queue {{name}}?",
+    "deleteMessage": "The queue disappears from routing and from the embed snippets. If calls were ever taken in it, it is archived so their history keeps the queue name.",
+    "members": "Members",
+    "newQueue": "New queue"
+  },
+  "sounds": {
+    "title": "Sounds",
+    "labels": {
+      "holdMusic": "Hold music",
+      "ringtone": "Ringtone",
+      "ringback": "Ringback"
+    },
+    "names": {
+      "holdMusic": "hold music",
+      "ringtone": "ringtone",
+      "ringback": "ringback"
+    },
+    "hints": {
+      "holdMusic": "WAV only; played to the customer on hold. Empty = built-in melody.",
+      "ringtone": "Played on the desk while a call rings. Empty = built-in ring.",
+      "ringback": "Played to the customer while waiting for a person. Empty = silence."
+    },
+    "url": "{{label}} URL",
+    "urlPlaceholder": "https://… or upload a file",
+    "upload": "Upload",
+    "uploadAria": "Upload {{sound}}",
+    "play": "Play",
+    "stop": "Stop",
+    "clear": "Clear",
+    "save": "Save sounds",
+    "saved": "Sounds saved",
+    "uploaded": "{{name}} uploaded",
+    "fileDeleted": "File deleted",
+    "cannotPlay": "Cannot play this file",
+    "uploadedFiles": "Uploaded files",
+    "useAs": "Use as {{sound}}",
+    "deleteAria": "delete file {{name}}",
+    "deleteTitle": "Delete {{name}}?",
+    "deleteMessage": "Sounds still pointing at this file fall back to the built-in sound."
+  },
+  "embed": {
+    "title": "Call button for your website",
+    "anyOrigin": "any origin",
+    "deleteAria": "delete {{label}}",
+    "deleteTitle": "Delete key {{label}}?",
+    "deleteMessage": "Websites using this key stop being able to call.",
+    "snippet": "Embed snippet",
+    "label": "Label",
+    "origins": "Allowed origins (optional)",
+    "originsPlaceholder": "https://www.example.com",
+    "create": "Create key",
+    "created": "Key {{label}} created",
+    "deleted": "Key deleted"
+  },
+  "apiKeys": {
+    "title": "API keys",
+    "copyNow": "Copy the key now, it will not be shown again:",
+    "newKey": "New API key",
+    "revoked": "revoked",
+    "revokeAria": "revoke {{name}}",
+    "revoke": "Revoke",
+    "deleteAria": "delete {{name}}",
+    "deleteTitle": "Delete key {{name}}?",
+    "deleteMessage": "The key stops working immediately and leaves no trace.",
+    "name": "Key name",
+    "create": "Create API key",
+    "keyRevoked": "Key revoked",
+    "keyDeleted": "Key deleted"
+  }
+}

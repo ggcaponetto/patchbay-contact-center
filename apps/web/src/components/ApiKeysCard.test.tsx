@@ -57,6 +57,20 @@ describe('ApiKeysCard', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'revoke crm' }));
-    await waitFor(() => expect(mocks.del).toHaveBeenCalledWith('/admin/api-keys/k1'));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith('/admin/api-keys/k1/revoke', {}));
+  });
+
+  it('deletes keys (revoked ones too) after a confirmation', async () => {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ApiKeysCard />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('crm')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'delete old' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }));
+    await waitFor(() => expect(mocks.del).toHaveBeenCalledWith('/admin/api-keys/k2'));
   });
 });

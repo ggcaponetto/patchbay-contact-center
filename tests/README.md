@@ -36,6 +36,10 @@ tests/
     seed.mjs             # creates an embed key through the admin API, then runs Artillery
 ```
 
+## Vitest setup files
+
+`tests/setup/i18n.ts` runs before every file of the `unit` project (`setupFiles` in `vitest.config.ts`): it creates the desk's i18next instance in English (`createWebI18n('en')` from `apps/web/src/lib/i18n.ts`) and registers it as react-i18next's default, so web components rendered without an `I18nextProvider` show the English texts the assertions look for. Tests that need another language create their own instance and wrap the render in `<I18nextProvider>` (see `LanguageMenu.test.tsx`). The e2e suite pins the same language through the `cc_lng=en` cookie on every browser context (`support/actors.ts`).
+
 ## Playwright (e2e)
 
 ### Tiers and tags

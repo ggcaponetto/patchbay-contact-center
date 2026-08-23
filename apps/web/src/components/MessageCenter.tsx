@@ -5,6 +5,7 @@
  */
 import { Alert, Snackbar } from '@mui/material';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { DeskState } from '../lib/store.ts';
 
 /** Props of {@link MessageCenter}. */
@@ -15,6 +16,7 @@ type Props = {
 
 /** See the module comment. */
 export function MessageCenter({ state }: Props) {
+  const { t } = useTranslation();
   // Messages already dismissed (by count); a new arrival re-opens the snackbar.
   const [dismissed, setDismissed] = useState(0);
   const last = state.messages.at(-1);
@@ -34,7 +36,9 @@ export function MessageCenter({ state }: Props) {
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
           <Alert severity={last.broadcast ? 'warning' : 'info'} variant="filled">
-            {last.broadcast ? `${last.from.name} (to everyone): ` : `${last.from.name}: `}
+            {last.broadcast
+              ? t('messages.toEveryone', { name: last.from.name })
+              : t('messages.from', { name: last.from.name })}
             {last.text}
           </Alert>
         </Snackbar>

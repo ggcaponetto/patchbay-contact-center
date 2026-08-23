@@ -10,6 +10,10 @@
  * Security relies on two things only: the embed key must exist, and the request's
  * `Origin` must be in the key's allow-list (an empty list allows any origin).
  *
+ * `GET /media/:id` serves uploaded sound files without any authentication: ids are random
+ * UUIDs (unguessable) and sounds are not sensitive — they are played to anonymous callers
+ * by design, and the embed button and the media worker need them without credentials.
+ *
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
  */
@@ -23,6 +27,7 @@ import type { Flow } from '../flow.ts';
 import type { LiveKit } from '../livekit.ts';
 import { addEvent, addParticipant, createCall, setCallStatus } from '../services/calls.ts';
 import { openState } from '../services/hours.ts';
+import { readMediaAsset } from '../services/mediaAssets.ts';
 import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
@@ -41,8 +46,9 @@ const CreateCallBody = z.object({
 /**
  * Unauthenticated endpoints used by the embeddable call button.
  *
- * `POST /calls` → `{ callId, roomName, token, url }`; errors: 400 `invalid_body`,
- * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`.
+ * `POST /calls` → `{ callId, roomName, token, url, sounds }`; errors: 400 `invalid_body`,
+ * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`. `GET /media/:id` streams an
+ * uploaded sound (404 `not_found`).
  */
 export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
   app,
@@ -62,6 +68,8 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
             roomName: z.string(),
             token: z.string(),
             url: z.string(),
+            /** Tenant sounds the embed plays itself (ringback while waiting). */
+            sounds: z.object({ ringback: z.string().optional() }),
           }),
           errors: [
             '400 invalid_body',
@@ -122,7 +130,38 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
       // Desks refetch their call lists on `call.updated`: this is how a new call shows up.
       hub.emit('call.updated', { tenantId: resolved.key.tenantId, callId: id, status });
       if (!aiFirst) void flow.humanFirst(id, metadata);
-      return { callId: id, roomName, token, url: livekit.url };
+      const { ringback } = tenant.settings.sounds;
+      return {
+        callId: id,
+        roomName,
+        token,
+        url: livekit.url,
+        sounds: { ...(ringback ? { ringback } : {}) },
+      };
+    },
+  );
+
+  /** Uploaded sound files. Immutable by id (a replaced sound gets a new id), so cache forever. */
+  app.get<{ Params: { id: string } }>(
+    '/media/:id',
+    {
+      config: {
+        doc: {
+          summary: 'An uploaded sound file (hold music, ringtone, ringback)',
+          access: 'public',
+          tag: 'public',
+          errors: ['404 not_found'],
+        },
+      },
+    },
+    async (request, reply) => {
+      const asset = await readMediaAsset(db, request.params.id);
+      if (!asset) return reply.code(404).send({ error: 'not_found' });
+      return reply
+        .header('content-type', asset.mimeType)
+        .header('content-length', asset.sizeBytes)
+        .header('cache-control', 'public, max-age=31536000, immutable')
+        .send(asset.data);
     },
   );
 };

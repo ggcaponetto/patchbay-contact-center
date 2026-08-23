@@ -6,31 +6,18 @@
 import { Button, Chip, Grid, Paper, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CallPanel, type JoinInfo, Transcript } from '../components/CallPanel.tsx';
-import { type CallDetail, api, post } from '../lib/api.ts';
+import { type CallDetail, type DeskSettings, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
-import { statusColor, statusLabel } from '../lib/store.ts';
+import { useLocaleFormat } from '../lib/i18n.ts';
+import { dispositionLabel, statusColor, statusKey } from '../lib/store.ts';
 
 /** Supervisor ways onto a live call; see `Flow.join` on the API for the semantics. */
 type JoinMode = 'listen' | 'whisper' | 'barge' | 'takeover' | 'intercept';
 
-/** Button labels, in display order. */
-const MODE_LABELS: Record<JoinMode, string> = {
-  listen: 'Listen in',
-  whisper: 'Whisper',
-  barge: 'Barge in',
-  takeover: 'Take over',
-  intercept: 'Intercept',
-};
-
-/** Panel title while joined in each mode. */
-const MODE_TITLES: Record<JoinMode, string> = {
-  listen: 'Listening in',
-  whisper: 'Whispering to the agent',
-  barge: 'Barged into this call',
-  takeover: 'You took over this call',
-  intercept: 'You intercepted this call',
-};
+/** The modes in display order; button labels are `call.modes.*`, panel titles `call.titles.*`. */
+const MODES: JoinMode[] = ['listen', 'whisper', 'barge', 'takeover', 'intercept'];
 
 /** Props of {@link CallPage}: the call id from the route and the supervisor flag from the membership. */
 type Props = { id: string; desk: ReturnType<typeof useDeskSocket>; supervisor: boolean };
@@ -49,10 +36,16 @@ type Props = { id: string; desk: ReturnType<typeof useDeskSocket>; supervisor: b
  *   (take-over; ends the call).
  */
 export function CallPage({ id, desk, supervisor }: Props) {
+  const { t } = useTranslation();
+  const { time } = useLocaleFormat();
   const { state, send } = desk;
   const detail = useQuery({
     queryKey: ['call', id, state.callsVersion],
     queryFn: () => api<CallDetail>(`/desk/calls/${id}`),
+  });
+  const settings = useQuery({
+    queryKey: ['desk-settings'],
+    queryFn: () => api<DeskSettings>('/desk/settings'),
   });
   const [joined, setJoined] = useState<{ mode: JoinMode; join: JoinInfo } | null>(null);
   useEffect(() => send({ type: 'subscribe', callId: id }), [id, send]);
@@ -102,25 +95,29 @@ ${s.text}`;
   return (
     <Stack spacing={2}>
       <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
-        <Button onClick={() => (location.hash = '#/history')}>← Back</Button>
-        <Typography variant="h6">Call {id.slice(0, 8)}</Typography>
-        {status && <Chip size="small" color={statusColor[status]} label={statusLabel[status]} />}
+        <Button onClick={() => (location.hash = '#/history')}>{t('common.back')}</Button>
+        <Typography variant="h6">{t('call.title', { id: id.slice(0, 8) })}</Typography>
+        {status && <Chip size="small" color={statusColor[status]} label={t(statusKey(status))} />}
         {detail.data && <Typography color="text.secondary">{detail.data.queueKey}</Typography>}
         {detail.data?.dispositionCode && (
-          <Chip size="small" variant="outlined" label={detail.data.dispositionCode} />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={dispositionLabel(detail.data.dispositionCode, settings.data?.dispositions)}
+          />
         )}
         {(detail.data?.tags ?? []).map((t) => (
           <Chip key={t} size="small" label={t} />
         ))}
         <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
           {supervisor && live && !joined
-            ? (Object.keys(MODE_TITLES) as JoinMode[]).map((mode) => (
+            ? MODES.map((mode) => (
                 <Button
                   key={mode}
                   variant={mode === 'takeover' ? 'contained' : 'outlined'}
                   onClick={() => void join(mode)}
                 >
-                  {MODE_LABELS[mode]}
+                  {t(`call.modes.${mode}`)}
                 </Button>
               ))
             : null}
@@ -129,7 +126,7 @@ ${s.text}`;
       {joined ? (
         <CallPanel
           join={joined.join}
-          title={MODE_TITLES[joined.mode]}
+          title={t(`call.titles.${joined.mode}`)}
           transcript={transcript}
           onLeave={() => void leave()}
         />
@@ -138,12 +135,12 @@ ${s.text}`;
           <Grid size={{ xs: 12, md: 8 }}>
             <Paper sx={{ p: 2 }}>
               <Typography variant="subtitle1" gutterBottom>
-                Transcript
+                {t('call.transcript')}
               </Typography>
               <Transcript segments={transcript} />
               {detail.data?.aiSummary && (
                 <Typography sx={{ mt: 2 }}>
-                  <b>AI summary:</b> {detail.data.aiSummary}
+                  <b>{t('call.aiSummary')}</b> {detail.data.aiSummary}
                 </Typography>
               )}
             </Paper>
@@ -151,11 +148,11 @@ ${s.text}`;
           <Grid size={{ xs: 12, md: 4 }}>
             <Paper sx={{ p: 2 }}>
               <Typography variant="subtitle1" gutterBottom>
-                Events
+                {t('call.events')}
               </Typography>
               {(detail.data?.events ?? []).map((e) => (
                 <Typography key={e.id} variant="body2" sx={{ mb: 0.5 }}>
-                  <span style={{ opacity: 0.6 }}>{new Date(e.at).toLocaleTimeString()}</span>{' '}
+                  <span style={{ opacity: 0.6 }}>{time(e.at)}</span>
                   {e.type}
                 </Typography>
               ))}

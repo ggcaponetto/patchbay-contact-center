@@ -5,6 +5,7 @@
  */
 import { Button, Stack, TextField } from '@mui/material';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { post } from '../lib/api.ts';
 
 /** Props of {@link CallNotes}. */
@@ -18,6 +19,7 @@ type Props = {
 
 /** See the module comment. */
 export function CallNotes({ callId, tags = [], onError = () => undefined }: Props) {
+  const { t } = useTranslation();
   const [note, setNote] = useState('');
   const [tagText, setTagText] = useState(tags.join(', '));
   const run = async (fn: () => Promise<unknown>) => {
@@ -48,25 +50,25 @@ export function CallNotes({ callId, tags = [], onError = () => undefined }: Prop
       <Stack direction="row" spacing={1}>
         <TextField
           size="small"
-          label="Note"
+          label={t('notes.note')}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           sx={{ flex: 1 }}
         />
         <Button variant="outlined" onClick={() => void addNote()} disabled={!note.trim()}>
-          Add note
+          {t('notes.addNote')}
         </Button>
       </Stack>
       <Stack direction="row" spacing={1}>
         <TextField
           size="small"
-          label="Tags (comma separated)"
+          label={t('notes.tags')}
           value={tagText}
           onChange={(e) => setTagText(e.target.value)}
           sx={{ flex: 1 }}
         />
         <Button variant="outlined" onClick={() => void saveTags()}>
-          Save tags
+          {t('notes.saveTags')}
         </Button>
       </Stack>
     </Stack>

@@ -2,7 +2,8 @@
  * The `test` every spec imports: Playwright's, extended with
  *
  * - `supervisor`: the default dev user (`e2e@example.com`), supervisor of the bootstrapped
- *   tenant — the `page` fixture is theirs.
+ *   tenant — the `page` fixture is theirs. Its context, like every actor's, carries the
+ *   `cc_lng=en` cookie so the desk is English regardless of the browser locale.
  * - `actor(email)`: another signed-in person in their own browser context (closed after
  *   the test). See `actors.ts`. Invite them first, or they are "not a member".
  * - `queueAgent(email)`: invite + sign in + membership of the `support` queue, i.e. an
@@ -20,7 +21,7 @@
  */
 import { test as base } from '@playwright/test';
 import { E2E_USER } from '../../../playwright.config.ts';
-import { type Actor, newActor } from './actors.ts';
+import { type Actor, ENGLISH_COOKIE, newActor } from './actors.ts';
 import { admin, createCall, desk, playAi } from './api.ts';
 
 type Fixtures = {
@@ -38,6 +39,7 @@ type Fixtures = {
 
 export const test = base.extend<Fixtures>({
   supervisor: async ({ context, page }, use) => {
+    await context.addCookies([ENGLISH_COOKIE]);
     await use({
       email: E2E_USER,
       name: 'e2e',

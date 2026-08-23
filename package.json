@@ -1,6 +1,6 @@
 {
   "name": "patchbay-contact-center",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Patchbay Contact Center — AI-first contact center on LiveKit Cloud",
   "type": "module",

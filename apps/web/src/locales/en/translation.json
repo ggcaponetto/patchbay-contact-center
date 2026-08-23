@@ -1,0 +1,205 @@
+{
+  "app": {
+    "title": "Patchbay Contact Center",
+    "brand": "Patchbay",
+    "signInHint": "Sign in with your Google account to reach the agent desk.",
+    "signInWithGoogle": "Sign in with Google",
+    "signOut": "Sign out",
+    "signInAgain": "Sign in again",
+    "language": "Language",
+    "tenant": "Contact center",
+    "tabs": {
+      "desk": "Desk",
+      "dashboard": "Dashboard",
+      "wallboard": "Wallboard",
+      "history": "History",
+      "settings": "Settings"
+    },
+    "notMember": "<b>{{email}}</b> is not a member of any contact center. Ask a supervisor for an invite.",
+    "loggedOutBy": "{{name}} logged you out of the desk.",
+    "connecting": "Connecting to the desk…"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "send": "Send",
+    "back": "← Back",
+    "loading": "Loading…",
+    "connected": "Connected",
+    "connecting": "Connecting…"
+  },
+  "states": {
+    "ready": "Ready",
+    "not_ready": "Not ready",
+    "busy": "On a call",
+    "acw": "Wrap-up"
+  },
+  "statuses": {
+    "ringing": "Ringing",
+    "ai": "With AI",
+    "waiting_human": "Waiting for agent",
+    "human": "With agent",
+    "ended": "Ended"
+  },
+  "desk": {
+    "customerCall": "Customer call",
+    "supervisorOnCall": "A supervisor is on this call",
+    "waitingForCalls": "Waiting for calls. Keep this tab open to get rung.",
+    "setReady": "Set yourself to Ready to receive calls.",
+    "incomingCall": "Incoming call · {{queue}}",
+    "priority": "priority {{priority}}",
+    "reason": "Reason:",
+    "soFar": "So far:",
+    "secondsToAnswer": "{{seconds}}s to answer",
+    "decline": "Decline",
+    "accept": "Accept",
+    "couldNotAccept": "Could not accept: {{error}}",
+    "colleague": "colleague"
+  },
+  "stateBar": {
+    "greeting": "Hi {{name}}, you are",
+    "ready": "Ready",
+    "notReady": "Not ready",
+    "wrapUpLeft": "Wrap-up: {{seconds}}s left",
+    "disposition": "Disposition",
+    "extend": "Extend",
+    "done": "Done"
+  },
+  "callPanel": {
+    "retrieve": "Retrieve ({{time}})",
+    "hold": "Hold",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "hangUp": "Hang up",
+    "stopListening": "Stop listening",
+    "onHoldFor_one": "The customer has been on hold for {{count}} second.",
+    "onHoldFor_other": "The customer has been on hold for {{count}} seconds.",
+    "noTranscript": "No transcript yet."
+  },
+  "recording": {
+    "rec": "REC",
+    "recPaused": "REC paused",
+    "record": "Record",
+    "pause": "Pause recording",
+    "resume": "Resume recording",
+    "stop": "Stop recording"
+  },
+  "transfer": {
+    "transfer": "Transfer",
+    "consult": "Consult",
+    "handOver": "Hand over to {{name}}",
+    "conference": "Conference",
+    "drop": "Drop {{name}}",
+    "queue": "Queue: {{name}}",
+    "nobodyReady": "Nobody is ready"
+  },
+  "notes": {
+    "note": "Note",
+    "addNote": "Add note",
+    "tags": "Tags (comma separated)",
+    "saveTags": "Save tags"
+  },
+  "messages": {
+    "toEveryone": "{{name}} (to everyone): ",
+    "from": "{{name}}: "
+  },
+  "dashboard": {
+    "actionsFor": "actions for {{name}}",
+    "endWrapUp": "End wrap-up",
+    "forceReady": "Force ready",
+    "forceNotReady": "Force not ready",
+    "logOut": "Log out",
+    "message": "Message…",
+    "messageTo": "Message {{name}}",
+    "teamMessaging": "Team messaging",
+    "broadcastLabel": "Broadcast to every desk",
+    "broadcast": "Broadcast",
+    "tickerLabel": "Ticker banner (empty clears it)",
+    "setTicker": "Set ticker",
+    "liveCalls": "Live calls ({{count}})",
+    "noCalls": "No calls in progress.",
+    "agentsOnline": "Agents online ({{count}})",
+    "nobodyOnline": "Nobody is online."
+  },
+  "history": {
+    "title": "Calls",
+    "started": "Started",
+    "queue": "Queue",
+    "status": "Status",
+    "duration": "Duration",
+    "disposition": "Disposition",
+    "summary": "Summary"
+  },
+  "call": {
+    "title": "Call {{id}}",
+    "modes": {
+      "listen": "Listen in",
+      "whisper": "Whisper",
+      "barge": "Barge in",
+      "takeover": "Take over",
+      "intercept": "Intercept"
+    },
+    "titles": {
+      "listen": "Listening in",
+      "whisper": "Whispering to the agent",
+      "barge": "Barged into this call",
+      "takeover": "You took over this call",
+      "intercept": "You intercepted this call"
+    },
+    "transcript": "Transcript",
+    "aiSummary": "AI summary:",
+    "events": "Events"
+  },
+  "wallboard": {
+    "waiting": "Waiting",
+    "longestWait": "Longest wait (s)",
+    "activeCalls": "Active calls",
+    "longestCall": "Longest call (s)",
+    "agentsReady": "Agents ready",
+    "onCalls": "On calls",
+    "wrapUp": "Wrap-up",
+    "notReady": "Not ready",
+    "callsToday": "Calls today",
+    "answeredByHuman": "Answered by a human",
+    "avgHandleTime": "Avg handle time (s)"
+  },
+  "devUser": {
+    "signedInAs": "Signed in as {{name}}",
+    "openInNewTab": "Open in new tab",
+    "openInNewTabAs": "Open in new tab as {{name}}",
+    "backTo": "Back to {{name}}",
+    "defaultUser": "the default user",
+    "otherEmail": "Other email…",
+    "prompt": "Sign in as (email)"
+  },
+  "errors": {
+    "generic": "Something went wrong",
+    "already_held": "The customer is already on hold",
+    "call_over": "The call is already over",
+    "closed": "The contact center is closed right now",
+    "disposition_required": "Pick a wrap-up code first",
+    "empty_target": "Pick a transfer target",
+    "forbidden": "You are not allowed to do that",
+    "invalid_body": "The request was not valid",
+    "invalid_email": "That email address is not valid",
+    "invalid_state": "That state change is not possible right now",
+    "last_queue": "The last queue cannot be deleted",
+    "no_consultant": "There is no consultant on this call",
+    "no_tenant": "No contact center selected",
+    "not_found": "Not found",
+    "not_held": "The customer is not on hold",
+    "not_in_acw": "You are not in wrap-up",
+    "not_live": "The call is no longer live",
+    "not_ringing_you": "This call is no longer ringing you",
+    "not_wav": "The file is not a WAV file",
+    "offline": "You are offline on the desk",
+    "on_call": "Not possible while on a call",
+    "origin_not_allowed": "This website is not allowed to use that key",
+    "recording_unavailable": "Recording is not available",
+    "too_large": "The file is too large",
+    "unauthenticated": "Please sign in again",
+    "unknown_code": "Unknown wrap-up code",
+    "unknown_embed_key_or_queue": "Unknown call button key or queue",
+    "unsupported_type": "That file type is not supported"
+  }
+}

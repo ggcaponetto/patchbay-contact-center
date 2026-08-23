@@ -5,6 +5,7 @@
  * refetches the call on every `call.updated`), so all desks on the call stay in sync.
  */
 import { Button, Chip, Stack } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import { post } from '../lib/api.ts';
 
 /** Props of {@link RecordingControls}. */
@@ -18,6 +19,7 @@ type Props = {
 
 /** See the module comment. */
 export function RecordingControls({ callId, state, onError = () => undefined }: Props) {
+  const { t } = useTranslation();
   const act = async (action: 'start' | 'pause' | 'resume' | 'stop') => {
     try {
       await post(`/desk/calls/${callId}/recording`, { action });
@@ -28,25 +30,29 @@ export function RecordingControls({ callId, state, onError = () => undefined }: 
   return (
     <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center' }}>
       {state !== 'off' ? (
-        <Chip label={state === 'paused' ? 'REC paused' : 'REC'} color="error" size="small" />
+        <Chip
+          label={state === 'paused' ? t('recording.recPaused') : t('recording.rec')}
+          color="error"
+          size="small"
+        />
       ) : (
         <Button size="small" variant="outlined" color="error" onClick={() => void act('start')}>
-          Record
+          {t('recording.record')}
         </Button>
       )}
       {state === 'on' ? (
         <Button size="small" variant="outlined" onClick={() => void act('pause')}>
-          Pause recording
+          {t('recording.pause')}
         </Button>
       ) : null}
       {state === 'paused' ? (
         <Button size="small" variant="outlined" onClick={() => void act('resume')}>
-          Resume recording
+          {t('recording.resume')}
         </Button>
       ) : null}
       {state !== 'off' ? (
         <Button size="small" variant="outlined" onClick={() => void act('stop')}>
-          Stop recording
+          {t('recording.stop')}
         </Button>
       ) : null}
     </Stack>

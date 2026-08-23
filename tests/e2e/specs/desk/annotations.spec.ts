@@ -73,7 +73,7 @@ test(
 
     const history = page;
     await history.goto('/#/history');
-    await expect(page.getByRole('cell', { name: 'billing/refund' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'billing · Refund' })).toBeVisible();
     await admin(supervisor.request).updateSettings({
       acwSec: 30,
       dispositions: [],

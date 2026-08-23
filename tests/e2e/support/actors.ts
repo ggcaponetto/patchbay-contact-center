@@ -7,6 +7,9 @@
  */
 import type { APIRequestContext, Browser, BrowserContext, Page } from '@playwright/test';
 
+/** The desk's language cookie, pinned to English for every e2e browser context. */
+export const ENGLISH_COOKIE = { name: 'cc_lng', value: 'en', domain: 'localhost', path: '/' };
+
 /** One signed-in person: their browser context, a page on the desk, and their API client. */
 export type Actor = {
   email: string;
@@ -22,11 +25,14 @@ export type Actor = {
 /**
  * Opens a new browser context signed in as `email`. The cookie is scoped to `localhost`
  * without a port, so it reaches the desk (3100, proxied to the API) and the API (4100).
+ * The `cc_lng` cookie pins the desk to English, whatever the browser's locale, so the
+ * specs can look for English labels (`language.spec.ts` switches it on purpose).
  */
 export async function newActor(browser: Browser, email: string): Promise<Actor> {
   const context = await browser.newContext();
   await context.addCookies([
     { name: 'cc_dev_user', value: encodeURIComponent(email), domain: 'localhost', path: '/' },
+    ENGLISH_COOKIE,
   ]);
   const page = await context.newPage();
   return {

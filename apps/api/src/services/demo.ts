@@ -2,7 +2,7 @@
  * Demo team for local development: when the API runs with the dev-auth bypass
  * (`DEV_USER_EMAIL`, see `auth.ts`) and `DEV_DEMO_TEAM` is not `false`, the default dev
  * user's contact center gets a supervisor and three agents so the desk can be used as
- * several people at once (switch user in the app bar, one identity per browser profile).
+ * several people at once (switch user in the app bar, one identity per browser tab).
  *
  * Idempotent: users are found by email, memberships come from the same invite +
  * `bootstrapUser` path a real first sign-in takes, queue membership is merged, never

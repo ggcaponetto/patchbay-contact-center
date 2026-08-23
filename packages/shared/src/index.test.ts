@@ -8,7 +8,11 @@ import {
   AgentStateRequest,
   ClientMessage,
   DispatchMetadata,
+  MediaAsset,
+  MediaCommand,
+  QueueConfig,
   ServerMessage,
+  SoundUrl,
   TenantSettings,
   defaultTenantSettings,
   roomNameFor,
@@ -39,6 +43,7 @@ describe('TenantSettings', () => {
       alerts: { maxWaiting: 0, maxWaitSec: 0, maxCallSec: 0 },
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
+      sounds: {},
     });
   });
 
@@ -53,6 +58,54 @@ describe('TenantSettings', () => {
     expect(parsed.humanFirstTimeoutSec).toBe(45);
     expect(() => TenantSettings.parse({ routingMode: 'robot-first' })).toThrow();
     expect(() => TenantSettings.parse({ humanFirstTimeoutSec: 1 })).toThrow();
+  });
+});
+
+describe('sounds', () => {
+  it('accepts http(s) URLs and uploaded-media paths only', () => {
+    expect(SoundUrl.parse('https://cdn.example.com/hold.mp3')).toBe(
+      'https://cdn.example.com/hold.mp3',
+    );
+    expect(SoundUrl.parse('http://localhost:4000/x.wav')).toBe('http://localhost:4000/x.wav');
+    expect(SoundUrl.parse('/api/public/media/abc')).toBe('/api/public/media/abc');
+    for (const bad of [
+      'ftp://x/y.wav',
+      '/etc/passwd',
+      'hold.mp3',
+      `https://x/${'a'.repeat(500)}`,
+    ]) {
+      expect(SoundUrl.safeParse(bad).success, bad).toBe(false);
+    }
+  });
+
+  it('is optional everywhere: tenant settings, queue config, media command', () => {
+    const t = TenantSettings.parse({ sounds: { ringtone: '/api/public/media/r1' } });
+    expect(t.sounds).toEqual({ ringtone: '/api/public/media/r1' });
+    expect(() => TenantSettings.parse({ sounds: { ringback: 'nope' } })).toThrow();
+    expect(QueueConfig.parse({}).holdMusicUrl).toBeUndefined();
+    expect(QueueConfig.parse({ holdMusicUrl: 'https://x/h.wav' }).holdMusicUrl).toBe(
+      'https://x/h.wav',
+    );
+    const cmd = MediaCommand.parse({
+      action: 'moh.start',
+      callId: 'c',
+      roomName: 'r',
+      token: 't',
+      url: 'wss://lk',
+      music: '/api/public/media/m1',
+    });
+    expect(cmd).toMatchObject({ music: '/api/public/media/m1' });
+    expect(
+      MediaAsset.parse({
+        id: 'm1',
+        name: 'hold.wav',
+        mimeType: 'audio/wav',
+        sizeBytes: 44,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        url: '/api/public/media/m1',
+      }).url,
+    ).toBe('/api/public/media/m1');
+    expect(MediaAsset.safeParse({ id: 'm1' }).success).toBe(false);
   });
 });
 

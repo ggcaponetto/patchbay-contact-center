@@ -19,6 +19,7 @@ erDiagram
   tenant ||--o{ invite : has
   tenant ||--o{ queue : has
   tenant ||--o{ embed_key : has
+  tenant ||--o{ media_asset : has
   tenant ||--o{ call : has
   queue ||--o{ queue_member : has
   queue ||--o{ call : routes
@@ -99,6 +100,15 @@ erDiagram
     text_array allowed_origins
     timestamp created_at
   }
+  media_asset {
+    text id PK
+    text tenant_id FK
+    text name
+    text mime_type
+    integer size_bytes
+    bytea data
+    timestamp created_at
+  }
   call {
     text id PK
     text tenant_id FK
@@ -151,11 +161,13 @@ Constraints worth knowing:
 | `queue_member (queue_id, user_id)` PK    | no duplicate memberships                                   |
 | `call.room_name` unique                  | one LiveKit room per call                                  |
 | `embed_key.public_key` unique            | lookups from the public route                              |
+| `media_asset` keeps the bytes (`bytea`)  | uploaded sounds (≤ 5 MiB each) need no object storage      |
 | `call.queue_id` no cascade               | a queue with call history cannot be deleted silently       |
 | every other FK `ON DELETE CASCADE`       | deleting a tenant or call removes its children             |
 
 Indexes: `call (tenant_id, started_at)`, `transcript_segment (call_id, created_at)`,
-`call_event (call_id, at)`, plus Better Auth's `user_id` / `identifier` indexes.
+`call_event (call_id, at)`, `media_asset (tenant_id)`, plus Better Auth's `user_id` /
+`identifier` indexes.
 
 ## Conventions
 

@@ -11,6 +11,7 @@
 import type { ClientMessage, ServerMessage } from '@cc/shared';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { devUser } from './devUser.ts';
 import { initialState, parseRoute, reduce } from './store.ts';
 
 /**
@@ -18,7 +19,9 @@ import { initialState, parseRoute, reduce } from './store.ts';
  * reduced state and a sender. Agent states are set over REST (`/api/desk/state`); the
  * server echoes them in the `presence` frame, so `state.agents` is the truth.
  *
- * Opens `ws(s)://<host>/api/ws?tenantId=…` (proxied to the API in dev). Every frame is a
+ * Opens `ws(s)://<host>/api/ws?tenantId=…` (proxied to the API in dev), plus `&as=<email>`
+ * when this tab runs as another dev user (`devUser.ts`; browsers cannot set headers on a
+ * websocket upgrade, so the API reads it from the query). Every frame is a
  * `ServerMessage` and goes straight into {@link reduce}. If the socket closes for any
  * reason (API restart, network blip) it is reopened after two seconds, forever, until
  * the component unmounts or `tenantId` changes. The server treats a fresh connection as
@@ -42,7 +45,11 @@ export function useDeskSocket(tenantId: string | undefined) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/api/ws?tenantId=${tenantId}`);
+      const as = devUser();
+      const ws = new WebSocket(
+        `${proto}://${location.host}/api/ws?tenantId=${tenantId}` +
+          (as ? `&as=${encodeURIComponent(as)}` : ''),
+      );
       socketRef.current = ws;
       ws.onopen = () => {
         dispatch({ type: 'socket', connected: true });

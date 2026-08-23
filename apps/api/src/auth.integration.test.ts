@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DEV_USER_HEADER } from './auth.ts';
 import type { Db } from './db/client.ts';
 import { user } from './db/schema.ts';
 import { buildServer } from './server.ts';
@@ -135,6 +136,56 @@ describe.skipIf(!hasDb)('devAuth', () => {
     expect((await app.inject({ url: '/api/me' })).json().user.email).toBe('dev@example.com');
     await app.inject({ url: '/api/me', headers });
     expect(await db.select().from(user)).toHaveLength(2);
+  });
+
+  it('picks the dev user from the x-dev-user header, which beats the cookie', async () => {
+    const app = await devServer('dev@example.com', ['dev@example.com']);
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/invites',
+      payload: { email: 'tab@example.com', role: 'agent' },
+    });
+    const me = await app.inject({
+      url: '/api/me',
+      headers: { [DEV_USER_HEADER]: ' Tab@Example.com ' },
+    });
+    expect(me.json()).toMatchObject({
+      user: { email: 'tab@example.com', name: 'tab' },
+      memberships: [{ role: 'agent' }],
+    });
+    const session = await app.inject({
+      url: '/api/auth/get-session',
+      headers: { [DEV_USER_HEADER]: 'tab@example.com' },
+    });
+    expect(session.json().user.email).toBe('tab@example.com');
+    // header > cookie > default
+    const both = await app.inject({
+      url: '/api/auth/dev-users',
+      headers: { [DEV_USER_HEADER]: 'tab@example.com', cookie: 'cc_dev_user=other%40example.com' },
+    });
+    expect(both.json().current).toBe('tab@example.com');
+    const cookieOnly = await app.inject({
+      url: '/api/auth/dev-users',
+      headers: { cookie: 'cc_dev_user=other%40example.com' },
+    });
+    expect(cookieOnly.json().current).toBe('other@example.com');
+  });
+
+  it('ignores a malformed x-dev-user header (falls back to cookie, then default)', async () => {
+    const app = await devServer('dev@example.com', ['dev@example.com']);
+    for (const bad of ['', 'not-an-email', 'two@@x y', 'a@b c']) {
+      const me = await app.inject({ url: '/api/me', headers: { [DEV_USER_HEADER]: bad } });
+      expect(me.statusCode).toBe(200);
+      expect(me.json().user.email).toBe('dev@example.com');
+    }
+    const withCookie = await app.inject({
+      url: '/api/me',
+      headers: { [DEV_USER_HEADER]: 'nope', cookie: 'cc_dev_user=cookie%40example.com' },
+    });
+    expect(withCookie.json().user.email).toBe('cookie@example.com');
+    // a bad cookie is ignored the same way
+    const badCookie = await app.inject({ url: '/api/me', headers: { cookie: 'cc_dev_user=junk' } });
+    expect(badCookie.json().user.email).toBe('dev@example.com');
   });
 
   it('reuses an existing user row without bootstrapping again', async () => {

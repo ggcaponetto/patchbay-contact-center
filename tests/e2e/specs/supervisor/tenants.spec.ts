@@ -13,12 +13,13 @@ test(
     await ai(callId).join();
     const history = new HistoryPage(page);
     await history.goto();
-    await expect(page.getByRole('combobox')).toHaveCount(0);
+    // only the language menu is a combobox until a second tenant exists
+    await expect(page.getByRole('combobox', { name: 'Contact center' })).toHaveCount(0);
     await expect(history.rows().first()).toBeVisible();
 
     await admin(supervisor.request).createTenant('Acme Bikes');
     await page.reload();
-    const selector = page.getByRole('combobox');
+    const selector = page.getByRole('combobox', { name: 'Contact center' });
     await expect(selector).toBeVisible();
     await selector.click();
     await page.getByRole('option', { name: 'Acme Bikes' }).click();

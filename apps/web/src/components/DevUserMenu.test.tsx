@@ -21,22 +21,52 @@ const renderMenu = (onSwitched = vi.fn()) => {
 
 describe('DevUserMenu', () => {
   beforeEach(() => {
-    mocks.api.mockReset().mockResolvedValue({
-      current: 'e2e@example.com',
+    sessionStorage.clear();
+    mocks.api.mockReset().mockImplementation(async (_path: string, init?: RequestInit) => ({
+      // asked with an empty header = the API's default user
+      current:
+        (init?.headers as Record<string, string> | undefined)?.['x-dev-user'] === ''
+          ? 'e2e@example.com'
+          : sessionStorage.getItem('cc_dev_user') || 'e2e@example.com',
       users: [
         { id: '1', email: 'alice@patchbay.dev', name: 'Alice' },
         { id: '2', email: 'e2e@example.com', name: 'e2e' },
       ],
-    });
+    }));
     mocks.post.mockReset().mockResolvedValue({});
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
-  it('lists the dev users and switches to the chosen one', async () => {
+  it('lists the dev users and switches this tab to the chosen one without a request', async () => {
     const onSwitched = renderMenu();
     await userEvent.click(screen.getByText('Signed in as e2e'));
+    expect(screen.queryByText(/^Back to/)).toBeNull();
     await userEvent.click(await screen.findByText('Alice'));
-    expect(mocks.post).toHaveBeenCalledWith('/auth/dev-switch', { email: 'alice@patchbay.dev' });
+    expect(sessionStorage.getItem('cc_dev_user')).toBe('alice@patchbay.dev');
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(onSwitched).toHaveBeenCalled();
+  });
+
+  it('opens a person in a new tab, leaving this tab as it is', async () => {
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    const onSwitched = renderMenu();
+    await userEvent.click(screen.getByText('Signed in as e2e'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Open in new tab as Alice' }));
+    expect(open).toHaveBeenCalledWith('/#/?as=alice%40patchbay.dev', '_blank');
+    expect(sessionStorage.getItem('cc_dev_user')).toBeNull();
+    expect(onSwitched).not.toHaveBeenCalled();
+  });
+
+  it('offers "Back to <default>" when this tab is someone else', async () => {
+    sessionStorage.setItem('cc_dev_user', 'alice@patchbay.dev');
+    const onSwitched = renderMenu();
+    await userEvent.click(screen.getByText('Signed in as e2e'));
+    await userEvent.click(await screen.findByText('Back to e2e@example.com'));
+    expect(sessionStorage.getItem('cc_dev_user')).toBeNull();
     expect(onSwitched).toHaveBeenCalled();
   });
 
@@ -48,7 +78,7 @@ describe('DevUserMenu', () => {
     );
     await userEvent.click(screen.getByText('Signed in as e2e'));
     await userEvent.click(await screen.findByText('Other email…'));
-    expect(mocks.post).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('cc_dev_user')).toBeNull();
     expect(onSwitched).not.toHaveBeenCalled();
 
     vi.stubGlobal(
@@ -57,7 +87,7 @@ describe('DevUserMenu', () => {
     );
     await userEvent.click(screen.getByText('Signed in as e2e'));
     await userEvent.click(await screen.findByText('Other email…'));
-    expect(mocks.post).toHaveBeenCalledWith('/auth/dev-switch', { email: 'dave@patchbay.dev' });
-    vi.unstubAllGlobals();
+    expect(sessionStorage.getItem('cc_dev_user')).toBe('dave@patchbay.dev');
+    expect(onSwitched).toHaveBeenCalled();
   });
 });

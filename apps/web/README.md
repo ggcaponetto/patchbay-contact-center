@@ -38,29 +38,50 @@ For local work set `DEV_USER_EMAIL=you@example.com` in the API's environment
 bootstraps a tenant for them and no Google round-trip happens. The Playwright tests rely
 on this.
 
+The app bar then shows **Signed in as …** (`components/DevUserMenu.tsx`). The identity is
+**per browser tab**: `lib/devUser.ts` keeps the chosen email in `sessionStorage`
+(`cc_dev_user`), `lib/api.ts` sends it as the `x-dev-user` header on every request (the
+Better Auth client included, through `customFetchImpl`) and `useDeskSocket` adds
+`&as=<email>` to the websocket URL. Switching in the menu re-renders the desk without any
+server round-trip; **Open in new tab** next to a person opens `#/?as=<email>`, which
+`bootDevUser()` (called in `main.tsx` before rendering) reads, stores and strips from the
+URL. A tab opened any other way starts as the default dev user.
+
 ## Structure
 
 ```
 src/
-  main.tsx              providers (MUI theme, QueryClient) and mount
+  main.tsx              Providers (i18n, MUI theme + locale, QueryClient, ToastProvider) and mount
   App.tsx               session gate → SignIn | Shell (tabs, tenant selector, desk socket)
   pages/
     Desk.tsx            #/desk        availability, offer dialog, active call
     Dashboard.tsx       #/dashboard   live calls + presence (supervisors)
     History.tsx         #/history     all calls of the tenant
     CallPage.tsx        #/calls/<id>  transcript, events, listen-in / take-over
-    Settings.tsx        #/settings    routing, team, queues, embed keys (supervisors)
+    Settings.tsx        #/settings/<tab>  tabs (supervisors), one card per tab
   components/
     CallPanel.tsx       in-call view + Transcript list
+    ConfirmButton.tsx   "Are you sure?" dialog for destructive actions
+    LanguageMenu.tsx    app-bar language selector (English / Deutsch / Italiano)
+    ApiKeysCard.tsx     Settings → API keys (create, revoke, delete)
+    settings/           one card per settings tab: RoutingCard (+ CodesEditor for wrap-up
+                        codes), HoursCard, TeamCard (+ SkillsEditor chips), QueuesCard,
+                        SoundsCard (hold music / ringtone / ringback: URL or upload), EmbedCard
   lib/
-    api.ts              fetch wrapper, auth client, DTO types
+    api.ts              fetch wrapper, auth client, DTO types, uploadMediaAsset
     store.ts            pure reducer for websocket messages + helpers (unit-tested)
     hooks.ts            useDeskSocket, useLiveRoom, useRoute, useNow
+    sounds.ts           zip tone, built-in ring, useRingtone (tenant ringtone URL or synth)
+    useToast.tsx        the one snackbar every settings save confirms itself in; errorText()
+    i18n.ts             createWebI18n, MUI_LOCALES, useLocaleFormat (dates in the user's language)
+  locales/
+    en/ de/ it/         translation.json (desk) + settings.json (settings cards) per language
+  i18next.d.ts          typed translation keys from the English files
 ```
 
 ```mermaid
 flowchart TD
-  main[main.tsx<br/>ThemeProvider · QueryClientProvider] --> App
+  main[main.tsx<br/>I18nextProvider · ThemeProvider · QueryClientProvider] --> App
   App -- no session --> SignIn
   App -- session --> Shell
   Shell --> Desk & Dashboard & History & CallPage & Settings
@@ -85,13 +106,13 @@ Two things are worth knowing up front:
 
 ## Pages
 
-| Route          | Who         | Shows                                                                                         | Endpoints / messages                                                                                                              |
-| -------------- | ----------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `#/desk`       | everyone    | `StateBar` (Ready / Not ready + reason, timer, wrap-up), incoming-call dialog, `CallPanel`    | `POST /desk/state`, `/desk/acw/*`, `GET /desk/settings`; WS `offer.decline`, `subscribe`; `POST /desk/calls/:id/accept`, `/leave` |
-| `#/dashboard`  | supervisors | Live calls with duration + status chip, agents with state, reason and timer, force-state menu | `GET /desk/calls`, `POST /desk/agents/:userId/state`; WS `presence`, `call.updated`                                               |
-| `#/history`    | everyone    | Table of all calls (started, queue, status, duration, summary)                                | `GET /desk/calls`; WS `call.updated` (re-fetch)                                                                                   |
-| `#/calls/<id>` | everyone    | Transcript, AI summary, event log; supervisors: listen in / take over                         | `GET /desk/calls/:id`; WS `subscribe`, `transcript`; `POST /desk/calls/:id/join` (`listen`/`takeover`), `/leave`                  |
-| `#/settings`   | supervisors | Routing & AI, team & invites, queues, embed keys                                              | `GET/PATCH /admin/tenant…`, `GET/POST /admin/members`, `/admin/invites`, `/admin/queues…`, `/admin/embed-keys…`                   |
+| Route          | Who         | Shows                                                                                                                                      | Endpoints / messages                                                                                                                                                         |
+| -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#/desk`       | everyone    | `StateBar` (Ready / Not ready + reason, timer, wrap-up), incoming-call dialog (rings: built-in tone or the tenant's ringtone), `CallPanel` | `POST /desk/state`, `/desk/acw/*`, `GET /desk/settings`; WS `offer.decline`, `subscribe`; `POST /desk/calls/:id/accept`, `/leave`                                            |
+| `#/dashboard`  | supervisors | Live calls with duration + status chip, agents with state, reason and timer, force-state menu                                              | `GET /desk/calls`, `POST /desk/agents/:userId/state`; WS `presence`, `call.updated`                                                                                          |
+| `#/history`    | everyone    | Table of all calls (started, queue, status, duration, summary)                                                                             | `GET /desk/calls`; WS `call.updated` (re-fetch)                                                                                                                              |
+| `#/calls/<id>` | everyone    | Transcript, AI summary, event log; supervisors: listen in / take over                                                                      | `GET /desk/calls/:id`; WS `subscribe`, `transcript`; `POST /desk/calls/:id/join` (`listen`/`takeover`), `/leave`                                                             |
+| `#/settings`   | supervisors | Tabs: Routing & AI (incl. wrap-up codes), Business hours, Team & skills, Queues, Sounds, Call button, API keys                             | `GET/PATCH /admin/tenant…`, `GET/POST /admin/members`, `/admin/invites`, `/admin/queues…` (incl. `DELETE`), `/admin/media-assets…`, `/admin/embed-keys…`, `/admin/api-keys…` |
 
 All REST paths are relative to `/api`; the `api()` helper adds the prefix, the session
 cookie and the `x-tenant-id` header. The websocket is `/api/ws?tenantId=…`. Message
@@ -183,12 +204,63 @@ a counter bumped on every `call.updated`. Helpers: `secondsLeft`, `formatDuratio
   (`['calls', callsVersion]`, `['call', id, callsVersion]`), so a `call.updated`
   websocket frame is all it takes to re-fetch. Mutations call
   `queryClient.invalidateQueries` on success.
+- **Feedback**: every settings mutation reports through `useToast()` (`onSuccess` →
+  "… saved", `onError` → the API's error code) and disables its button while pending.
+  Destructive actions go through `ConfirmButton`. No free-text mini-languages in forms:
+  skills are chips (`SkillsEditor`), wrap-up codes are rows (`CodesEditor`).
+- **Settings cards** own their keys: `RoutingCard` sends only `routingSettings()`,
+  `HoursCard` only `{ hours }`, `SoundsCard` only `{ sounds }` — the API merges
+  shallowly, so a card must never PATCH the whole settings object.
 - **Real-time data**: never read the websocket directly in a page; extend `DeskState`
   and `reduce` and add a unit test.
 - **Props over context**: pages receive `desk` (and `me` / `supervisor` where needed)
   from `Shell`.
 - **Formatting/linting**: root `npm run format` and `npm run lint`; imports are sorted
   by the prettier plugin.
+
+## Internationalization
+
+The desk speaks English, German and Italian. The runtime is
+[react-i18next](https://react.i18next.com/) on top of the shared `@cc/i18n` package
+(`packages/i18n`: supported languages, cookie, `createI18n`); the desk-specific wiring is
+in `src/lib/i18n.ts`.
+
+- **Namespaces**: `src/locales/<lng>/translation.json` holds everything outside the
+  settings area, nested by screen (`app.*`, `desk.*`, `dashboard.*`, `history.*`,
+  `call.*`, `wallboard.*`, `stateBar.*`, `callPanel.*`, `recording.*`, `transfer.*`,
+  `notes.*`, `messages.*`, `devUser.*`, `common.*`, `states.*`, `statuses.*`,
+  `errors.*`); `settings.json` is the `settings` namespace used by the settings cards
+  (`useTranslation('settings')`). Leaves are camelCase; plurals use i18next's
+  `key_one` / `key_other` with `count`; `<Trans>` only where inline markup is needed
+  (the "not a member" alert).
+- **Typed keys**: `src/i18next.d.ts` derives the key types from the English files, so
+  `t('desk.accept')` is checked by `tsc`. `stateKey(state)` / `statusKey(status)` in
+  `lib/store.ts` return `states.<state>` / `statuses.<status>` for the chips.
+- **Language detection and switching**: `detectLanguage()` reads the `cc_lng` cookie,
+  else `navigator.language`; `LanguageMenu` in the app bar calls `i18n.changeLanguage`
+  and `persistLanguage` (cookie, one year). `Providers` in `main.tsx` re-creates the MUI
+  theme with the matching locale bundle (`MUI_LOCALES`) and keeps `<html lang>` in sync.
+  Dates and times go through `useLocaleFormat()` (`Intl.DateTimeFormat` in the current
+  language); durations (`m:ss`) are language-neutral.
+- **Errors**: the API answers with codes (`on_call`, `last_queue`…); `errorText(e, i18n)`
+  in `lib/useToast.tsx` maps them through `errors.<code>` and falls back to the bare
+  code for anything unknown.
+- **Adding a key**: add it to `en/translation.json` (or `settings.json`) **and** to `de`
+  and `it` — `src/locales/locales.test.ts` fails on missing keys, empty values, different
+  `{{placeholders}}` or unpaired plurals, and checks that every `AgentState`,
+  `CallStatus` and API error code has a label.
+- **Adding a language**: extend `SUPPORTED_LANGUAGES` / `LANGUAGE_NAMES` in
+  `packages/i18n`, add the two JSON files under `src/locales/<lng>/`, register them in
+  `createWebI18n` and the MUI bundle in `MUI_LOCALES`, and add the folder to
+  `cspell.json` `ignorePaths`.
+- **Tests**: `tests/setup/i18n.ts` (vitest `setupFiles`) registers the English instance
+  as react-i18next's default, so components render English without a provider; the e2e
+  suite pins `cc_lng=en` on every browser context and `desk/language.spec.ts` switches
+  to German on purpose.
+- **What stays untranslated**: anything that comes from the server or the tenant —
+  queue names and keys, not-ready reasons, roles and permissions, threshold alerts,
+  ticker and instant-message text, event types, tags, speaker and role codes, wrap-up
+  code labels, the native language names in the menu.
 
 ## Adding a page
 

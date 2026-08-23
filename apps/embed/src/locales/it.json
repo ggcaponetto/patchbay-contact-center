@@ -1,0 +1,16 @@
+{
+  "callUs": "Chiamaci",
+  "mute": "Disattiva microfono",
+  "unmute": "Riattiva microfono",
+  "hangUp": "Riaggancia",
+  "connecting": "Connessione…",
+  "pleaseHold": "Attendi, ti stiamo collegando…",
+  "inCall": "{{with}} · {{duration}}",
+  "ended": "Chiamata terminata. Grazie per averci chiamato!",
+  "couldNotStart": "Impossibile avviare la chiamata: {{message}}",
+  "missingKey": "manca l'attributo key (creane uno nelle Impostazioni)",
+  "peers": {
+    "ai": "Assistente AI",
+    "agent": "Operatore {{name}}"
+  }
+}

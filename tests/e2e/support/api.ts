@@ -56,8 +56,20 @@ export function admin(request: APIRequestContext) {
     invite: (email: string, role: 'agent' | 'supervisor' = 'agent') =>
       json<unknown>(request.post(`${base}/invites`, { data: { email, role } })),
     queues: () =>
-      json<{ id: string; key: string; name: string; memberIds: string[] }[]>(
-        request.get(`${base}/queues`),
+      json<
+        {
+          id: string;
+          key: string;
+          name: string;
+          memberIds: string[];
+          config: Record<string, unknown>;
+        }[]
+      >(request.get(`${base}/queues`)),
+    deleteQueue: (id: string) =>
+      json<{ ok: true; archived: boolean }>(request.delete(`${base}/queues/${id}`)),
+    mediaAssets: () =>
+      json<{ id: string; name: string; mimeType: string; url: string }[]>(
+        request.get(`${base}/media-assets`),
       ),
     createQueue: (name: string) =>
       json<{ id: string; key: string }>(
@@ -67,6 +79,10 @@ export function admin(request: APIRequestContext) {
       json<unknown>(request.put(`${base}/queues/${id}/members`, { data: { userIds } })),
     setQueueConfig: (id: string, config: Record<string, unknown>) =>
       json<unknown>(request.put(`${base}/queues/${id}/config`, { data: config })),
+    skills: (userId: string) =>
+      json<{ skill: string; proficiency: number }[]>(
+        request.get(`${base}/members/${userId}/skills`),
+      ),
     setSkills: (userId: string, skills: { skill: string; proficiency: number }[]) =>
       json<unknown>(request.put(`${base}/members/${userId}/skills`, { data: { skills } })),
     createKey: (label: string, allowedOrigins: string[] = []) =>

@@ -9,7 +9,8 @@ The following is a guide for working with this project.
 This project uses plain **npm workspaces** (`apps/*`, `packages/*`). Always use `npm` (never pnpm/yarn). Workspace scripts: `npm run -w apps/<name> <script>`.
 
 - `apps/agent` is the LiveKit Agents worker; keep `src/main.ts` as its entrypoint (the Dockerfile depends on it).
-- `apps/api` (Fastify), `apps/web` (Vite + React + MUI), `apps/embed` (web component) and `packages/shared` (zod contracts) are described in the README.
+- `apps/api` (Fastify), `apps/web` (Vite + React + MUI), `apps/embed` (web component with React inside), `packages/shared` (zod contracts) and `packages/i18n` (i18n runtime) are described in the README.
+- Every user-facing string of the desk and the call button goes through react-i18next: add the key to **all three** locale files (`src/locales/{en,de,it}/…` in `apps/web`, `src/locales/{en,de,it}.json` in `apps/embed`); the locale tests fail on missing keys. Server data (queue names, codes, roles) stays untranslated.
 - Node runs TypeScript directly (type stripping): imports use explicit `.ts` extensions; no enums, namespaces or parameter properties.
 
 ## Documentation and tests (keep them in sync with the code)

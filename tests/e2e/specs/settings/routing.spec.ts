@@ -44,7 +44,7 @@ test(
 
     await page.getByLabel('Ring each agent for (s)').fill('1');
     await settings.save();
-    await expect(page.getByText(/invalid_body/)).toBeVisible();
+    await expect(settings.toast).toContainText('The request was not valid');
     expect((await admin(supervisor.request).tenant()).settings.offerTimeoutSec).toBe(15);
 
     // leave the tenant as the other specs expect it

@@ -49,6 +49,34 @@ export const HandoffBehavior = z.enum(['leave', 'listen']);
 export type HandoffBehavior = z.infer<typeof HandoffBehavior>;
 
 /**
+ * Where a configurable sound comes from: an absolute `http(s)` URL (a file the tenant
+ * hosts elsewhere) or the path of an uploaded {@link MediaAsset} served by the API
+ * (`/api/public/media/<id>`). Relative paths are resolved against the API origin by
+ * each consumer (desk, embed, media worker).
+ */
+export const SoundUrl = z
+  .string()
+  .max(500)
+  .regex(/^(https?:\/\/|\/api\/public\/media\/)/, 'http(s) URL or /api/public/media/ path');
+/** Inferred type of {@link SoundUrl}. */
+export type SoundUrl = z.infer<typeof SoundUrl>;
+
+/**
+ * Tenant-wide sounds; every entry is optional and falls back to the built-in default
+ * (synthesized hold music, the desk's and the embed's bundled tones).
+ */
+export const Sounds = z.object({
+  /** Music on hold played by the media worker; a queue's `holdMusicUrl` overrides it. */
+  holdMusic: SoundUrl.optional(),
+  /** What the desk plays while an offer rings. */
+  ringtone: SoundUrl.optional(),
+  /** What the embed button plays to the customer while waiting. */
+  ringback: SoundUrl.optional(),
+});
+/** Inferred type of {@link Sounds}. */
+export type Sounds = z.infer<typeof Sounds>;
+
+/**
  * Per-tenant configuration, stored as JSON on the tenant row.
  *
  * Produced by the web desk settings page (supervisors), validated and persisted by the
@@ -157,6 +185,8 @@ export const TenantSettings = z.object({
       greeting: z.string().max(500).default('Greet the caller and ask how you can help.'),
     })
     .prefault({}),
+  /** Configurable sounds (hold music, desk ringtone, embed ringback); see {@link Sounds}. */
+  sounds: Sounds.prefault({}),
 });
 /**
  * How a queue picks the next agent to ring, applied after skill filtering:
@@ -202,6 +232,8 @@ export const QueueConfig = z.object({
   languageRouting: z.boolean().default(false),
   /** Hold-music style of the queue, see `renderLoop` in the media worker. */
   moh: z.enum(['calm', 'bright']).default('calm'),
+  /** Hold music of this queue; overrides the tenant's `sounds.holdMusic`. */
+  holdMusicUrl: SoundUrl.optional(),
 });
 /** Inferred type of {@link QueueConfig}. */
 export type QueueConfig = z.infer<typeof QueueConfig>;
@@ -422,6 +454,8 @@ export const MediaCommand = z.discriminatedUnion('action', [
     action: z.literal('moh.start'),
     /** Hold-music style (per queue); the worker defaults to `calm`. */
     style: z.enum(['calm', 'bright']).optional(),
+    /** Hold-music file ({@link SoundUrl}); when absent or unusable the worker plays `style`. */
+    music: z.string().optional(),
     callId: z.string(),
     roomName: z.string(),
     token: z.string(),
@@ -431,6 +465,23 @@ export const MediaCommand = z.discriminatedUnion('action', [
 ]);
 /** Inferred type of {@link MediaCommand}. */
 export type MediaCommand = z.infer<typeof MediaCommand>;
+
+/**
+ * An uploaded sound file, as listed by `GET /api/admin/media-assets` (never the bytes).
+ * `url` is the public path the sound is served at (`/api/public/media/<id>`), ready to be
+ * stored in {@link Sounds} or `QueueConfig.holdMusicUrl`.
+ */
+export const MediaAsset = z.object({
+  id: z.string(),
+  name: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  /** ISO date. */
+  createdAt: z.string(),
+  url: z.string(),
+});
+/** Inferred type of {@link MediaAsset}. */
+export type MediaAsset = z.infer<typeof MediaAsset>;
 
 /**
  * One line of transcript. Produced by the agent worker (`POST /api/internal/calls/:id/transcript`),

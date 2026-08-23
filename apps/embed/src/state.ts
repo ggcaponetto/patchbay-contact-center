@@ -1,8 +1,10 @@
 /**
- * Pure state machine of the call button. No DOM, no LiveKit: the custom element in
- * `call-button.ts` feeds it {@link CallEvent}s and renders whatever {@link CallState}
+ * Pure state machine of the call button. No DOM, no LiveKit, no i18n: the `useCall` hook
+ * feeds it {@link CallEvent}s and `CallButton.tsx` renders whatever {@link CallState}
  * comes back, which keeps the tricky ordering questions (who joined when, what a click
- * means in each state) unit-testable in `state.test.ts`.
+ * means in each state) unit-testable in `state.test.ts`. Everything shown to the
+ * customer is returned as translation keys ({@link statusKey}, {@link PeerInfo}) and
+ * translated at render time.
  */
 
 /**
@@ -11,7 +13,7 @@
  * - `idle`: nothing happening, the call button is shown.
  * - `connecting`: `POST /api/public/calls` and `Room.connect` in progress.
  * - `waiting`: in the room, nobody to talk to yet (`since` = connect time, ms epoch).
- * - `in_call`: an AI or human peer is present; `with` is the label shown to the customer.
+ * - `in_call`: an AI or human peer is present; `with` says who (translated at render).
  * - `ended`: hung up or disconnected; a click starts a new call.
  * - `error`: something failed (mic denied, bad key, origin refused); a click retries.
  */
@@ -19,7 +21,7 @@ export type CallState =
   | { kind: 'idle' }
   | { kind: 'connecting' }
   | { kind: 'waiting'; since: number }
-  | { kind: 'in_call'; since: number; with: string; muted: boolean }
+  | { kind: 'in_call'; since: number; with: PeerInfo; muted: boolean }
   | { kind: 'ended' }
   | { kind: 'error'; message: string };
 
@@ -38,9 +40,18 @@ export type CallEvent =
   | { type: 'error'; message: string }
   | { type: 'reset' };
 
-/** Display name for whoever the customer is talking to. */
-export const peerLabel = (role: string, name: string | undefined): string =>
-  role === 'human' ? `Agent ${name ?? ''}`.trim() : 'AI assistant';
+/** Whoever the customer is talking to: `t('peers.ai')` or `t('peers.agent', { name })`. */
+export type PeerInfo = { kind: 'ai' } | { kind: 'human'; name: string };
+
+/** {@link PeerInfo} for a remote participant's `role` attribute and display name. */
+export const peerInfo = (role: string, name: string | undefined): PeerInfo =>
+  role === 'human' ? { kind: 'human', name: name ?? '' } : { kind: 'ai' };
+
+/**
+ * Sentinel `error` message for a click without a `key` attribute; the renderer shows
+ * it as the translated `missingKey` text (API messages are shown verbatim).
+ */
+export const MISSING_KEY = 'missing_key';
 
 /**
  * Transition function. Events that make no sense in the current state return the same
@@ -61,14 +72,14 @@ export function reduce(state: CallState, event: CallEvent): CallState {
         return {
           kind: 'in_call',
           since: state.since,
-          with: peerLabel(event.role, event.name),
+          with: peerInfo(event.role, event.name),
           muted: false,
         };
       }
       if (state.kind === 'in_call') {
         // A human taking over from the AI replaces the label; the AI joining later does not.
         return event.role === 'human'
-          ? { ...state, with: peerLabel(event.role, event.name) }
+          ? { ...state, with: peerInfo(event.role, event.name) }
           : state;
       }
       return state;
@@ -89,21 +100,31 @@ export function reduce(state: CallState, event: CallEvent): CallState {
   }
 }
 
-/** Text shown under the button for each state. */
-export function statusText(state: CallState, now: number): string {
+/**
+ * What to show under the button: the translation key of `locales/*.json` plus the
+ * values it interpolates. `key: null` means nothing (idle).
+ */
+export type Status =
+  | { key: null }
+  | { key: 'connecting' | 'pleaseHold' | 'ended' }
+  | { key: 'inCall'; peer: PeerInfo; duration: string }
+  | { key: 'couldNotStart'; message: string };
+
+/** {@link Status} for each state; `now` (ms epoch) feeds the running call duration. */
+export function statusKey(state: CallState, now: number): Status {
   switch (state.kind) {
     case 'idle':
-      return '';
+      return { key: null };
     case 'connecting':
-      return 'Connecting…';
+      return { key: 'connecting' };
     case 'waiting':
-      return 'Please hold, connecting you…';
+      return { key: 'pleaseHold' };
     case 'in_call':
-      return `${state.with} · ${formatDuration(now - state.since)}`;
+      return { key: 'inCall', peer: state.with, duration: formatDuration(now - state.since) };
     case 'ended':
-      return 'Call ended. Thanks for calling!';
+      return { key: 'ended' };
     case 'error':
-      return `Could not start the call: ${state.message}`;
+      return { key: 'couldNotStart', message: state.message };
   }
 }
 

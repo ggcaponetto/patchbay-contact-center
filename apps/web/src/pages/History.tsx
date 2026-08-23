@@ -12,10 +12,12 @@ import {
   Typography,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { type CallSummary, api } from '../lib/api.ts';
+import { useTranslation } from 'react-i18next';
+import { type CallSummary, type DeskSettings, api } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
-import { formatDuration, statusColor, statusLabel } from '../lib/store.ts';
+import { useLocaleFormat } from '../lib/i18n.ts';
+import { dispositionLabel, formatDuration, statusColor, statusKey } from '../lib/store.ts';
 
 /** Props of {@link History}. */
 type Props = { desk: ReturnType<typeof useDeskSocket> };
@@ -28,25 +30,31 @@ type Props = { desk: ReturnType<typeof useDeskSocket> };
  * `useNow`. Rows navigate to `#/calls/<id>`.
  */
 export function History({ desk }: Props) {
+  const { t } = useTranslation();
+  const { dateTime } = useLocaleFormat();
   const now = useNow();
   const calls = useQuery({
     queryKey: ['calls', desk.state.callsVersion],
     queryFn: () => api<CallSummary[]>('/desk/calls'),
   });
+  const settings = useQuery({
+    queryKey: ['desk-settings'],
+    queryFn: () => api<DeskSettings>('/desk/settings'),
+  });
   return (
     <Paper sx={{ p: 2 }}>
       <Typography variant="h6" gutterBottom>
-        Calls
+        {t('history.title')}
       </Typography>
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell>Started</TableCell>
-            <TableCell>Queue</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Duration</TableCell>
-            <TableCell>Disposition</TableCell>
-            <TableCell>Summary</TableCell>
+            <TableCell>{t('history.started')}</TableCell>
+            <TableCell>{t('history.queue')}</TableCell>
+            <TableCell>{t('history.status')}</TableCell>
+            <TableCell>{t('history.duration')}</TableCell>
+            <TableCell>{t('history.disposition')}</TableCell>
+            <TableCell>{t('history.summary')}</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -57,13 +65,17 @@ export function History({ desk }: Props) {
               sx={{ cursor: 'pointer' }}
               onClick={() => (location.hash = `#/calls/${c.id}`)}
             >
-              <TableCell>{new Date(c.startedAt).toLocaleString()}</TableCell>
+              <TableCell>{dateTime(c.startedAt)}</TableCell>
               <TableCell>{c.queueKey}</TableCell>
               <TableCell>
-                <Chip size="small" color={statusColor[c.status]} label={statusLabel[c.status]} />
+                <Chip size="small" color={statusColor[c.status]} label={t(statusKey(c.status))} />
               </TableCell>
               <TableCell>{formatDuration(c.startedAt, c.endedAt, now)}</TableCell>
-              <TableCell>{c.dispositionCode ?? ''}</TableCell>
+              <TableCell>
+                {c.dispositionCode
+                  ? dispositionLabel(c.dispositionCode, settings.data?.dispositions)
+                  : ''}
+              </TableCell>
               <TableCell sx={{ maxWidth: 420 }}>{c.aiSummary ?? ''}</TableCell>
             </TableRow>
           ))}

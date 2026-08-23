@@ -9,6 +9,49 @@ All notable changes to this project are documented here. The format follows
 
 Nothing yet.
 
+## [0.3.0] - 2026-08-23
+
+### Fixed
+
+- Hold music was a 100 Hz buzz: the media worker handed `AudioFrame` a sub-array view
+  of the loop, and `@livekit/rtc-node` reads `data.buffer` from byte 0 (ignoring the
+  view's offset), so the first 10 ms were replayed forever. Frames are now zero-offset
+  copies pushed by awaiting `captureFrame` (the SDK paces playback, not a timer), and the
+  loop wraps without dropping its tail.
+- Saving a queue's routing from Settings no longer resets its hold-music style to `calm`.
+
+### Added
+
+- **Internationalization**: the desk and the call button speak English, German and
+  Italian (react-i18next; runtime in `packages/i18n`, translations in each app's
+  `src/locales`). The desk follows the browser language and remembers the choice made in
+  the new app-bar language menu (`cc_lng` cookie); the call button follows its
+  `language` attribute, the page's `<html lang>` or the browser. API error codes shown
+  in the UI are translated too.
+- **Call button rebuilt in React 19**: the same `<cc-call-button>` tag and attributes,
+  now a thin custom element mounting a React root in its shadow root (`CallButton.tsx`,
+  `useCall.ts`), as a base for a richer customer UI.
+- **Ringtone**: an incoming offer rings on the desk (built-in 440 + 480 Hz double tone)
+  until answered or declined; `Settings → Sounds` can replace it with any audio URL.
+- **Sounds** (`TenantSettings.sounds`): hold music, ringtone and customer ringback as a
+  public URL or a file uploaded into Postgres (`media_asset`, ≤ 5 MiB, served from
+  `GET /api/public/media/:id`). Hold music must be WAV — the media worker decodes it
+  (`apps/media/src/wav.ts`, any rate/channels → 48 kHz mono) and falls back to the
+  synthesized loop on any error; per-queue override `QueueConfig.holdMusicUrl`. The
+  embed loops the ringback while the customer waits for someone.
+- **Settings page rebuilt**: one tab per area (`#/settings/<tab>`, full width), a toast
+  on every save or failure, chip editors for skills and queue requirements (no more
+  `skill=level` strings), a list editor for wrap-up codes with examples and codes derived
+  from labels; history and the call page show the wrap-up label.
+- **Delete** API keys (`DELETE /api/admin/api-keys/:id`; revoking moved to
+  `POST …/:id/revoke`) and queues (`DELETE /api/admin/queues/:id`: removed when unused,
+  archived with `archived_at` when calls went through it; the last queue is refused).
+- **Several dev users per browser**: the dev identity is per tab (`x-dev-user` header /
+  `?as=` on the websocket, kept in `sessionStorage`); "Open in new tab" in the
+  "Signed in as …" menu starts a second person next to you.
+- E2E rows E2E-52…58 (sounds, ringtone, wrap-up codes, skills editor, queue delete,
+  dev login per tab).
+
 ## [0.2.0] - 2026-08-23
 
 ### Changed
@@ -123,6 +166,7 @@ First proof-of-concept release, working end to end against LiveKit Cloud.
 - Git-flow branching (`main` / `develop`), semantic-version tags and a `Release` workflow that
   publishes GitHub releases.
 
-[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ggcaponetto/patchbay-contact-center/releases/tag/v0.1.0

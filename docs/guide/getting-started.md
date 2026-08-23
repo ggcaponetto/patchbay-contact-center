@@ -66,7 +66,7 @@ No client yet? Set `DEV_USER_EMAIL=you@example.com` (and the same address in `AD
 
 ### Being several people at once (dev only)
 
-With the bypass on, the API seeds a **demo team** into your contact center — Sam (supervisor), Alice, Bob and Carol (agents, members of the `support` queue; Alice and Bob also of `sales`) — and the desk's app bar shows **Signed in as …**. Pick anyone from the menu (or "Other email…" for a new person, created on the spot) and the desk reloads as them. The choice is a cookie (`cc_dev_user`), so **one identity per browser profile**: to have a supervisor and an agent online at the same time, open the desk in a normal window as yourself and in an incognito window (or another profile) as Alice, set both Available, and watch the ring move between them. Set `DEV_DEMO_TEAM=false` to skip the seeding. The end-to-end suite uses the same cookie to play several people.
+With the bypass on, the API seeds a **demo team** into your contact center — Sam (supervisor), Alice, Bob and Carol (agents, members of the `support` queue; Alice and Bob also of `sales`) — and the desk's app bar shows **Signed in as …**. Pick anyone from the menu (or "Other email…" for a new person, created on the spot) and the desk reloads as them. The choice lives in the tab's `sessionStorage` and travels as the `x-dev-user` header, so it is **one identity per browser tab**: to have a supervisor and an agent online at the same time, hover Alice in the menu and press **Open in new tab** (or open `http://localhost:3000/#/?as=alice@patchbay.dev` yourself), set both Available, and watch the ring move between them. A tab opened any other way starts as the default dev user; "Back to …" in the menu returns there. Set `DEV_DEMO_TEAM=false` to skip the seeding. The end-to-end suite plays several people the same way, plus a `cc_dev_user` cookie per browser context.
 
 ## Run the four dev servers
 
@@ -115,6 +115,8 @@ The `/embed/call-button.js` route exists only after `npm run build -w apps/embed
 3. With the tenant in its default `ai-first` mode, LiveKit Cloud dispatches the agent and the button shows `AI assistant · 0:05`. Talk to it; ask for "a real person" to trigger `escalateToHuman`.
 4. The desk shows a ring dialog with the reason and summary; **Accept** joins you to the same room. The AI leaves (default) and keeps transcribing.
 5. Hang up on either side. **History** lists the call as `Ended` with its transcript, events and AI summary.
+
+The ring you hear on the desk, the music the customer hears on hold and the optional ringback while they wait are configurable in **Settings → Sounds**: paste a public URL or upload a file (hold music must be a WAV; the media worker decodes it, everything else plays in the browser). Leave a field empty to keep the built-in sound. A queue can override the hold music in **Settings → Queues**.
 
 ## Troubleshooting
 

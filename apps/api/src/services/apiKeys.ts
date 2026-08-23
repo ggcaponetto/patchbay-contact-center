@@ -3,7 +3,7 @@
  *
  * A key is `ak_` + 32 random bytes (hex). The secret is shown once at creation and only
  * its SHA-256 is stored; lookups hash the presented bearer token. Revoking keeps the row
- * (audit) but the key stops resolving.
+ * (audit) but the key stops resolving; deleting removes the row for good.
  *
  * @see apps/api/src/services/README.md
  * @packageDocumentation
@@ -64,6 +64,15 @@ export async function revokeApiKey(db: Db, tenantId: string, id: string) {
     .update(apiKey)
     .set({ revokedAt: new Date() })
     .where(and(eq(apiKey.id, id), eq(apiKey.tenantId, tenantId), isNull(apiKey.revokedAt)))
+    .returning({ id: apiKey.id });
+  return rows.length > 0;
+}
+
+/** Deletes a key of the tenant for good (revoked or not). @returns `false` when absent. */
+export async function deleteApiKey(db: Db, tenantId: string, id: string) {
+  const rows = await db
+    .delete(apiKey)
+    .where(and(eq(apiKey.id, id), eq(apiKey.tenantId, tenantId)))
     .returning({ id: apiKey.id });
   return rows.length > 0;
 }

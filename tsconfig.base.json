@@ -21,6 +21,7 @@
     // specifiers that Node's native type stripping requires, and
     // `erasableSyntaxOnly` rejects TS-only syntax (enums, namespaces,
     // parameter properties) that Node cannot strip without transformation.
+    "resolveJsonModule": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true

@@ -21,12 +21,14 @@
     </p>
     <cc-call-button key="" queue="support" api="%VITE_API_ORIGIN%" label="Call us"></cc-call-button>
     <script>
-      // `?key=pk_…&api=http://localhost:4100` overrides the attributes for quick testing.
+      // `?key=pk_…&api=http://localhost:4100&language=de` overrides the attributes for quick testing.
       const params = new URLSearchParams(location.search);
       const el = document.querySelector('cc-call-button');
-      for (const name of ['key', 'api', 'queue']) {
+      for (const name of ['key', 'api', 'queue', 'label', 'language']) {
         if (params.get(name)) el.setAttribute(name, params.get(name));
       }
+      // `?language=de` without a label shows the translated default instead of "Call us".
+      if (params.get('language') && !params.get('label')) el.removeAttribute('label');
       document.getElementById('key-state').textContent = el.getAttribute('key')
         ? `Using key ${el.getAttribute('key')}.`
         : 'No key set yet — the button will refuse to call.';

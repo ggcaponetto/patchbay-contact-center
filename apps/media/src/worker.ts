@@ -4,13 +4,14 @@
  * the same channel the API instances use) and keeps one music-on-hold session per call.
  *
  * `moh.start` joins the call's LiveKit room with the token minted by the API (identity
- * `media:<callId>`) and publishes the synthesized loop from `music.ts`; `moh.stop`
- * disconnects. A session also ends by itself when the room is deleted (call ended). The
+ * `media:<callId>`) and publishes the hold-music loop — the configured file when the
+ * command carries a `music` URL (`loops.ts`), else the synthesized loop from `music.ts`;
+ * `moh.stop` disconnects. A session also ends by itself when the room is deleted (call ended). The
  * worker is stateless across restarts: a lost session simply means the music stops, and
  * the next hold starts a fresh one.
  */
 import { MediaCommand } from '@cc/shared';
-import { SAMPLE_RATE, renderLoop } from './music.ts';
+import { type MusicStyle, SAMPLE_RATE } from './music.ts';
 
 /** 10 ms of audio per frame, the granularity LiveKit expects. */
 const FRAME_SAMPLES = SAMPLE_RATE / 100;
@@ -34,6 +35,11 @@ export type WorkerDeps = {
     onClosed(handler: () => void): void;
   }>;
   log(message: string): void;
+  /**
+   * The loop to play: the file at `music` when set and usable, else the synthesized
+   * `style` loop (`createLoopCache` in `loops.ts`). Resolved before joining the room.
+   */
+  resolveLoop(music: string | undefined, style: MusicStyle): Promise<Int16Array>;
 };
 
 /**
@@ -44,7 +50,6 @@ export type WorkerDeps = {
  */
 export function createWorker(deps: WorkerDeps) {
   const sessions = new Map<string, Session>();
-  const loops = { calm: renderLoop('calm'), bright: renderLoop('bright') };
 
   const start = async (cmd: Extract<MediaCommand, { action: 'moh.start' }>) => {
     if (sessions.has(cmd.callId)) return;
@@ -59,6 +64,10 @@ export function createWorker(deps: WorkerDeps) {
       },
     };
     sessions.set(cmd.callId, session);
+    // Decode (or fetch) the music first so the customer never joins a silent room.
+    const style = cmd.style ?? 'calm';
+    const loop = await deps.resolveLoop(cmd.music, style);
+    if (state.cancelled) return;
     const room = await deps.connect(cmd.url, cmd.token);
     state.disconnect = () => room.disconnect();
     if (state.cancelled) {
@@ -66,8 +75,8 @@ export function createWorker(deps: WorkerDeps) {
       return;
     }
     room.onClosed(() => void session.stop());
-    deps.log(`moh started for ${cmd.callId} in ${cmd.roomName} (${cmd.style ?? 'calm'})`);
-    await room.publish(loops[cmd.style ?? 'calm'], SAMPLE_RATE, FRAME_SAMPLES);
+    deps.log(`moh started for ${cmd.callId} in ${cmd.roomName} (${cmd.music ?? style})`);
+    await room.publish(loop, SAMPLE_RATE, FRAME_SAMPLES);
   };
 
   return {

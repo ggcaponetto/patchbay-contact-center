@@ -22,6 +22,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.ts';
 import {
+  call,
   embedKey,
   invite,
   membership,
@@ -189,7 +190,10 @@ export async function listInvites(db: Db, tenantId: string) {
 
 /** Queues of the tenant, each with `memberIds` (user ids). */
 export async function listQueues(db: Db, tenantId: string) {
-  const rows = await db.select().from(queue).where(eq(queue.tenantId, tenantId));
+  const rows = await db
+    .select()
+    .from(queue)
+    .where(and(eq(queue.tenantId, tenantId), isNull(queue.archivedAt)));
   const members = await db
     .select({ queueId: queueMember.queueId, userId: queueMember.userId })
     .from(queueMember)
@@ -280,6 +284,39 @@ export async function setQueueMembers(
 }
 
 /**
+ * "Deletes" a queue: a queue no call ever went through is removed (members cascade);
+ * one with call history is archived instead � gone from listings, routing and embeds,
+ * but `call.queue_id` keeps pointing at it so history shows the queue name. The last
+ * active queue of a tenant cannot be deleted.
+ *
+ * @returns `not_found`, `last_queue`, or the outcome with `archived` telling which.
+ */
+export async function deleteQueue(
+  db: Db,
+  tenantId: string,
+  queueId: string,
+): Promise<'not_found' | 'last_queue' | { archived: boolean }> {
+  const active = await db
+    .select({ id: queue.id })
+    .from(queue)
+    .where(and(eq(queue.tenantId, tenantId), isNull(queue.archivedAt)));
+  if (!active.some((q) => q.id === queueId)) return 'not_found';
+  if (active.length === 1) return 'last_queue';
+  const [used] = await db
+    .select({ id: call.id })
+    .from(call)
+    .where(eq(call.queueId, queueId))
+    .limit(1);
+  if (!used) {
+    await db.delete(queue).where(eq(queue.id, queueId));
+    return { archived: false };
+  }
+  await db.delete(queueMember).where(eq(queueMember.queueId, queueId));
+  await db.update(queue).set({ archivedAt: new Date() }).where(eq(queue.id, queueId));
+  return { archived: true };
+}
+
+/**
  * Creates an embed key with a random public key (`pk_` + 32 hex chars).
  * The public key is not secret: it is embedded in third-party websites.
  */
@@ -333,7 +370,7 @@ export async function resolveEmbedKey(db: Db, publicKey: string, queueKey: strin
   const [q] = await db
     .select()
     .from(queue)
-    .where(and(eq(queue.tenantId, k.tenantId), eq(queue.key, queueKey)));
+    .where(and(eq(queue.tenantId, k.tenantId), eq(queue.key, queueKey), isNull(queue.archivedAt)));
   const t = await getTenant(db, k.tenantId);
   if (!q || !t) return undefined;
   return { key: k, queue: q, tenant: t };

@@ -3,12 +3,20 @@
   "entryPointStrategy": "expand",
   "entryPoints": [
     "packages/shared/src",
+    "packages/i18n/src",
     "apps/api/src",
     "apps/agent/src",
     "apps/embed/src",
     "apps/web/src"
   ],
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/testing.ts", "**/main.tsx"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/testing.ts",
+    "**/testing.tsx",
+    "**/main.tsx",
+    "**/i18next.d.ts"
+  ],
   "tsconfig": "tsconfig.typedoc.json",
   "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme"],
   "out": "docs/api",

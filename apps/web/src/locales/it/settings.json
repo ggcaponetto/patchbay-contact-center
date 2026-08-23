@@ -1,0 +1,205 @@
+{
+  "tabs": {
+    "routing": "Routing e AI",
+    "hours": "Orari di apertura",
+    "team": "Team e competenze",
+    "queues": "Code",
+    "sounds": "Suoni",
+    "embed": "Pulsante di chiamata",
+    "apiKeys": "Chiavi API"
+  },
+  "common": {
+    "add": "Aggiungi",
+    "delete": "Elimina",
+    "save": "Salva"
+  },
+  "routing": {
+    "title": "Routing e AI",
+    "sections": {
+      "routing": "Routing",
+      "alerts": "Avvisi della dashboard",
+      "agents": "Operatori",
+      "wrapUp": "Post-chiamata",
+      "aiAgent": "Agente AI"
+    },
+    "mode": {
+      "label": "Chi risponde per primo",
+      "aiFirst": "Risponde l'AI, passa agli umani",
+      "humanFirst": "Prima gli umani, AI come riserva"
+    },
+    "handoff": {
+      "label": "Quando subentra un umano, l'AI",
+      "leave": "lascia la conversazione (continua a trascrivere)",
+      "listen": "resta in silenzio e continua ad ascoltare"
+    },
+    "offerTimeout": "Squilla a ogni operatore per (s)",
+    "humanFirstTimeout": "Timeout umani per primi (s)",
+    "holdReminder": "Promemoria attesa (s, 0 = off)",
+    "alerts": {
+      "maxWaiting": "Avviso: chiamate in attesa (0 = off)",
+      "maxWaitSec": "Avviso: attesa più lunga (s, 0 = off)",
+      "maxCallSec": "Avviso: chiamata più lunga (s, 0 = off)"
+    },
+    "autoAnswer": "Risposta automatica alle offerte con un segnale acustico",
+    "monitorNotify": "Avvisa gli operatori quando un supervisore ascolta la loro chiamata",
+    "notReadyReasons": "Motivi di non disponibilità",
+    "notReadyPlaceholder": "Pausa, Riunione…",
+    "acw": "Tempo di post-chiamata (s, 0 = off)",
+    "dispositionRequired": "Esito obbligatorio prima di chiudere la post-chiamata",
+    "greeting": "Istruzione di saluto dell'AI",
+    "instructions": "Istruzioni aziendali per l'AI",
+    "instructionsPlaceholder": "Orari di apertura, prodotti, cosa l'AI può e non può fare…",
+    "saved": "Impostazioni di routing salvate"
+  },
+  "hours": {
+    "title": "Orari di apertura",
+    "mode": "Modalità",
+    "modes": {
+      "off": "Sempre aperto",
+      "auto": "Segui l'orario",
+      "open": "Forzato aperto",
+      "closed": "Forzato chiuso",
+      "emergency": "Emergenza"
+    },
+    "timezone": "Fuso orario (IANA)",
+    "windows": "Fasce settimanali (una per riga: mon 09:00-17:00)",
+    "holidays": "Festività (una data per riga: 2026-12-25)",
+    "closedMessage": "Messaggio di chiusura",
+    "emergencyMessage": "Messaggio di emergenza",
+    "save": "Salva orari",
+    "saved": "Orari di apertura salvati"
+  },
+  "codes": {
+    "title": "Codici di post-chiamata",
+    "hint": "Gli operatori ne scelgono uno dopo ogni chiamata. Una <code>/</code> nel codice crea un gruppo (<code>billing/refund</code>).",
+    "label": "Etichetta",
+    "code": "Codice",
+    "remove": "rimuovi codice {{label}}",
+    "add": "+ Aggiungi codice",
+    "addExamples": "Aggiungi esempi",
+    "examples": {
+      "resolved": "Risolto",
+      "ticket": "Ticket creato",
+      "docs": "Aggiornamento documentazione",
+      "escalated": "Inoltrato",
+      "callback": "Richiamata programmata"
+    }
+  },
+  "skills": {
+    "chip": "{{skill}} · {{levelWord}} {{level}}",
+    "levelWord": "livello",
+    "minWord": "min",
+    "levelLabel": "Livello",
+    "minLabel": "Min",
+    "placeholder": "billing, lang:it…"
+  },
+  "team": {
+    "title": "Team",
+    "roles": {
+      "agent": "operatore",
+      "supervisor": "supervisore"
+    },
+    "invitedAs": "invitato come {{role}}",
+    "inviteLabel": "Invita tramite email Google",
+    "invite": "Invita",
+    "invited": "{{email}} invitato",
+    "addSkill": "Aggiungi una competenza a {{name}}",
+    "saveSkills": "Salva le competenze di {{name}}",
+    "skillsSaved": "Competenze di {{name}} salvate"
+  },
+  "queues": {
+    "title": "Code",
+    "algorithms": {
+      "longest_idle": "Inattivo da più tempo",
+      "least_occupied": "Meno occupato",
+      "round_robin": "A rotazione",
+      "most_skilled": "Più qualificato",
+      "least_skilled": "Meno qualificato",
+      "linear": "Ordine fisso"
+    },
+    "ringOrder": "Ordine di chiamata",
+    "matchLanguage": "Abbina la lingua del chiamante",
+    "mohStyle": "Stile musica di attesa",
+    "moh": {
+      "calm": "Calma",
+      "bright": "Vivace"
+    },
+    "holdMusicUrl": "URL musica di attesa per {{name}} (WAV, opzionale)",
+    "holdMusicPlaceholder": "Se vuoto usa la musica di attesa del tenant",
+    "requiredSkills": "Competenze richieste per {{name}}",
+    "saveRouting": "Salva il routing di {{name}}",
+    "routingSaved": "Routing di {{name}} salvato",
+    "added": "Coda {{name}} aggiunta",
+    "archived": "Coda {{name}} archiviata (ha uno storico chiamate)",
+    "deleted": "Coda {{name}} eliminata",
+    "deleteAria": "elimina coda {{name}}",
+    "deleteTitle": "Eliminare la coda {{name}}?",
+    "deleteMessage": "La coda scompare dal routing e dagli snippet di incorporamento. Se vi sono mai state gestite chiamate, viene archiviata così lo storico ne conserva il nome.",
+    "members": "Membri",
+    "newQueue": "Nuova coda"
+  },
+  "sounds": {
+    "title": "Suoni",
+    "labels": {
+      "holdMusic": "Musica di attesa",
+      "ringtone": "Suoneria",
+      "ringback": "Tono di chiamata"
+    },
+    "names": {
+      "holdMusic": "musica di attesa",
+      "ringtone": "suoneria",
+      "ringback": "tono di chiamata"
+    },
+    "hints": {
+      "holdMusic": "Solo WAV; riprodotta al cliente in attesa. Vuoto = melodia integrata.",
+      "ringtone": "Riprodotta sul desk mentre una chiamata squilla. Vuoto = squillo integrato.",
+      "ringback": "Riprodotto al cliente in attesa di una persona. Vuoto = silenzio."
+    },
+    "url": "URL {{label}}",
+    "urlPlaceholder": "https://… oppure carica un file",
+    "upload": "Carica",
+    "uploadAria": "Carica {{sound}}",
+    "play": "Riproduci",
+    "stop": "Ferma",
+    "clear": "Svuota",
+    "save": "Salva suoni",
+    "saved": "Suoni salvati",
+    "uploaded": "{{name}} caricato",
+    "fileDeleted": "File eliminato",
+    "cannotPlay": "Impossibile riprodurre questo file",
+    "uploadedFiles": "File caricati",
+    "useAs": "Usa come {{sound}}",
+    "deleteAria": "elimina file {{name}}",
+    "deleteTitle": "Eliminare {{name}}?",
+    "deleteMessage": "I suoni che puntano ancora a questo file tornano al suono integrato."
+  },
+  "embed": {
+    "title": "Pulsante di chiamata per il tuo sito",
+    "anyOrigin": "qualsiasi origine",
+    "deleteAria": "elimina {{label}}",
+    "deleteTitle": "Eliminare la chiave {{label}}?",
+    "deleteMessage": "I siti che usano questa chiave non potranno più chiamare.",
+    "snippet": "Snippet di incorporamento",
+    "label": "Etichetta",
+    "origins": "Origini consentite (opzionale)",
+    "originsPlaceholder": "https://www.example.com",
+    "create": "Crea chiave",
+    "created": "Chiave {{label}} creata",
+    "deleted": "Chiave eliminata"
+  },
+  "apiKeys": {
+    "title": "Chiavi API",
+    "copyNow": "Copia la chiave adesso, non verrà mostrata di nuovo:",
+    "newKey": "Nuova chiave API",
+    "revoked": "revocata",
+    "revokeAria": "revoca {{name}}",
+    "revoke": "Revoca",
+    "deleteAria": "elimina {{name}}",
+    "deleteTitle": "Eliminare la chiave {{name}}?",
+    "deleteMessage": "La chiave smette di funzionare immediatamente e non lascia traccia.",
+    "name": "Nome della chiave",
+    "create": "Crea chiave API",
+    "keyRevoked": "Chiave revocata",
+    "keyDeleted": "Chiave eliminata"
+  }
+}

@@ -2,12 +2,13 @@
   "extends": "./tsconfig.base.json",
   "include": [
     "packages/shared/src/**/*",
+    "packages/i18n/src/**/*",
     "apps/api/src/**/*",
     "apps/agent/src/**/*",
     "apps/embed/src/**/*",
     "apps/web/src/**/*"
   ],
-  "exclude": ["**/node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "exclude": ["**/node_modules", "**/*.test.ts", "**/*.test.tsx", "**/i18next.d.ts"],
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],

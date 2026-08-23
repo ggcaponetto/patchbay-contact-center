@@ -1,0 +1,16 @@
+{
+  "callUs": "Call us",
+  "mute": "Mute",
+  "unmute": "Unmute",
+  "hangUp": "Hang up",
+  "connecting": "Connecting…",
+  "pleaseHold": "Please hold, connecting you…",
+  "inCall": "{{with}} · {{duration}}",
+  "ended": "Call ended. Thanks for calling!",
+  "couldNotStart": "Could not start the call: {{message}}",
+  "missingKey": "the key attribute is missing (create one in Settings)",
+  "peers": {
+    "ai": "AI assistant",
+    "agent": "Agent {{name}}"
+  }
+}

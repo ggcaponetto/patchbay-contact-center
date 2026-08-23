@@ -13,6 +13,7 @@ const tables = {
   queue: schema.queue,
   queueMember: schema.queueMember,
   embedKey: schema.embedKey,
+  mediaAsset: schema.mediaAsset,
   call: schema.call,
   callParticipant: schema.callParticipant,
   transcriptSegment: schema.transcriptSegment,
@@ -56,6 +57,10 @@ describe('schema', () => {
     expect(foreignKeys('queue')).toEqual(['tenant_id->tenant.id']);
     expect(foreignKeys('queueMember')).toEqual(['queue_id->queue.id', 'user_id->user.id']);
     expect(foreignKeys('embedKey')).toEqual(['tenant_id->tenant.id']);
+    expect(foreignKeys('mediaAsset')).toEqual(['tenant_id->tenant.id']);
+    expect(getTableConfig(schema.mediaAsset).foreignKeys[0]!.onDelete).toBe('cascade');
+    expect(indexNames('mediaAsset')).toEqual(['media_asset_tenant_idx']);
+    expect(schema.mediaAsset.data.getSQLType()).toBe('bytea');
     expect(getTableConfig(schema.queueMember).primaryKeys[0]!.columns.map((c) => c.name)).toEqual([
       'queue_id',
       'user_id',
