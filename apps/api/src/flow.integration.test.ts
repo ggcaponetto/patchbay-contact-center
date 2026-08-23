@@ -255,6 +255,83 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     await d.close();
   });
 
+  it('whispers to the agent only, barges audibly, and intercepts the agent', async () => {
+    const { callId } = await startCall();
+    // whisper: publishing supervisor whose tracks the embed will not play
+    const whisper = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'whisper' },
+    });
+    expect(whisper.statusCode).toBe(200);
+    expect(srv.lk.tokens.at(-1)).toMatchObject({
+      attributes: { role: 'supervisor', monitor: 'whisper' },
+      canPublish: true,
+    });
+    let detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).toBe('ai'); // monitoring never changes the status
+    expect(detail.events.map((e: { type: string }) => e.type)).toContain('whisper.joined');
+    await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/leave`,
+      payload: { role: 'supervisor' },
+    });
+
+    // barge: audible to everyone — no whisper flag on the token
+    const barge = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'barge' },
+    });
+    expect(barge.statusCode).toBe(200);
+    const bargeToken = srv.lk.tokens.at(-1) as { attributes: Record<string, string> };
+    expect(bargeToken.attributes['monitor']).toBeUndefined();
+    expect(bargeToken.attributes['role']).toBe('supervisor');
+    await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/leave`,
+      payload: { role: 'supervisor' },
+    });
+
+    // hand the call to the agent, then intercept it as the supervisor
+    await srv.flow.routing.connect({ userId: agent.id, tenantId, name: agent.name });
+    await setState(agent, 'ready');
+    const escalated = srv.app.inject({
+      method: 'POST',
+      url: `/api/internal/calls/${callId}/escalate`,
+      headers: internal,
+      payload: { reason: 'vip', summary: 'Needs a manager.' },
+    });
+    await vi.waitFor(async () => {
+      const r = await asUser(agent).inject({
+        method: 'POST',
+        url: `/api/desk/calls/${callId}/accept`,
+      });
+      expect(r.statusCode).toBe(200);
+    });
+    await escalated;
+    const intercept = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'intercept' },
+    });
+    expect(intercept.statusCode).toBe(200);
+    detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).toBe('human');
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['intercept', 'intercept.joined']),
+    );
+    // the agent was kicked from the room, marked gone and freed
+    expect(srv.lk.removed).toContainEqual(expect.stringContaining(`:human:${agent.id}`));
+    const humans = detail.participants.filter(
+      (p: { kind: string; leftAt: string | null }) => p.kind === 'human' && p.leftAt === null,
+    );
+    expect(humans).toHaveLength(1);
+    expect(humans[0].userId).toBe(boss.id);
+    const presence = await srv.flow.routing.presenceOf(agent.id);
+    expect(presence?.state).not.toBe('busy');
+  });
+
   it('lets supervisors listen in or take over, and rejects bad requests', async () => {
     const { callId } = await startCall();
     const listen = await asUser(boss).inject({

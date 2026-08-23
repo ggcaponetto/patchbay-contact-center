@@ -90,6 +90,8 @@ export const TenantSettings = z.object({
   holdReminderSec: z.number().int().min(0).max(600).default(60),
   /** Auto-answer: offers are accepted automatically after a zip tone at the desk. */
   autoAnswer: z.boolean().default(false),
+  /** When true (default), the agent's desk shows that a supervisor is monitoring. */
+  monitorNotify: z.boolean().default(true),
   /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
   notReadyReasons: z
     .array(z.string().min(1).max(40))
@@ -167,6 +169,11 @@ export const ParticipantAttributes = z.object({
   userId: z.string().optional(),
   /** Name shown in the desk UI; only present for `human` and `supervisor`. */
   displayName: z.string().optional(),
+  /**
+   * Set on a whispering supervisor: their audio is meant for the agent only, so the
+   * embed (customer side) must not play tracks of participants carrying this flag.
+   */
+  monitor: z.literal('whisper').optional(),
 });
 /** Inferred type of {@link ParticipantAttributes}. */
 export type ParticipantAttributes = z.infer<typeof ParticipantAttributes>;

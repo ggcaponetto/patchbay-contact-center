@@ -82,6 +82,7 @@ describe('Settings', () => {
         acwSec: 15,
         holdReminderSec: 60,
         autoAnswer: false,
+        monitorNotify: true,
         dispositions: [],
         dispositionRequired: false,
         notReadyReasons: ['Break', 'Coffee'],

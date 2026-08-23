@@ -100,7 +100,9 @@ export class CcCallButton extends HTMLElement {
         .on(RoomEvent.ParticipantAttributesChanged, (_changed, p) => {
           if (!p.isLocal) this.onPeer(p as RemoteParticipant);
         })
-        .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+        .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, participant?) => {
+          // A whispering supervisor talks to the agent only: never play them here.
+          if (participant?.attributes['monitor'] === 'whisper') return;
           if (track.kind === Track.Kind.Audio) this.audio.append(track.attach());
         })
         .on(RoomEvent.Disconnected, () => this.endCall(false));

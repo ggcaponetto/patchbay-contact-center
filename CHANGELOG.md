@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Supervisor monitoring modes (Phase 3): whisper (the agent hears the supervisor, the
+  customer never does — the embed skips `monitor: whisper` tracks), barge-in (audible to
+  everyone) and intercept (take over + the agent is dropped from the room and freed),
+  next to the existing listen and take-over; the agent's desk shows "A supervisor is on
+  this call" while monitored (`monitorNotify` tenant setting, on by default).
 - Call recording (Phase 2): start / pause / resume / stop from the in-call panel, backed
   by audio-only LiveKit Egress to any S3-compatible store (`RECORDING_S3_*` env vars;
   `RECORDING_STUB=true` exercises the flow without Egress in dev and e2e). A PCI pause is

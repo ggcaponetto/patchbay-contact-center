@@ -174,14 +174,21 @@ export class Flow {
   }
 
   /**
-   * Mints a token for the accepting agent (or a supervisor taking over / listening).
+   * Mints a token for the accepting agent, or for a supervisor in one of the
+   * monitoring / intervention modes:
    *
    * - `agent`: the human who accepted the offer; call becomes `human`.
    * - `takeover`: a supervisor joins as a full participant; call becomes `human`.
-   * - `listen`: a supervisor joins subscribe-only (`canPublish: false`); status unchanged.
+   * - `intercept`: take-over plus the current agent is removed from the room and freed.
+   * - `listen`: silent monitoring, subscribe-only (`canPublish: false`); status unchanged.
+   * - `whisper`: the supervisor talks, but only desks play their audio — the embed
+   *   skips tracks flagged `monitor: 'whisper'`, so the customer never hears them.
+   * - `barge`: the supervisor talks and everyone hears them; status unchanged.
    *
-   * Also records the participant row and a `<mode>.joined` event. Does **not** check
-   * that the user was actually rung: desk routes do that through `routing.accept`.
+   * Also records the participant row and a `<mode>.joined` event (the desk shows the
+   * monitoring chip off the live supervisor participant when `monitorNotify` is on).
+   * Does **not** check that the user was actually rung: desk routes do that through
+   * `routing.accept`.
    *
    * @returns `{ token, url }` for the LiveKit client, or `undefined` if the call is
    *   unknown or already ended (routes answer 409 `call_over`).
@@ -189,42 +196,72 @@ export class Flow {
   async join(
     callId: string,
     u: { id: string; name: string },
-    mode: 'agent' | 'takeover' | 'listen',
+    mode: 'agent' | 'takeover' | 'intercept' | 'listen' | 'whisper' | 'barge',
   ): Promise<{ token: string; url: string } | undefined> {
     const call = await getCall(this.db, callId);
     if (!call || call.status === 'ended') return undefined;
-    const role = mode === 'listen' ? 'supervisor' : 'human';
+    const handling = mode === 'agent' || mode === 'takeover' || mode === 'intercept';
+    const role = handling ? 'human' : 'supervisor';
     const identity = `${role}:${u.id}`;
     const token = await this.livekit.createToken({
       room: call.roomName,
       identity,
       name: u.name,
-      attributes: { role, userId: u.id, displayName: u.name },
+      attributes: {
+        role,
+        userId: u.id,
+        displayName: u.name,
+        ...(mode === 'whisper' ? { monitor: 'whisper' as const } : {}),
+      },
       canPublish: mode !== 'listen',
     });
+    // Intercept: the handling agent is thrown out of the room and freed before the
+    // supervisor's participant row lands, so the desk never shows both as active.
+    if (mode === 'intercept') {
+      const detail = await callDetail(this.db, call.tenantId, callId);
+      const current = (detail?.participants ?? []).find(
+        (p) => p.kind === 'human' && p.leftAt === null && p.userId !== u.id,
+      );
+      if (current) {
+        await this.livekit.removeParticipant(call.roomName, current.identity);
+        await markParticipantLeft(this.db, callId, current.identity);
+        await addEvent(this.db, callId, 'intercept', { userId: u.id, dropped: current.userId });
+        if (current.userId) await this.freeUser(callId, current.userId);
+      }
+    }
     await addParticipant(this.db, { callId, kind: role, identity, userId: u.id });
     await addEvent(this.db, callId, `${mode}.joined`, { userId: u.id, name: u.name });
     // `accept` already marked the agent busy; a take-over marks the supervisor.
-    if (mode === 'takeover') await this.routing.busy(callId, u.id);
-    if (mode !== 'listen') await this.status(callId, 'human');
+    if (handling && mode !== 'agent') await this.routing.busy(callId, u.id);
+    if (handling) await this.status(callId, 'human');
+    else this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
     return { token, url: this.livekit.url };
   }
 
   /**
    * A desk participant left the call. The **last** human leaving ends the call; while
-   * other humans remain (a consultation), only the leaver is freed into wrap-up.
+   * other humans remain (a consultation), only the leaver is freed into wrap-up. A
+   * monitoring supervisor (listen / whisper / barge) leaving changes nothing for the
+   * call: nobody was marked busy for them, so nothing is freed and the call goes on.
    *
    * @param role - Which identity left: `human:<id>` or `supervisor:<id>`.
    */
   async leave(callId: string, u: { id: string }, role: 'human' | 'supervisor'): Promise<void> {
     await markParticipantLeft(this.db, callId, `${role}:${u.id}`);
     await addEvent(this.db, callId, `${role}.left`, { userId: u.id });
-    if (role === 'human' && (await this.humansOn(callId, u.id)) > 0) {
+    if (role === 'supervisor') {
+      const call = await getCall(this.db, callId);
+      if (call) {
+        this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+      }
+      return;
+    }
+    if ((await this.humansOn(callId, u.id)) > 0) {
       await this.freeUser(callId, u.id);
       return;
     }
     await this.release(callId);
-    if (role === 'human') await this.end(callId);
+    await this.end(callId);
   }
 
   /** Active (not left) human participants on the call, excluding `exceptUserId`. */
