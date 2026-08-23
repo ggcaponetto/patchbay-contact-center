@@ -4,7 +4,7 @@
  * - {@link useDeskSocket}: owns the websocket to `/api/ws` and the reduced `DeskState`
  *   (see `store.ts`); every page gets its return value as the `desk` prop.
  * - {@link useLiveRoom}: wraps a `livekit-client` `Room` (connect, microphone, remote
- *   audio playback, peer list, mute) for the in-call view.
+ *   audio playback, peer list, mute, the local side of hold) for the in-call view.
  * - {@link useRoute}: current hash route.
  * - {@link useNow}: a one-second ticker for countdowns and durations.
  */
@@ -114,9 +114,17 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
     peers: [],
   });
   const audioRef = useRef<HTMLDivElement | null>(null);
+  // Serializes `setHeld`: `desired` is what the latest caller wants, `applied` what the
+  // room currently does, `chain` the promise every call queues behind.
+  const holdRef = useRef<{ desired: boolean; applied: boolean | null; chain: Promise<void> }>({
+    desired: false,
+    applied: null,
+    chain: Promise.resolve(),
+  });
 
   useEffect(() => {
     if (!join) return;
+    holdRef.current = { desired: false, applied: null, chain: Promise.resolve() };
     const room = new Room();
     const peers = () =>
       [...room.remoteParticipants.values()].map((p) => ({
@@ -134,6 +142,11 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
         // Hold music is for the customer; the desk stays silent on `media` tracks.
         if (participant?.attributes['role'] === 'media') return;
         if (track.kind === Track.Kind.Audio) audioRef.current?.append(track.attach());
+      })
+      // Hold unsubscribes the remote audio: drop the orphaned `<audio>` elements too, so
+      // retrieve does not stack a fresh element next to a dead one.
+      .on(RoomEvent.TrackUnsubscribed, (track) => {
+        for (const el of track.detach()) el.remove();
       })
       .on(RoomEvent.Disconnected, () => setState((s) => ({ ...s, connected: false })));
     void (async () => {
@@ -157,20 +170,35 @@ export function useLiveRoom(join: { token: string; url: string; publish: boolean
   }, [state.room, state.muted]);
 
   /**
-   * Local side of putting the customer on hold: mute the microphone (the customer hears
-   * only the music) and stop subscribing to remote audio (the agent hears silence).
-   * Retrieve re-enables both.
+   * Local side of putting the customer on hold: stop subscribing to remote audio (the
+   * agent hears silence) and mute the microphone (the customer hears only the music).
+   * Retrieve re-enables both. Calls never overlap — each one queues behind the previous
+   * and applies the *latest* requested state, so a quick hold → retrieve → hold ends up
+   * held exactly once. The subscribe loop runs synchronously, before the microphone
+   * round-trip; the media participant (hold music for the customer) is never touched.
    */
   const setHeld = useCallback(
-    async (held: boolean) => {
-      if (!state.room) return;
-      await state.room.localParticipant.setMicrophoneEnabled(!held);
-      for (const participant of state.room.remoteParticipants.values()) {
-        for (const publication of participant.trackPublications.values()) {
-          publication.setSubscribed(!held);
+    (held: boolean): Promise<void> => {
+      const room = state.room;
+      if (!room) return Promise.resolve();
+      const ref = holdRef.current;
+      ref.desired = held;
+      const apply = async () => {
+        const want = ref.desired;
+        if (want === ref.applied) return;
+        ref.applied = want;
+        for (const participant of room.remoteParticipants.values()) {
+          if (participant.attributes['role'] === 'media') continue;
+          for (const publication of participant.trackPublications.values()) {
+            publication.setSubscribed(!want);
+          }
         }
-      }
-      setState((s) => ({ ...s, muted: held }));
+        setState((s) => ({ ...s, muted: want }));
+        await room.localParticipant.setMicrophoneEnabled(!want);
+      };
+      const next = ref.chain.then(apply);
+      ref.chain = next.catch(() => undefined);
+      return next;
     },
     [state.room],
   );

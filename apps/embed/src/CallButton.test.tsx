@@ -45,6 +45,7 @@ const lk = vi.hoisted(() => {
       ParticipantConnected: 'participantConnected',
       ParticipantAttributesChanged: 'participantAttributesChanged',
       TrackSubscribed: 'trackSubscribed',
+      TrackUnsubscribed: 'trackUnsubscribed',
       Disconnected: 'disconnected',
     },
     Track: { Kind: { Audio: 'audio', Video: 'video' } },
@@ -200,12 +201,16 @@ describe('<CallButton>', () => {
       { attributes: { role: 'supervisor', monitor: 'whisper' } },
     );
     expect([...ui.audio().children]).toEqual([audioEl]);
+    // The status line is a polite live region and Mute announces its pressed state.
+    expect(ui.container.querySelector('.status')!.getAttribute('aria-live')).toBe('polite');
+    expect(ui.button('Mute').getAttribute('aria-pressed')).toBe('false');
 
     // Mute / unmute.
     await ui.click('Mute');
     await flush();
     expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
     expect(ui.button('Unmute')).toBeTruthy();
+    expect(ui.button('Unmute').getAttribute('aria-pressed')).toBe('true');
     await ui.click('Unmute');
     await flush();
     expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true);
@@ -239,6 +244,17 @@ describe('<CallButton>', () => {
     await flush();
     expect(ui.status()).toBe('Call ended. Thanks for calling!');
     expect(ui.button('Call us')).toBeTruthy();
+  });
+
+  it('removes the audio elements of an unsubscribed track', async () => {
+    ui = mount();
+    const room = await startCall();
+    const audioEl = document.createElement('audio');
+    const track = { kind: 'audio', attach: () => audioEl, detach: () => [audioEl] };
+    await emit(room, lk.RoomEvent.TrackSubscribed, track);
+    expect([...ui.audio().children]).toEqual([audioEl]);
+    await emit(room, lk.RoomEvent.TrackUnsubscribed, track);
+    expect(ui.audio().children).toHaveLength(0);
   });
 
   it('shows a nameless agent without a trailing space', async () => {

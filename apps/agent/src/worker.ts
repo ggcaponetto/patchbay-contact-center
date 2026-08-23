@@ -21,7 +21,7 @@
  * @see apps/agent/README.md for the lifecycle and handoff diagrams.
  * @packageDocumentation
  */
-import { DispatchMetadata } from '@cc/shared';
+import { DispatchMetadata, baseLanguage } from '@cc/shared';
 import { type JobContext, inference, llm, type stt, voice } from '@livekit/agents';
 import { EnhancerModel, audioEnhancement } from '@livekit/plugins-ai-coustics';
 import { type RemoteParticipant, RoomEvent } from '@livekit/rtc-node';
@@ -49,10 +49,13 @@ export type WorkerApi = Pick<
 export type WorkerDeps = {
   /** API client bound to the call id. */
   createApi: (callId: string) => WorkerApi;
-  /** The voice pipeline (STT, TTS, turn handling). The LLM lives on the agent. */
-  createSession: () => voice.AgentSession;
+  /**
+   * The voice pipeline (STT, TTS, turn handling) for a call in `language` (a base tag
+   * such as `de`; `en` by default). The LLM lives on the agent.
+   */
+  createSession: (language: string) => voice.AgentSession;
   /** Fresh STT for the post-handoff transcriber (streams are not shareable). */
-  createStt: () => stt.STT;
+  createStt: (language: string) => stt.STT;
   /** LLM used by {@link summarize} at shutdown. */
   createSummaryLlm: () => llm.LLM;
   /** Builds the agent; defaults to {@link createAgent}. */
@@ -73,7 +76,7 @@ export type WorkerDeps = {
  * @returns The dependency set used by `main.ts`.
  */
 export function defaultDeps(): WorkerDeps {
-  const createStt = () => new inference.STT({ model: STT_MODEL, language: 'en' });
+  const createStt = (language: string) => new inference.STT({ model: STT_MODEL, language });
   return {
     createApi: (callId) =>
       new ApiClient(
@@ -81,9 +84,9 @@ export function defaultDeps(): WorkerDeps {
         process.env.INTERNAL_API_SECRET ?? '',
         callId,
       ),
-    createSession: () =>
+    createSession: (language) =>
       new voice.AgentSession({
-        stt: createStt(),
+        stt: createStt(language),
         tts: new inference.TTS({
           model: 'fishaudio/s2.1-pro',
           voice: 'fa4c9eb3dccc4806b382b40d61c6b10a',
@@ -134,7 +137,9 @@ export function createEntry(deps: WorkerDeps = defaultDeps()): (ctx: JobContext)
     let handedOff = false;
     let stopTranscriber: (() => void) | undefined;
 
-    const session = deps.createSession();
+    // The call's language drives STT (and the post-handoff transcribers); `en` otherwise.
+    const language = (meta.language && baseLanguage(meta.language)) || 'en';
+    const session = deps.createSession(language);
 
     // Every committed user/assistant message goes to the API as a transcript segment.
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
@@ -173,7 +178,7 @@ export function createEntry(deps: WorkerDeps = defaultDeps()): (ctx: JobContext)
         // The session only transcribes the customer; cover the human agent too.
         stopTranscriber = deps.startTranscriber({
           room: ctx.room,
-          speechToText: deps.createStt(),
+          speechToText: deps.createStt(language),
           include: (p) => p.identity === human.identity,
           onSegment: (p, text) =>
             void api.transcript({ speaker: 'human', identity: p.identity, text }),
@@ -187,7 +192,7 @@ export function createEntry(deps: WorkerDeps = defaultDeps()): (ctx: JobContext)
         await api.participant('transcriber', identity);
         stopTranscriber = deps.startTranscriber({
           room: ctx.room,
-          speechToText: deps.createStt(),
+          speechToText: deps.createStt(language),
           include: (p) => roleOf(p) === 'customer' || roleOf(p) === 'human',
           onSegment: (p, text) =>
             void api.transcript({
@@ -215,11 +220,19 @@ export function createEntry(deps: WorkerDeps = defaultDeps()): (ctx: JobContext)
     // Real implementations of the tool side effects declared in agent.ts.
     const agent = deps.createAgent({
       instructions: meta.settings.aiAgent.instructions,
+      skills: meta.settings.skills,
+      ...(meta.language ? { language: meta.language } : {}),
       actions: {
-        escalate: async ({ reason, summary }) => {
+        escalate: async ({ reason, summary, skills, language: spoken }) => {
           // Fill the silence: the long-poll below can take a while.
           session.say('One moment please, I am connecting you to a colleague.');
-          const outcome = await api.escalate(reason, summary, meta.settings.offerTimeoutSec);
+          const outcome = await api.escalate({
+            reason,
+            summary,
+            ringSec: meta.settings.offerTimeoutSec,
+            ...(skills?.length ? { skills } : {}),
+            ...(spoken ? { language: spoken } : {}),
+          });
           return outcome.outcome === 'accepted'
             ? `Tell the caller that ${outcome.agentName} is joining the call now.`
             : 'Tell the caller that no colleague is available right now, apologize, and offer to keep helping or take a message.';

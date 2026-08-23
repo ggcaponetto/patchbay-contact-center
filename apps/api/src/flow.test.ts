@@ -19,7 +19,7 @@ const calls = vi.hoisted(() => ({
   addParticipant: vi.fn(async () => undefined),
   markParticipantLeft: vi.fn(async () => undefined),
   setPreferredAgent: vi.fn(async () => undefined),
-  setHeld: vi.fn(async () => undefined),
+  setHeld: vi.fn(async (): Promise<Date | null> => null),
 }));
 vi.mock('./services/calls.ts', () => calls);
 const tenants = vi.hoisted(() => ({ getTenant: vi.fn(async () => undefined as unknown) }));
@@ -91,12 +91,20 @@ describe('Flow (defensive branches)', () => {
     ).routingOf.bind(flow);
     expect(
       routingOf(
-        { language: 'de', requiredSkills: ['vip'], preferredAgentId: 'u9', priority: 3 },
+        // `de-CH` normalizes to the `lang:de` skill; `billing` is a queue skill and is
+        // never relaxed even though the call pinned it too.
+        {
+          language: 'de-CH',
+          requiredSkills: ['vip', 'billing'],
+          preferredAgentId: 'u9',
+          priority: 3,
+        },
         {
           config: {
             algorithm: 'round_robin',
             requiredSkills: [{ skill: 'billing', min: 2 }],
             languageRouting: true,
+            relaxAfterSec: 7,
           },
         },
       ),
@@ -107,15 +115,20 @@ describe('Flow (defensive branches)', () => {
         { skill: 'lang:de', min: 1 },
         { skill: 'vip', min: 1 },
       ],
+      callSkills: ['lang:de', 'vip'],
+      relaxAfterSec: 7,
+      language: 'de-CH',
       preferredUserId: 'u9',
       priority: 3,
     });
     // language routing off, nothing pinned: bare defaults
     expect(
-      routingOf({ language: 'de', requiredSkills: [], preferredAgentId: null }, undefined),
+      routingOf({ language: null, requiredSkills: [], preferredAgentId: null }, undefined),
     ).toEqual({
       algorithm: 'longest_idle',
       skills: [],
+      callSkills: [],
+      relaxAfterSec: 20,
       priority: 0,
     });
   });
@@ -149,6 +162,27 @@ describe('Flow (defensive branches)', () => {
     expect(calls.setHeld).toHaveBeenCalledTimes(3);
   });
 
+  it('announces the hold state on the frame, and the retrieve before the music stops', async () => {
+    const bus = new LocalBus();
+    const order: string[] = [];
+    bus.subscribe((m) => m.kind === 'media' && order.push(m.command.action));
+    hub.on('call.updated', (u: { heldAt: string | null }) => order.push(`updated:${u.heldAt}`));
+    flow = new Flow(db, lk.livekit, hub, bus, 'test');
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    const heldAt = new Date('2026-01-01T00:00:00.000Z');
+    calls.setHeld.mockResolvedValueOnce(heldAt);
+    await flow.hold('c1');
+    await tick();
+    expect(order).toEqual(['moh.start', `updated:${heldAt.toISOString()}`]);
+
+    order.length = 0;
+    calls.getCall.mockResolvedValue({ ...call, heldAt });
+    await flow.unhold('c1');
+    await tick();
+    expect(order).toEqual(['updated:null', 'moh.stop']);
+  });
+
   it('escalates with an empty queue key when the queue row is missing', async () => {
     const updated = vi.fn();
     hub.on('call.updated', updated);
@@ -156,7 +190,16 @@ describe('Flow (defensive branches)', () => {
     routing.offer.mockImplementationOnce(async () => {
       await routing.events!.onNobody('c1', 't1', null);
     });
-    await expect(flow.escalate('c1', 'why', 'what', 7)).resolves.toEqual({ outcome: 'nobody' });
+    await expect(
+      flow.escalate({
+        callId: 'c1',
+        reason: 'why',
+        summary: 'what',
+        ringSec: 7,
+        skills: ['vip'],
+        language: 'it',
+      }),
+    ).resolves.toEqual({ outcome: 'nobody' });
     expect(routing.offer).toHaveBeenCalledWith({
       callId: 'c1',
       tenantId: 't1',
@@ -167,12 +210,20 @@ describe('Flow (defensive branches)', () => {
       members: [],
       algorithm: 'longest_idle',
       skills: [],
+      callSkills: [],
+      relaxAfterSec: 20,
       priority: 0,
     });
     expect(calls.addEvent.mock.calls.map((c) => c[2])).toEqual([
       'escalation.requested',
       'offer.nobody',
     ]);
+    expect(calls.addEvent).toHaveBeenCalledWith(db, 'c1', 'escalation.requested', {
+      reason: 'why',
+      summary: 'what',
+      skills: ['vip'],
+      language: 'it',
+    });
     // the status write found no row, so nothing was broadcast
     expect(updated).not.toHaveBeenCalled();
   });
@@ -182,7 +233,9 @@ describe('Flow (defensive branches)', () => {
     routing.offer.mockImplementationOnce(async () => {
       await routing.events!.onAccepted('c1', 'ghost');
     });
-    await expect(flow.escalate('c1', 'r', 's', 5)).resolves.toEqual({
+    await expect(
+      flow.escalate({ callId: 'c1', reason: 'r', summary: 's', ringSec: 5 }),
+    ).resolves.toEqual({
       outcome: 'accepted',
       agentName: 'a colleague',
     });

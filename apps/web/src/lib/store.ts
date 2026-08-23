@@ -11,6 +11,7 @@
  * status translation keys/colors, duration formatting and the hash-route parser (there is no router
  * library in this app).
  */
+import { LANGUAGE_NAMES } from '@cc/i18n';
 import type {
   AgentPresence,
   AgentState,
@@ -18,6 +19,7 @@ import type {
   ServerMessage,
   TranscriptSegmentInput,
 } from '@cc/shared';
+import type { TFunction } from 'i18next';
 
 /**
  * An incoming call currently ringing this agent (the `call.offer` server message
@@ -33,6 +35,12 @@ export type Offer = {
   summary?: string;
   /** ISO timestamp; the server moves on to the next agent when it passes. */
   expiresAt: string;
+  /** Skill keys the AI pinned on the call (`billing`, `lang:de`), when any. */
+  requiredSkills?: string[];
+  /** The caller's language (BCP 47), when the AI detected one. */
+  language?: string;
+  /** True once the call-pinned skills were dropped (`QueueConfig.relaxAfterSec`). */
+  relaxed?: boolean;
 };
 
 /** Everything the desk knows, derived from websocket traffic and local actions. */
@@ -54,6 +62,12 @@ export type DeskState = {
   transcripts: Record<string, TranscriptSegmentInput[]>;
   /** Bumped on every call.updated so lists know to refetch. */
   callsVersion: number;
+  /**
+   * Hold state per call id (`heldAt` ISO timestamp, `null` while not held), from the
+   * `call.updated` frames that carry it. The Desk prefers this over the fetched detail
+   * so the Hold / Retrieve button never flickers while a refetch is in flight.
+   */
+  held: Record<string, string | null>;
   /** Instant messages received this session, newest last (capped at 20). */
   messages: { from: { userId: string; name: string }; text: string; broadcast: boolean }[];
   /** Tenant-wide banner text; empty hides the banner. Pushed on connect and on change. */
@@ -69,6 +83,7 @@ export const initialState: DeskState = {
   callStatus: {},
   transcripts: {},
   callsVersion: 0,
+  held: {},
   messages: [],
   ticker: '',
 };
@@ -123,6 +138,9 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
           expiresAt: m.expiresAt,
           ...(m.reason !== undefined ? { reason: m.reason } : {}),
           ...(m.summary !== undefined ? { summary: m.summary } : {}),
+          ...(m.requiredSkills !== undefined ? { requiredSkills: m.requiredSkills } : {}),
+          ...(m.language !== undefined ? { language: m.language } : {}),
+          ...(m.relaxed !== undefined ? { relaxed: m.relaxed } : {}),
         },
       };
     case 'call.offer.cancelled':
@@ -134,6 +152,7 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
         ...state,
         callStatus: { ...state.callStatus, [m.callId]: m.status },
         callsVersion: state.callsVersion + 1,
+        held: m.heldAt === undefined ? state.held : { ...state.held, [m.callId]: m.heldAt },
         // An offer for a call that just ended is pointless: close it.
         offer: m.status === 'ended' && state.offer?.callId === m.callId ? null : state.offer,
       };
@@ -155,6 +174,50 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
       };
     case 'ticker':
       return { ...state, ticker: m.text };
+  }
+}
+
+/** What {@link speakerLabel} needs to name the people on a call. */
+export type SpeakerContext = {
+  /** Stored participants of the call (`GET /desk/calls/:id`), with their display names. */
+  participants?: { identity: string; userId: string | null; name: string | null }[] | undefined;
+  /** Live presence (`state.agents`): names of colleagues currently online. */
+  agents: AgentPresence[];
+};
+
+/**
+ * Human-readable label of a transcript segment's speaker. `human:<userId>` and
+ * `supervisor:<userId>` become "Ann · Agent" / "Sam · Supervisor" when the name is
+ * known (stored participants first, then live presence) and just the role word
+ * otherwise; `customer:<callId>` becomes "Customer 1a2b3c4d", `ai:*` "AI assistant" and
+ * anything else shows the raw `speaker`.
+ */
+export function speakerLabel(
+  identity: string,
+  speaker: string,
+  ctx: SpeakerContext,
+  t: TFunction,
+): string {
+  const [kind, ...rest] = identity.split(':');
+  const id = rest.join(':');
+  const named = (role: 'speakers.agent' | 'speakers.supervisor') => {
+    const name =
+      ctx.participants?.find((p) => p.identity === identity && p.name)?.name ??
+      ctx.participants?.find((p) => p.userId === id && p.name)?.name ??
+      ctx.agents.find((a) => a.userId === id)?.name;
+    return name ? `${name} · ${t(role)}` : t(role);
+  };
+  switch (kind) {
+    case 'human':
+      return named('speakers.agent');
+    case 'supervisor':
+      return named('speakers.supervisor');
+    case 'customer':
+      return t('speakers.customer', { id: id.slice(0, 8) });
+    case 'ai':
+      return t('speakers.ai');
+    default:
+      return speaker;
   }
 }
 
@@ -237,6 +300,25 @@ export function dispositionLabel(
   if (!d) return code;
   return code.includes('/') ? `${code.split('/')[0]} · ${d.label}` : d.label;
 }
+
+/**
+ * Display label of a routing skill key. `lang:it` becomes "Language: Italiano" (the
+ * native name for the desk's languages, the raw tag otherwise), a key of the tenant's
+ * catalogue shows its label, anything else the raw key.
+ */
+export function skillLabel(
+  key: string,
+  catalogue: { key: string; label: string }[] | undefined,
+  t: TFunction,
+): string {
+  if (key.startsWith('lang:'))
+    return t('skills.language', { name: languageName(key.slice('lang:'.length)) });
+  return catalogue?.find((s) => s.key === key)?.label ?? key;
+}
+
+/** Native name of a language tag for the desk's languages (`it` → "Italiano"), else the tag. */
+export const languageName = (tag: string): string =>
+  (LANGUAGE_NAMES as Record<string, string>)[tag] ?? tag;
 
 /**
  * `m:ss` duration of a call. Live calls (`endedAt === null`) are measured against `now`

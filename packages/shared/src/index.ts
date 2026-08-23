@@ -77,6 +77,25 @@ export const Sounds = z.object({
 export type Sounds = z.infer<typeof Sounds>;
 
 /**
+ * One entry of the tenant's routing skill catalogue ({@link TenantSettings.skills}): the
+ * AI reads `label` / `description` to decide which `key`s apply to an escalation.
+ */
+export const RoutingSkill = z.object({
+  /** Skill key as held by agents (`UserSkill.skill`), lowercase, e.g. `billing`. */
+  key: z
+    .string()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** Human-readable name shown in Settings and to the AI. */
+  label: z.string().min(1).max(80),
+  /** When this skill applies; shown to the AI. */
+  description: z.string().max(200).default(''),
+});
+/** Inferred type of {@link RoutingSkill}. */
+export type RoutingSkill = z.infer<typeof RoutingSkill>;
+
+/**
  * Per-tenant configuration, stored as JSON on the tenant row.
  *
  * Produced by the web desk settings page (supervisors), validated and persisted by the
@@ -187,6 +206,12 @@ export const TenantSettings = z.object({
     .prefault({}),
   /** Configurable sounds (hold music, desk ringtone, embed ringback); see {@link Sounds}. */
   sounds: Sounds.prefault({}),
+  /**
+   * Routing skill catalogue: the skills the AI agent tags an escalation with (see
+   * {@link RoutingSkill}). Agents hold the same keys as `UserSkill`s. Language skills
+   * (`lang:<tag>`) are implicit and never listed here.
+   */
+  skills: z.array(RoutingSkill).max(50).default([]),
 });
 /**
  * How a queue picks the next agent to ring, applied after skill filtering:
@@ -234,6 +259,12 @@ export const QueueConfig = z.object({
   moh: z.enum(['calm', 'bright']).default('calm'),
   /** Hold music of this queue; overrides the tenant's `sounds.holdMusic`. */
   holdMusicUrl: SoundUrl.optional(),
+  /**
+   * Seconds a call waits for a qualified agent before its call-pinned skills (the AI's
+   * tags and the `lang:` skill) are dropped and anyone on the queue is rung. The
+   * queue's own `requiredSkills` are never dropped. `0` = never relax.
+   */
+  relaxAfterSec: z.number().int().min(0).max(300).default(20),
 });
 /** Inferred type of {@link QueueConfig}. */
 export type QueueConfig = z.infer<typeof QueueConfig>;
@@ -439,6 +470,8 @@ export const DispatchMetadata = z.object({
   settings: TenantSettings,
   /** Free-form data the embed button attached to the call (page URL, user id, ...). */
   customerMeta: z.record(z.string(), z.unknown()).default({}),
+  /** The call's language (BCP 47, e.g. `de-CH`) when known; drives the agent's STT. */
+  language: z.string().optional(),
 });
 /** Inferred type of {@link DispatchMetadata}. */
 export type DispatchMetadata = z.infer<typeof DispatchMetadata>;
@@ -509,11 +542,14 @@ export type TranscriptSegmentInput = z.infer<typeof TranscriptSegmentInput>;
  *
  * - `call.offer`: this agent is being rung for a call. `reason` and `summary` are present
  *   when the AI escalated; `expiresAt` (ISO date) is when the offer moves on to the next
- *   agent. The desk accepts over REST (it needs a LiveKit token back) or declines with
- *   the `offer.decline` {@link ClientMessage}.
+ *   agent; `requiredSkills` are the skill keys the offer currently requires, `language`
+ *   the caller's language and `relaxed` is true once the call-pinned skills were dropped
+ *   (`QueueConfig.relaxAfterSec`). The desk accepts over REST (it needs a LiveKit token
+ *   back) or declines with the `offer.decline` {@link ClientMessage}.
  * - `call.offer.cancelled`: the offer above is no longer for this agent (timed out,
  *   someone else took it or the call ended).
- * - `call.updated`: the call's {@link CallStatus} changed.
+ * - `call.updated`: the call's {@link CallStatus} or hold state changed; `heldAt` (ISO
+ *   date) is set while the customer is on hold, `null` otherwise.
  * - `presence`: full list of the tenant's online agents ({@link AgentPresence}); sent
  *   whenever anyone's state changes.
  * - `transcript`: a new {@link TranscriptSegmentInput} for a call the desk subscribed to.
@@ -526,9 +562,17 @@ export const ServerMessage = z.discriminatedUnion('type', [
     reason: z.string().optional(),
     summary: z.string().optional(),
     expiresAt: z.string(),
+    requiredSkills: z.array(z.string()).optional(),
+    language: z.string().optional(),
+    relaxed: z.boolean().optional(),
   }),
   z.object({ type: z.literal('call.offer.cancelled'), callId: z.string() }),
-  z.object({ type: z.literal('call.updated'), callId: z.string(), status: CallStatus }),
+  z.object({
+    type: z.literal('call.updated'),
+    callId: z.string(),
+    status: CallStatus,
+    heldAt: z.string().nullable().optional(),
+  }),
   z.object({ type: z.literal('presence'), agents: z.array(AgentPresence) }),
   /** You were forced out by a supervisor; the desk signs out and stops reconnecting. */
   z.object({ type: z.literal('logout'), by: z.string() }),
@@ -575,3 +619,16 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
  * ```
  */
 export const roomNameFor = (tenantId: string, callId: string): string => `cc-${tenantId}-${callId}`;
+
+/**
+ * The primary language part of a BCP 47 tag, lowercased: the key used for `lang:<tag>`
+ * routing skills, so `lang:de` matches callers speaking `de-CH` or `de-DE`.
+ *
+ * @param tag - A language tag such as `de-CH`, `EN_us` or `it`.
+ * @returns The base language (`de`, `en`, `it`); an empty string for an empty tag.
+ * @example
+ * ```ts
+ * baseLanguage('de-CH'); // 'de'
+ * ```
+ */
+export const baseLanguage = (tag: string): string => tag.trim().split(/[-_]/)[0]!.toLowerCase();

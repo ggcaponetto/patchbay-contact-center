@@ -18,7 +18,7 @@ import type { CallStatus, ParticipantKind, TranscriptSegmentInput } from '@cc/sh
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.ts';
-import { call, callEvent, callParticipant, queue, transcriptSegment } from '../db/schema.ts';
+import { call, callEvent, callParticipant, queue, transcriptSegment, user } from '../db/schema.ts';
 
 /**
  * Inserts the call in status `ringing`. The caller chooses the id so it can derive the
@@ -150,6 +150,7 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
       channel: call.channel,
       priority: call.priority,
       language: call.language,
+      requiredSkills: call.requiredSkills,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       aiSummary: call.aiSummary,
@@ -165,12 +166,17 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
     .limit(limit);
 }
 
-/** Marks the customer held (music on hold) or retrieved. */
+/**
+ * Marks the customer held (music on hold) or retrieved.
+ * @returns The stored `heldAt` (`null` when retrieved or the call is unknown).
+ */
 export async function setHeld(db: Db, id: string, held: boolean) {
-  await db
+  const [row] = await db
     .update(call)
     .set({ heldAt: held ? new Date() : null })
-    .where(eq(call.id, id));
+    .where(eq(call.id, id))
+    .returning({ heldAt: call.heldAt });
+  return row?.heldAt ?? null;
 }
 
 /** Sets the wrap-up disposition code of a call. */
@@ -181,6 +187,16 @@ export async function setDisposition(db: Db, id: string, code: string) {
 /** Replaces the tag list of a call. */
 export async function setTags(db: Db, id: string, tags: string[]) {
   await db.update(call).set({ tags }).where(eq(call.id, id));
+}
+
+/** Replaces the skill keys pinned on the call (what the AI tagged at escalation). */
+export async function setRequiredSkills(db: Db, id: string, skills: string[]) {
+  await db.update(call).set({ requiredSkills: skills }).where(eq(call.id, id));
+}
+
+/** Sets the call's language (BCP 47 tag, normally the base tag such as `de`). */
+export async function setLanguage(db: Db, id: string, language: string) {
+  await db.update(call).set({ language }).where(eq(call.id, id));
 }
 
 /** Remembers the accepting agent for last-agent (sticky) routing on this call. */
@@ -202,7 +218,8 @@ export async function setRecording(
 }
 
 /**
- * Full detail of one call: participants, transcript and events in order.
+ * Full detail of one call: participants (with the desk user's `name` when the
+ * participant is a signed-in human or supervisor), transcript and events in order.
  * Tenant-scoped: returns `undefined` when the call belongs to another tenant.
  */
 export async function callDetail(db: Db, tenantId: string, id: string) {
@@ -210,7 +227,20 @@ export async function callDetail(db: Db, tenantId: string, id: string) {
   if (!row || row.tenantId !== tenantId) return undefined;
   const [[q], participants, transcript, events] = await Promise.all([
     db.select({ key: queue.key }).from(queue).where(eq(queue.id, row.queueId)),
-    db.select().from(callParticipant).where(eq(callParticipant.callId, id)),
+    db
+      .select({
+        id: callParticipant.id,
+        callId: callParticipant.callId,
+        kind: callParticipant.kind,
+        identity: callParticipant.identity,
+        userId: callParticipant.userId,
+        joinedAt: callParticipant.joinedAt,
+        leftAt: callParticipant.leftAt,
+        name: user.name,
+      })
+      .from(callParticipant)
+      .leftJoin(user, eq(user.id, callParticipant.userId))
+      .where(eq(callParticipant.callId, id)),
     db
       .select()
       .from(transcriptSegment)

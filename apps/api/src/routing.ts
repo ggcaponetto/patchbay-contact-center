@@ -16,7 +16,9 @@
  *   a time (`currentUserId` until `ringUntil`), remembers who was already tried, and
  *   advances on decline, timeout (the tick) or disconnect until someone accepts or
  *   nobody is left. An agent who lets the ring time out goes `not_ready` with reason
- *   `RONA`.
+ *   `RONA`. When nobody qualified is ready, an offer with a `relaxAt` deadline waits
+ *   (`currentUserId = null`, `ringUntil = relaxAt`) and, once the deadline passes, drops
+ *   its call-pinned skills (`callSkills`) and tries again (`relaxed`).
  *
  * After a call the agent enters `acw` (after-call work) for the tenant's `acwSec`; the
  * tick turns that into `ready` when `acwUntil` passes.
@@ -37,9 +39,10 @@ import {
   type SkillRequirement,
 } from '@cc/shared';
 import { and, eq, lt, lte, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type { Bus } from './bus.ts';
 import type { Db } from './db/client.ts';
-import { agentPresence, ringOffer, userSkill } from './db/schema.ts';
+import { agentPresence, callEvent, ringOffer, userSkill } from './db/schema.ts';
 
 /** One `agent_presence` row. */
 export type Presence = typeof agentPresence.$inferSelect;
@@ -293,7 +296,23 @@ export class Routing {
     preferredUserId?: string;
     /** Priority (higher first); ages by +1 per waiting minute under contention. */
     priority?: number;
+    /**
+     * Keys of `skills` that came from the call (AI tags, `lang:`) and get dropped when
+     * nobody qualified answered within `relaxAfterSec`. Queue skills are never dropped.
+     */
+    callSkills?: string[];
+    /** Seconds to wait for a qualified agent before relaxing; `0` / absent = never. */
+    relaxAfterSec?: number;
+    /** The caller's language, shown in the offer. */
+    language?: string;
   }): Promise<void> {
+    const callSkills = (input.callSkills ?? []).filter((k) =>
+      (input.skills ?? []).some((s) => s.skill === k),
+    );
+    const relaxAt =
+      callSkills.length > 0 && (input.relaxAfterSec ?? 0) > 0
+        ? new Date(this.now() + (input.relaxAfterSec ?? 0) * 1000)
+        : null;
     const inserted = await this.db
       .insert(ringOffer)
       .values({
@@ -311,6 +330,9 @@ export class Routing {
         skills: input.skills ?? [],
         preferredUserId: input.preferredUserId ?? null,
         priority: input.priority ?? 0,
+        callSkills,
+        relaxAt,
+        language: input.language ?? null,
       })
       .onConflictDoNothing()
       .returning({ callId: ringOffer.callId });
@@ -447,10 +469,15 @@ export class Routing {
    * it: cancel the current agent (if any; a timed-out ring parks them `not_ready` with
    * reason `RONA`), then either give up or ring the next candidate until `ringUntil`.
    * The timeout itself is detected by {@link Routing.tick}.
+   *
+   * Relaxation: once `relaxAt` passed, the call-pinned skills are dropped (journaled as
+   * `escalation.relaxed`) before looking for a candidate. While nobody qualifies and
+   * `relaxAt` is still ahead, the offer parks with no agent and `ringUntil = relaxAt`
+   * instead of giving up.
    */
   private async advance(callId: string, rona: boolean): Promise<void> {
     const step = await this.db.transaction(async (tx) => {
-      const [o] = await tx
+      let [o] = await tx
         .select()
         .from(ringOffer)
         .where(eq(ringOffer.callId, callId))
@@ -459,13 +486,42 @@ export class Routing {
       const tried = [...o.tried];
       const cancelled = o.currentUserId;
       if (cancelled) tried.push(cancelled);
-      const next =
-        o.giveUpAt !== null && this.now() >= o.giveUpAt.getTime()
-          ? undefined
-          : await this.candidate(tx, o, tried);
+      const gaveUp = o.giveUpAt !== null && this.now() >= o.giveUpAt.getTime();
+      if (!gaveUp && o.relaxAt !== null && this.now() >= o.relaxAt.getTime()) {
+        const dropped = new Set(o.callSkills);
+        o = {
+          ...o,
+          skills: o.skills.filter((s) => !dropped.has(s.skill)),
+          relaxAt: null,
+          relaxed: true,
+        };
+        await tx
+          .update(ringOffer)
+          .set({ skills: o.skills, relaxAt: null, relaxed: true })
+          .where(eq(ringOffer.callId, callId));
+        await tx.insert(callEvent).values({
+          id: randomUUID(),
+          callId,
+          type: 'escalation.relaxed',
+          payload: { dropped: [...dropped] },
+        });
+      }
+      const next = gaveUp ? undefined : await this.candidate(tx, o, tried);
       if (!next) {
+        if (!gaveUp && o.relaxAt !== null) {
+          // Nobody qualified yet: wait for the relax deadline (the tick re-runs us then).
+          await tx
+            .update(ringOffer)
+            .set({
+              tried,
+              currentUserId: null,
+              ringUntil: o.giveUpAt !== null && o.giveUpAt < o.relaxAt ? o.giveUpAt : o.relaxAt,
+            })
+            .where(eq(ringOffer.callId, callId));
+          return { o, cancelled, next: undefined, ringFor: 0, waiting: true };
+        }
         await tx.delete(ringOffer).where(eq(ringOffer.callId, callId));
-        return { o, cancelled, next: undefined, ringFor: 0 };
+        return { o, cancelled, next: undefined, ringFor: 0, waiting: false };
       }
       const ringFor = Math.min(
         o.ringMs,
@@ -480,10 +536,10 @@ export class Routing {
         .update(agentPresence)
         .set({ lastOfferedAt: new Date(this.now()) })
         .where(eq(agentPresence.userId, next.userId));
-      return { o, cancelled, next, ringFor };
+      return { o, cancelled, next, ringFor, waiting: false };
     });
     if (!step) return;
-    const { o, cancelled, next, ringFor } = step;
+    const { o, cancelled, next, ringFor, waiting } = step;
     if (cancelled) {
       await this.send(cancelled, { type: 'call.offer.cancelled', callId });
       if (rona) {
@@ -495,7 +551,7 @@ export class Routing {
       }
     }
     if (!next) {
-      await this.events.onNobody(callId, o.tenantId, o.fallback);
+      if (!waiting) await this.events.onNobody(callId, o.tenantId, o.fallback);
       return;
     }
     await this.send(next.userId, {
@@ -505,6 +561,13 @@ export class Routing {
       ...(o.reason !== null ? { reason: o.reason } : {}),
       ...(o.summary !== null ? { summary: o.summary } : {}),
       expiresAt: new Date(this.now() + ringFor).toISOString(),
+      // After a relaxation the dropped call skills are still shown (the agent should
+      // see what was asked for), marked by `relaxed: true`.
+      requiredSkills: [
+        ...new Set([...o.skills.map((s) => s.skill), ...(o.relaxed ? o.callSkills : [])]),
+      ],
+      ...(o.language !== null ? { language: o.language } : {}),
+      ...(o.relaxed ? { relaxed: true } : {}),
     });
   }
 

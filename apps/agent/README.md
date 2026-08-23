@@ -114,10 +114,12 @@ Differences between the two modes that matter in practice:
 
 Both tools are declared in `src/agent.ts`; their side effects are injected as `AgentActions` so the evals can stub them. The base prompt tells the model to repeat the tool result to the caller verbatim.
 
-| Tool              | Parameters                                               | When the LLM should call it                                                                               | What it returns to the LLM                                                                                                                                 |
-| ----------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `escalateToHuman` | `reason` (few words), `summary` (two or three sentences) | The caller asks for a person, a real agent or a supervisor, or the request is outside what the AI can do. | `"Tell the caller that <name> is joining the call now."` when a human accepted, or an instruction to apologize and keep helping when nobody was available. |
-| `endCall`         | none                                                     | The caller says goodbye, or confirms there is nothing else.                                               | `"Say a brief, friendly goodbye. The call ends in a few seconds."`; the worker schedules `ctx.shutdown()` 3 s later.                                       |
+| Tool              | Parameters                                                                                                                                                                                                              | When the LLM should call it                                                                               | What it returns to the LLM                                                                                                                                 |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `escalateToHuman` | `reason` (few words), `summary` (two or three sentences), `skills?` (keys from the tenant's catalogue, only offered when `TenantSettings.skills` is non-empty), `language?` (caller's spoken language, two-letter code) | The caller asks for a person, a real agent or a supervisor, or the request is outside what the AI can do. | `"Tell the caller that <name> is joining the call now."` when a human accepted, or an instruction to apologize and keep helping when nobody was available. |
+| `endCall`         | none                                                                                                                                                                                                                    | The caller says goodbye, or confirms there is nothing else.                                               | `"Say a brief, friendly goodbye. The call ends in a few seconds."`; the worker schedules `ctx.shutdown()` 3 s later.                                       |
+
+The tenant's routing skill catalogue (`TenantSettings.skills`) is rendered into the prompt as a `# Routing skills` section (`key — label: description`) with the rule to tag every applicable key on `escalateToHuman`; the `skills` parameter is a `z.enum` over the catalogue keys so the model cannot invent one. `language` is always offered: the AI sets it when the caller speaks (or asks for) a language other than English. The worker forwards both to `POST /escalate`, where the API pins them on the call and routes by them (`apps/api/src/README.md`, "Skill relaxation").
 
 While `escalateToHuman` is pending the worker says "One moment please, I am connecting you to a colleague." via `session.say`, because the long-poll can take `offerTimeoutSec` × (number of agents) seconds.
 
@@ -125,14 +127,14 @@ While `escalateToHuman` is pending the worker says "One moment please, I am conn
 
 Everything runs on [LiveKit Inference](https://docs.livekit.io/agents/models/inference), so there are no provider API keys: the `LIVEKIT_*` credentials cover all of them.
 
-| Role               | Model                                                                    | Where to change                                                          |
-| ------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| STT                | `assemblyai/universal-3-5-pro`, English                                  | `STT_MODEL` in `src/worker.ts` (used by the session and the transcriber) |
-| TTS                | `fishaudio/s2.1-pro`, fixed voice id                                     | `inference.TTS({...})` in `defaultDeps()`, `src/worker.ts`               |
-| LLM                | `google/gemma-4-31b-it`                                                  | `LLM_MODEL` in `src/agent.ts` (conversation and summary)                 |
-| Turn detection     | LiveKit turn detector (`inference.TurnDetector`), adaptive interruptions | `turnHandling` in `defaultDeps()`, `src/worker.ts`                       |
-| Noise cancellation | ai-coustics `QuailVfS` via `@livekit/plugins-ai-coustics`                | `inputOptions()` in `defaultDeps()`, `src/worker.ts`                     |
-| Eval judge         | `openai/gpt-4.1-mini`                                                    | `judgeLlm` in `src/agent.integration.test.ts`                            |
+| Role               | Model                                                                                        | Where to change                                                          |
+| ------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| STT                | `assemblyai/universal-3-5-pro`, language = `baseLanguage(DispatchMetadata.language)` or `en` | `STT_MODEL` in `src/worker.ts` (used by the session and the transcriber) |
+| TTS                | `fishaudio/s2.1-pro`, fixed voice id                                                         | `inference.TTS({...})` in `defaultDeps()`, `src/worker.ts`               |
+| LLM                | `google/gemma-4-31b-it`                                                                      | `LLM_MODEL` in `src/agent.ts` (conversation and summary)                 |
+| Turn detection     | LiveKit turn detector (`inference.TurnDetector`), adaptive interruptions                     | `turnHandling` in `defaultDeps()`, `src/worker.ts`                       |
+| Noise cancellation | ai-coustics `QuailVfS` via `@livekit/plugins-ai-coustics`                                    | `inputOptions()` in `defaultDeps()`, `src/worker.ts`                     |
+| Eval judge         | `openai/gpt-4.1-mini`                                                                        | `judgeLlm` in `src/agent.integration.test.ts`                            |
 
 `expressive: true` on the session lets the LLM annotate its output with prosody hints for the TTS. Noise cancellation and expressive mode are LiveKit Cloud features.
 

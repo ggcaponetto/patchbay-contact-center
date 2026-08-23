@@ -4,14 +4,20 @@
  * call (take over / intercept) while it is live.
  */
 import { Button, Chip, Grid, Paper, Stack, Typography } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CallPanel, type JoinInfo, Transcript } from '../components/CallPanel.tsx';
 import { type CallDetail, type DeskSettings, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useLocaleFormat } from '../lib/i18n.ts';
-import { dispositionLabel, statusColor, statusKey } from '../lib/store.ts';
+import {
+  dispositionLabel,
+  skillLabel,
+  speakerLabel,
+  statusColor,
+  statusKey,
+} from '../lib/store.ts';
 
 /** Supervisor ways onto a live call; see `Flow.join` on the API for the semantics. */
 type JoinMode = 'listen' | 'whisper' | 'barge' | 'takeover' | 'intercept';
@@ -26,8 +32,8 @@ type Props = { id: string; desk: ReturnType<typeof useDeskSocket>; supervisor: b
  * One call: transcript, events, and (for supervisors) listen-in / take-over while live.
  *
  * Uses:
- * - `GET /api/desk/calls/:id` (query key includes `callsVersion`, so every
- *   `call.updated` frame re-fetches the detail).
+ * - `GET /api/desk/calls/:id` (invalidated on every `callsVersion` bump, i.e. every
+ *   `call.updated` frame, while the key stays stable so the data never blanks).
  * - WS `subscribe` on mount so `transcript` frames for this call are reduced into
  *   `state.transcripts[id]`.
  * - `POST /api/desk/calls/:id/join` with `mode: 'listen' | 'takeover'` (supervisors);
@@ -39,10 +45,14 @@ export function CallPage({ id, desk, supervisor }: Props) {
   const { t } = useTranslation();
   const { time } = useLocaleFormat();
   const { state, send } = desk;
+  const qc = useQueryClient();
   const detail = useQuery({
-    queryKey: ['call', id, state.callsVersion],
+    queryKey: ['call', id],
     queryFn: () => api<CallDetail>(`/desk/calls/${id}`),
   });
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: ['call', id] });
+  }, [id, state.callsVersion, qc]);
   const settings = useQuery({
     queryKey: ['desk-settings'],
     queryFn: () => api<DeskSettings>('/desk/settings'),
@@ -91,12 +101,32 @@ ${s.text}`;
     return n === 0;
   });
   const transcript = [...stored, ...tail];
+  const labelFor = (segment: { identity: string; speaker: string }) =>
+    speakerLabel(
+      segment.identity,
+      segment.speaker,
+      { participants: detail.data?.participants, agents: state.agents },
+      t,
+    );
+  const skillName = (key: string) => skillLabel(key, settings.data?.skills, t);
+  /** Text of one event: the escalation events tell their skills, the rest show their type. */
+  const eventText = (e: { type: string; payload: Record<string, unknown> }) => {
+    const list = (v: unknown) =>
+      (Array.isArray(v) ? (v as string[]) : []).map(skillName).join(', ');
+    if (e.type === 'escalation.relaxed')
+      return t('call.events.relaxed', { skills: list(e.payload['dropped']) });
+    if (e.type === 'escalation.requested' && Array.isArray(e.payload['skills']))
+      return t('call.events.requested', { skills: list(e.payload['skills']) });
+    return e.type;
+  };
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
+      <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }} spacing={2}>
         <Button onClick={() => (location.hash = '#/history')}>{t('common.back')}</Button>
-        <Typography variant="h6">{t('call.title', { id: id.slice(0, 8) })}</Typography>
+        <Typography variant="h5" component="h1">
+          {t('call.title', { id: id.slice(0, 8) })}
+        </Typography>
         {status && <Chip size="small" color={statusColor[status]} label={t(statusKey(status))} />}
         {detail.data && <Typography color="text.secondary">{detail.data.queueKey}</Typography>}
         {detail.data?.dispositionCode && (
@@ -109,7 +139,13 @@ ${s.text}`;
         {(detail.data?.tags ?? []).map((t) => (
           <Chip key={t} size="small" label={t} />
         ))}
-        <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
+        {(detail.data?.requiredSkills ?? []).map((key) => (
+          <Chip key={key} size="small" variant="outlined" color="info" label={skillName(key)} />
+        ))}
+        {detail.data?.language && (
+          <Chip size="small" variant="outlined" label={skillName(`lang:${detail.data.language}`)} />
+        )}
+        <Stack direction="row" spacing={1} sx={{ ml: 'auto', flexWrap: 'wrap', rowGap: 1 }}>
           {supervisor && live && !joined
             ? MODES.map((mode) => (
                 <Button
@@ -128,16 +164,17 @@ ${s.text}`;
           join={joined.join}
           title={t(`call.titles.${joined.mode}`)}
           transcript={transcript}
+          labelFor={labelFor}
           onLeave={() => void leave()}
         />
       ) : (
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 8 }}>
             <Paper sx={{ p: 2 }}>
-              <Typography variant="subtitle1" gutterBottom>
+              <Typography variant="subtitle1" component="h2" gutterBottom>
                 {t('call.transcript')}
               </Typography>
-              <Transcript segments={transcript} />
+              <Transcript segments={transcript} labelFor={labelFor} />
               {detail.data?.aiSummary && (
                 <Typography sx={{ mt: 2 }}>
                   <b>{t('call.aiSummary')}</b> {detail.data.aiSummary}
@@ -147,13 +184,13 @@ ${s.text}`;
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
             <Paper sx={{ p: 2 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                {t('call.events')}
+              <Typography variant="subtitle1" component="h2" gutterBottom>
+                {t('call.events.title')}
               </Typography>
               {(detail.data?.events ?? []).map((e) => (
                 <Typography key={e.id} variant="body2" sx={{ mb: 0.5 }}>
                   <span style={{ opacity: 0.6 }}>{time(e.at)}</span>
-                  {e.type}
+                  {eventText(e)}
                 </Typography>
               ))}
             </Paper>

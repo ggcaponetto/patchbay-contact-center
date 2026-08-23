@@ -28,7 +28,11 @@ export function RecordingControls({ callId, state, onError = () => undefined }: 
     }
   };
   return (
-    <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center' }}>
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{ mt: 2, alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+    >
       {state !== 'off' ? (
         <Chip
           label={state === 'paused' ? t('recording.recPaused') : t('recording.rec')}

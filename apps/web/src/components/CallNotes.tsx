@@ -47,7 +47,7 @@ export function CallNotes({ callId, tags = [], onError = () => undefined }: Prop
 
   return (
     <Stack spacing={1} sx={{ mt: 2 }}>
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('notes.note')}
@@ -59,7 +59,7 @@ export function CallNotes({ callId, tags = [], onError = () => undefined }: Prop
           {t('notes.addNote')}
         </Button>
       </Stack>
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('notes.tags')}

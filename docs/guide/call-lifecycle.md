@@ -37,22 +37,59 @@ Every status change made through `Flow` emits `call.updated` on the in-process h
 
 `call_event` rows are append-only `{type, payload, at}`. These are the types the code writes:
 
-| Type                   | Written by                                       | Payload                            | When                                                                                      |
-| ---------------------- | ------------------------------------------------ | ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `call.created`         | API, `routes/public.ts`                          | `{queue, origin}`                  | The call row was inserted.                                                                |
-| `ai.joined`            | Agent, `main.ts` via `POST …/events`             | `{}`                               | The worker connected to the room and set `role: ai`.                                      |
-| `escalation.requested` | API, `Flow.escalate`                             | `{reason, summary}`                | The `escalateToHuman` tool was called.                                                    |
-| `offer.accepted`       | API, `Flow.accepted` (from `Routing.onAccepted`) | `{userId}`                         | The ringing agent pressed Accept.                                                         |
-| `offer.nobody`         | API, `Flow.nobody` (from `Routing.onNobody`)     | `{}`                               | Nobody could take the call (all tried / timed out / none online / deadline).              |
-| `agent.joined`         | API, `Flow.join` mode `agent`                    | `{userId, name}`                   | Token minted for the accepting agent. The event type is `` `${mode}.joined` ``.           |
-| `takeover.joined`      | API, `Flow.join` mode `takeover`                 | `{userId, name}`                   | A supervisor took the call over.                                                          |
-| `listen.joined`        | API, `Flow.join` mode `listen`                   | `{userId, name}`                   | A supervisor started listening (subscribe-only token).                                    |
-| `handoff`              | Agent, `onHumanJoined`                           | `{to: <human identity>, behavior}` | A participant with `role: human` appeared in the room; `behavior` is `leave` or `listen`. |
-| `human.left`           | API, `Flow.leave` role `human`                   | `{userId}`                         | The desk posted `/leave`. This also ends the call.                                        |
-| `supervisor.left`      | API, `Flow.leave` role `supervisor`              | `{userId}`                         | A listening supervisor left; the call continues.                                          |
-| `call.ended_by_ai`     | Agent, `endCall` tool action                     | `{}`                               | The LLM decided the conversation is over; the worker shuts down three seconds later.      |
+| Type                   | Written by                                       | Payload                                 | When                                                                                                                   |
+| ---------------------- | ------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `call.created`         | API, `routes/public.ts`                          | `{queue, origin}`                       | The call row was inserted.                                                                                             |
+| `ai.joined`            | Agent, `main.ts` via `POST …/events`             | `{}`                                    | The worker connected to the room and set `role: ai`.                                                                   |
+| `escalation.requested` | API, `Flow.escalate`                             | `{reason, summary, skills?, language?}` | The `escalateToHuman` tool was called; `skills` are the catalogue keys the AI tagged.                                  |
+| `escalation.relaxed`   | API, `Routing.advance`                           | `{dropped: string[]}`                   | Nobody qualified was Ready before the queue's `relaxAfterSec`; the call-pinned skills were dropped and anyone is rung. |
+| `offer.accepted`       | API, `Flow.accepted` (from `Routing.onAccepted`) | `{userId}`                              | The ringing agent pressed Accept.                                                                                      |
+| `offer.nobody`         | API, `Flow.nobody` (from `Routing.onNobody`)     | `{}`                                    | Nobody could take the call (all tried / timed out / none online / deadline).                                           |
+| `agent.joined`         | API, `Flow.join` mode `agent`                    | `{userId, name}`                        | Token minted for the accepting agent. The event type is `` `${mode}.joined` ``.                                        |
+| `takeover.joined`      | API, `Flow.join` mode `takeover`                 | `{userId, name}`                        | A supervisor took the call over.                                                                                       |
+| `listen.joined`        | API, `Flow.join` mode `listen`                   | `{userId, name}`                        | A supervisor started listening (subscribe-only token).                                                                 |
+| `handoff`              | Agent, `onHumanJoined`                           | `{to: <human identity>, behavior}`      | A participant with `role: human` appeared in the room; `behavior` is `leave` or `listen`.                              |
+| `human.left`           | API, `Flow.leave` role `human`                   | `{userId}`                              | The desk posted `/leave`. This also ends the call.                                                                     |
+| `supervisor.left`      | API, `Flow.leave` role `supervisor`              | `{userId}`                              | A listening supervisor left; the call continues.                                                                       |
+| `call.ended_by_ai`     | Agent, `endCall` tool action                     | `{}`                                    | The LLM decided the conversation is over; the worker shuts down three seconds later.                                   |
 
 The internal `POST …/events` endpoint accepts any `type` string, so the agent can add more without an API change.
+
+## Attribute-based routing
+
+Skills are decided **per contact at the hand-off**, not only per queue. A supervisor keeps a
+catalogue of routable skills in Settings → Routing & AI (`TenantSettings.skills`:
+`{ key, label, description }`); the AI sees it in its instructions and, when it calls
+`escalateToHuman`, tags the applicable keys plus the caller's spoken language. The API
+stores them on the call (`required_skills`, `language`) and `Flow.routingOf` merges three
+sources into the offer: the queue's own requirements, `lang:<base tag>` when the queue
+matches the caller language, and the call-pinned skills. `Routing.candidate` then rings
+only Ready members holding every skill at the required level, ordered by the queue's
+algorithm (`most_skilled` prefers the highest proficiency).
+
+```mermaid
+sequenceDiagram
+  participant AI
+  participant API
+  participant R as Routing
+  participant A as Agents
+  AI->>API: escalateToHuman(reason, summary, skills=[vip], language=it)
+  API->>API: call.required_skills = [vip], language = it
+  API->>R: offer(skills: queue + lang:it + vip, relaxAt = now + relaxAfterSec)
+  R->>A: ring the qualified, Ready member (call.offer carries requiredSkills, language)
+  alt nobody qualified is Ready
+    R-->>R: wait until relaxAt
+    R->>API: event escalation.relaxed {dropped: [vip, lang:it]}
+    R->>A: ring anyone in the queue (call.offer.relaxed = true)
+  end
+```
+
+**Relaxation** (`QueueConfig.relaxAfterSec`, default 20 s, `0` = never): when no qualified
+agent is Ready, the offer waits instead of resolving `nobody` right away; at `relaxAt` the
+call-pinned skills (never the queue's own requirements) are dropped and the ring restarts
+for everyone. The desk shows the requested skills and the relaxed state in the ring
+dialog, on the call page and in history, so a supervisor can see why someone was (or
+wasn't) rung.
 
 ## Participants
 

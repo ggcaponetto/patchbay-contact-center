@@ -38,9 +38,10 @@ describe('ApiClient', () => {
       async () => new Response(JSON.stringify({ outcome: 'accepted', agentName: 'Sam' })),
     );
     const api = new ApiClient('http://api', 's', 'c', vi.fn());
-    expect(await api.escalate('r', 's', 20)).toEqual({ outcome: 'accepted', agentName: 'Sam' });
+    const body = { reason: 'r', summary: 's', ringSec: 20, skills: ['billing'], language: 'it' };
+    expect(await api.escalate(body)).toEqual({ outcome: 'accepted', agentName: 'Sam' });
     vi.stubGlobal('fetch', async () => new Response('boom', { status: 500 }));
-    expect(await api.escalate('r', 's', 20)).toEqual({ outcome: 'nobody' });
+    expect(await api.escalate(body)).toEqual({ outcome: 'nobody' });
   });
 
   it('logs instead of throwing on failures', async () => {

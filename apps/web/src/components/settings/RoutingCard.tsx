@@ -1,6 +1,6 @@
 /**
  * Settings → Routing & AI: who answers first, handoff behavior, timeouts, dashboard
- * alerts, agent options, wrap-up codes and the AI prompt. `GET /api/admin/tenant` seeds
+ * alerts, agent options, wrap-up codes, the routing skill catalogue and the AI prompt. `GET /api/admin/tenant` seeds
  * a local draft; Save sends only this card's keys with `PATCH /api/admin/tenant/settings`
  * (the hours and sounds cards own theirs) and invalidates `['tenant']`.
  */
@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { type Tenant, api, patch } from '../../lib/api.ts';
 import { errorText, useToast } from '../../lib/useToast.tsx';
 import { CodesEditor } from './CodesEditor.tsx';
+import { SkillCatalogEditor } from './SkillCatalogEditor.tsx';
 
 /** The settings keys this card owns (and sends); the rest belong to other cards. */
 const OWN_KEYS = [
@@ -39,6 +40,7 @@ const OWN_KEYS = [
   'monitorNotify',
   'notReadyReasons',
   'aiAgent',
+  'skills',
 ] as const;
 
 /** The subset of {@link TenantSettings} edited here. */
@@ -84,7 +86,7 @@ export function RoutingCard() {
       label={label}
       value={draft[key]}
       onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
-      sx={{ width: 200 }}
+      sx={{ width: { xs: '100%', sm: 200 } }}
     />
   );
   const addReason = () => {
@@ -95,7 +97,7 @@ export function RoutingCard() {
   };
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('routing.title')}
       </Typography>
       <Grid container spacing={3}>
@@ -148,7 +150,7 @@ export function RoutingCard() {
                   onChange={(e) =>
                     setDraft({ ...draft, alerts: { ...draft.alerts, [k]: Number(e.target.value) } })
                   }
-                  sx={{ width: 200 }}
+                  sx={{ width: { xs: '100%', sm: 200 } }}
                 />
               ))}
             </Stack>
@@ -223,6 +225,14 @@ export function RoutingCard() {
                   onChange={(e) => setDraft({ ...draft, dispositionRequired: e.target.checked })}
                 />
               }
+            />
+            <Section title={t('routing.skillsTitle')} />
+            <Typography variant="body2" color="text.secondary">
+              {t('routing.skillsHint')}
+            </Typography>
+            <SkillCatalogEditor
+              value={draft.skills}
+              onChange={(skills) => setDraft({ ...draft, skills })}
             />
             <Section title={t('routing.sections.aiAgent')} />
             <TextField

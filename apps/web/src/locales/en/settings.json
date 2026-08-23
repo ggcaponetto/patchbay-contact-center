@@ -1,4 +1,5 @@
 {
+  "title": "Settings",
   "tabs": {
     "routing": "Routing & AI",
     "hours": "Business hours",
@@ -49,7 +50,9 @@
     "greeting": "AI greeting instruction",
     "instructions": "Company instructions for the AI",
     "instructionsPlaceholder": "Opening hours, products, what the AI may and may not do…",
-    "saved": "Routing settings saved"
+    "saved": "Routing settings saved",
+    "skillsTitle": "Routing skills",
+    "skillsHint": "The AI picks from this list when handing over; languages are routed automatically."
   },
   "hours": {
     "title": "Business hours",
@@ -136,7 +139,8 @@
     "deleteTitle": "Delete queue {{name}}?",
     "deleteMessage": "The queue disappears from routing and from the embed snippets. If calls were ever taken in it, it is archived so their history keeps the queue name.",
     "members": "Members",
-    "newQueue": "New queue"
+    "newQueue": "New queue",
+    "relaxAfterSec": "Relax skill requirements after (s, 0 = never)"
   },
   "sounds": {
     "title": "Sounds",
@@ -201,5 +205,14 @@
     "create": "Create API key",
     "keyRevoked": "Key revoked",
     "keyDeleted": "Key deleted"
+  },
+  "skillCatalog": {
+    "label": "Label",
+    "key": "Key",
+    "description": "Description (what the AI should match)",
+    "add": "+ Add skill",
+    "remove": "remove skill {{label}}",
+    "invalidKey": "Lowercase letters, digits and dashes only",
+    "empty": "No routing skills yet: the AI hands over without tagging a skill."
   }
 }

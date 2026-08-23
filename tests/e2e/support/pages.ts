@@ -36,6 +36,10 @@ export class DeskPage {
   async expectRinging(queueKey = 'support') {
     await expect(this.dialog).toContainText(`Incoming call · ${queueKey}`);
   }
+  /** The routing chips inside the ring dialog (skills, language, "Requirements relaxed"). */
+  offerChips() {
+    return this.dialog.getByLabel('Routing requirements').locator('.MuiChip-root');
+  }
   async accept() {
     await this.dialog.getByRole('button', { name: 'Accept' }).click();
     await expect(this.page.getByText('Customer call')).toBeVisible();
@@ -238,6 +242,16 @@ export class SettingsPage {
     await this.page.getByRole('option', { name: String(level), exact: true }).click();
     await row.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(editor.getByText(new RegExp(`^${skill} · (level|min) ${level}$`))).toBeVisible();
+  }
+  /**
+   * Adds a routing skill to the catalogue on the Routing & AI tab (without saving). The key
+   * is derived from the label.
+   */
+  async addRoutingSkill(label: string, description: string) {
+    await this.tab('routing');
+    await this.page.getByRole('button', { name: '+ Add skill' }).click();
+    await this.page.getByLabel('Label', { exact: true }).last().fill(label);
+    await this.page.getByLabel('Description (what the AI should match)').last().fill(description);
   }
   async selectOption(label: string, option: string) {
     await this.page.getByLabel(label).click();

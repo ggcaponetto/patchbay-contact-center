@@ -64,7 +64,11 @@ function Inner({ embedKey, queue, api, label, language }: CallButtonProps) {
       <div className="row">
         {inCall ? (
           <>
-            <button className="secondary" onClick={() => void toggleMute()}>
+            <button
+              className="secondary"
+              aria-pressed={state.kind === 'in_call' && state.muted}
+              onClick={() => void toggleMute()}
+            >
               {state.kind === 'in_call' && state.muted ? t('unmute') : t('mute')}
             </button>
             <button className="danger" onClick={() => void hangUp()}>
@@ -77,7 +81,9 @@ function Inner({ embedKey, queue, api, label, language }: CallButtonProps) {
           </button>
         )}
       </div>
-      <div className="status">{text}</div>
+      <div className="status" role="status" aria-live="polite">
+        {text}
+      </div>
       <div ref={audioRef} />
     </>
   );

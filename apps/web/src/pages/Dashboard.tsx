@@ -83,7 +83,7 @@ function ForceState({ agent }: { agent: AgentPresence }) {
         </MenuItem>
       </Menu>
       {message !== null && (
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+        <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 1 }}>
           <TextField
             size="small"
             autoFocus
@@ -113,10 +113,10 @@ function TeamMessaging({ ticker }: { ticker: string }) {
   };
   return (
     <Paper sx={{ p: 2, mt: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('dashboard.teamMessaging')}
       </Typography>
-      <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('dashboard.broadcastLabel')}
@@ -129,7 +129,7 @@ function TeamMessaging({ ticker }: { ticker: string }) {
           {t('dashboard.broadcast')}
         </Button>
       </Stack>
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('dashboard.tickerLabel')}
@@ -174,6 +174,11 @@ export function Dashboard({ desk }: Props) {
 
   return (
     <Grid container spacing={2}>
+      <Grid size={12}>
+        <Typography variant="h5" component="h1">
+          {t('dashboard.title')}
+        </Typography>
+      </Grid>
       {(stats.data?.alerts ?? []).map((a) => (
         <Grid key={a} size={12}>
           <Alert severity="error">{a}</Alert>
@@ -181,7 +186,7 @@ export function Dashboard({ desk }: Props) {
       ))}
       <Grid size={{ xs: 12, md: 7 }}>
         <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" component="h2" gutterBottom>
             {t('dashboard.liveCalls', { count: live.length })}
           </Typography>
           <List dense>
@@ -206,7 +211,7 @@ export function Dashboard({ desk }: Props) {
       </Grid>
       <Grid size={{ xs: 12, md: 5 }}>
         <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" component="h2" gutterBottom>
             {t('dashboard.agentsOnline', { count: desk.state.agents.length })}
           </Typography>
           <List dense>

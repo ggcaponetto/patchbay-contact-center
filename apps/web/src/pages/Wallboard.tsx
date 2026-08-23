@@ -12,7 +12,7 @@ import { type TenantStats, api } from '../lib/api.ts';
 function Big({ label, value, alert }: { label: string; value: string | number; alert?: boolean }) {
   return (
     <Paper sx={{ p: 3, textAlign: 'center' }}>
-      <Typography variant="h2" color={alert ? 'error' : 'primary'}>
+      <Typography variant="h2" component="div" color={alert ? 'error' : 'primary'}>
         {value}
       </Typography>
       <Typography color="text.secondary">{label}</Typography>
@@ -29,10 +29,22 @@ export function Wallboard() {
     refetchInterval: 5000,
   });
   const s = stats.data;
-  if (!s) return <Typography color="text.secondary">{t('common.loading')}</Typography>;
+  const title = (
+    <Typography variant="h5" component="h1">
+      {t('wallboard.title')}
+    </Typography>
+  );
+  if (!s)
+    return (
+      <Stack spacing={2}>
+        {title}
+        <Typography color="text.secondary">{t('common.loading')}</Typography>
+      </Stack>
+    );
   const alerting = s.alerts.length > 0;
   return (
     <Stack spacing={2}>
+      {title}
       {s.alerts.map((a) => (
         <Alert key={a} severity="error" variant="filled">
           {a}

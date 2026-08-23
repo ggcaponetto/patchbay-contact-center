@@ -27,6 +27,31 @@ test(
       .not.toBeNull();
     await page.getByRole('button', { name: /Retrieve/ }).click();
     await expect(page.getByRole('button', { name: 'Hold' })).toBeVisible();
+    // The button must not flicker back to Retrieve while the call detail refetches: watch
+    // the DOM for a second and count every appearance of a Retrieve button.
+    const flickers = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let seen = 0;
+          const check = () => {
+            if (
+              Array.from(document.querySelectorAll('button')).some((b) =>
+                /Retrieve/.test(b.textContent ?? ''),
+              )
+            )
+              seen += 1;
+          };
+          const observer = new MutationObserver(check);
+          observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+          setTimeout(() => {
+            observer.disconnect();
+            check();
+            resolve(seen);
+          }, 1000);
+        }),
+    );
+    expect(flickers).toBe(0);
+    await expect(page.getByRole('button', { name: 'Hold' })).toBeVisible();
     const detail = await desk(supervisor.request).call(callId);
     expect(detail.heldAt).toBeNull();
     expect(detail.events.map((e) => e.type)).toEqual(expect.arrayContaining(['hold', 'retrieve']));

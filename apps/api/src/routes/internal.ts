@@ -13,7 +13,7 @@
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
  */
-import { CallStatus, TranscriptSegmentInput } from '@cc/shared';
+import { CallStatus, TranscriptSegmentInput, baseLanguage } from '@cc/shared';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { EventEmitter } from 'node:events';
 import { z } from 'zod';
@@ -27,8 +27,11 @@ import {
   getCall,
   markParticipantLeft,
   setCallStatus,
+  setLanguage,
+  setRequiredSkills,
   setSummary,
 } from '../services/calls.ts';
+import { getTenant } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
 /** Plugin options for {@link internalRoutes}. */
@@ -62,6 +65,10 @@ const EscalateBody = z.object({
   reason: z.string().min(1),
   summary: z.string().min(1),
   ringSec: z.number().int().min(5).max(120).default(20),
+  /** Skill keys from the tenant catalogue (`TenantSettings.skills`); unknown keys are dropped. */
+  skills: z.array(z.string().min(1).max(40)).max(10).optional(),
+  /** The caller's language (BCP 47); stored as its base tag and routed as `lang:<tag>`. */
+  language: z.string().min(2).max(35).optional(),
 });
 /** Body of `POST /calls/:id/status`. */
 const StatusBody = z.object({ status: CallStatus, summary: z.string().optional() });
@@ -180,7 +187,34 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
       if (!row) return undefined;
       const body = parseBody(EscalateBody, request.body, reply);
       if (!body) return undefined;
-      return flow.escalate(row.id, body.reason, body.summary, body.ringSec);
+      // Pin the AI's routing tags on the call before ringing: only catalogue keys (and
+      // `lang:` skills) survive, merged with whatever the call already required.
+      let skills: string[] | undefined;
+      if (body.skills?.length) {
+        const tenant = await getTenant(db, row.tenantId);
+        const known = new Set((tenant?.settings.skills ?? []).map((s) => s.key));
+        const dropped = body.skills.filter((k) => !known.has(k) && !k.startsWith('lang:'));
+        if (dropped.length > 0) {
+          request.log.warn({ callId: row.id, dropped }, 'escalate: unknown skill keys dropped');
+        }
+        skills = [
+          ...new Set([...row.requiredSkills, ...body.skills.filter((k) => !dropped.includes(k))]),
+        ];
+        await setRequiredSkills(db, row.id, skills);
+      }
+      let language: string | undefined;
+      if (body.language) {
+        language = baseLanguage(body.language);
+        if (language) await setLanguage(db, row.id, language);
+      }
+      return flow.escalate({
+        callId: row.id,
+        reason: body.reason,
+        summary: body.summary,
+        ringSec: body.ringSec,
+        ...(skills ? { skills } : {}),
+        ...(language ? { language } : {}),
+      });
     },
   );
 
@@ -208,7 +242,12 @@ export const internalRoutes: FastifyPluginAsync<InternalOpts> = async (
         return getCall(db, row.id);
       }
       const updated = await setCallStatus(db, row.id, body.status);
-      hub.emit('call.updated', { tenantId: row.tenantId, callId: row.id, status: body.status });
+      hub.emit('call.updated', {
+        tenantId: row.tenantId,
+        callId: row.id,
+        status: body.status,
+        heldAt: updated?.heldAt?.toISOString() ?? null,
+      });
       return updated;
     },
   );

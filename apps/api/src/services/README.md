@@ -126,7 +126,8 @@ worker adds its own through `POST /api/internal/calls/:id/events`.
 
 - `listCalls(db, tenantId, limit = 50)`: newest first, joined with the queue key; the desk
   call list.
-- `callDetail(db, tenantId, id)`: the call plus participants, transcript (by `createdAt`)
+- `callDetail(db, tenantId, id)`: the call plus participants (left-joined with `user`, so
+  each carries `name: string | null`), transcript (by `createdAt`)
   and events (by `at`); `undefined` when the call belongs to another tenant. Desk routes
   use it both as the detail view and as the tenant check before `accept` / `join` / `leave`.
 - `getCall(db, id)` is **not** tenant-scoped; it is for internal routes and `Flow`.

@@ -1,3 +1,4 @@
+import type { ServerMessage } from '@cc/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../db/client.ts';
 import { setCallStatus } from '../services/calls.ts';
@@ -153,7 +154,11 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
   it('holds and retrieves the customer, telling the media worker over the bus', async () => {
     const { callId } = await startCall();
     const media: unknown[] = [];
-    srv.bus.subscribe((m) => m.kind === 'media' && media.push(m.command));
+    const tenantFrames: ServerMessage[] = [];
+    srv.bus.subscribe((m) => {
+      if (m.kind === 'media') media.push(m.command);
+      if (m.kind === 'tenant') tenantFrames.push(m.message);
+    });
     const post = (path: string) =>
       srv.as(boss).inject({ method: 'POST', url: `/api/desk/calls/${callId}${path}` });
 
@@ -162,9 +167,24 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     expect((await post('/hold')).json()).toEqual({ error: 'already_held' });
     const held = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
     expect(held.heldAt).not.toBeNull();
+    // the hold state travels on the `call.updated` frame (hub → bus → desks)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tenantFrames.at(-1)).toEqual({
+      type: 'call.updated',
+      callId,
+      status: 'ai',
+      heldAt: held.heldAt,
+    });
     expect((await post('/retrieve')).json()).toEqual({ ok: true });
     const back = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
     expect(back.heldAt).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(tenantFrames.at(-1)).toEqual({
+      type: 'call.updated',
+      callId,
+      status: 'ai',
+      heldAt: null,
+    });
     expect(back.events.map((e: { type: string }) => e.type)).toEqual(
       expect.arrayContaining(['hold', 'retrieve']),
     );
@@ -383,6 +403,8 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
       (x: { kind: string; leftAt: string | null }) => x.kind === 'human' && x.leftAt === null,
     );
     expect(humans).toHaveLength(2);
+    // participants carry the desk user's name (joined from `user`)
+    expect(humans.map((x: { name: string | null }) => x.name).sort()).toEqual(['Boss', 'Carol']);
 
     // drop Carol: removed from the room, freed, boss keeps the (held) customer
     expect((await post(boss, '/consult/complete', { mode: 'drop' })).json()).toEqual({

@@ -17,7 +17,10 @@
     },
     "notMember": "<b>{{email}}</b> is not a member of any contact center. Ask a supervisor for an invite.",
     "loggedOutBy": "{{name}} logged you out of the desk.",
-    "connecting": "Connecting to the desk…"
+    "connecting": "Connecting to the desk…",
+    "skipToContent": "Skip to content",
+    "account": "Account",
+    "navigation": "Main navigation"
   },
   "common": {
     "cancel": "Cancel",
@@ -54,7 +57,11 @@
     "decline": "Decline",
     "accept": "Accept",
     "couldNotAccept": "Could not accept: {{error}}",
-    "colleague": "colleague"
+    "colleague": "colleague",
+    "title": "Desk",
+    "skills": "Routing requirements",
+    "language": "Language: {{name}}",
+    "relaxed": "Requirements relaxed"
   },
   "stateBar": {
     "greeting": "Hi {{name}}, you are",
@@ -119,7 +126,8 @@
     "liveCalls": "Live calls ({{count}})",
     "noCalls": "No calls in progress.",
     "agentsOnline": "Agents online ({{count}})",
-    "nobodyOnline": "Nobody is online."
+    "nobodyOnline": "Nobody is online.",
+    "title": "Dashboard"
   },
   "history": {
     "title": "Calls",
@@ -128,7 +136,11 @@
     "status": "Status",
     "duration": "Duration",
     "disposition": "Disposition",
-    "summary": "Summary"
+    "summary": "Summary",
+    "openCall": "Open call {{id}} ({{queue}})",
+    "columns": {
+      "skills": "Skills"
+    }
   },
   "call": {
     "title": "Call {{id}}",
@@ -148,7 +160,12 @@
     },
     "transcript": "Transcript",
     "aiSummary": "AI summary:",
-    "events": "Events"
+    "events": {
+      "title": "Events",
+      "relaxed": "Skill requirements relaxed: {{skills}}",
+      "requested": "Escalation requested, skills: {{skills}}"
+    },
+    "skills": "Skills"
   },
   "wallboard": {
     "waiting": "Waiting",
@@ -161,7 +178,8 @@
     "notReady": "Not ready",
     "callsToday": "Calls today",
     "answeredByHuman": "Answered by a human",
-    "avgHandleTime": "Avg handle time (s)"
+    "avgHandleTime": "Avg handle time (s)",
+    "title": "Wallboard"
   },
   "devUser": {
     "signedInAs": "Signed in as {{name}}",
@@ -171,6 +189,12 @@
     "defaultUser": "the default user",
     "otherEmail": "Other email…",
     "prompt": "Sign in as (email)"
+  },
+  "speakers": {
+    "agent": "Agent",
+    "supervisor": "Supervisor",
+    "customer": "Customer {{id}}",
+    "ai": "AI assistant"
   },
   "errors": {
     "generic": "Something went wrong",
@@ -201,5 +225,8 @@
     "unknown_code": "Unknown wrap-up code",
     "unknown_embed_key_or_queue": "Unknown call button key or queue",
     "unsupported_type": "That file type is not supported"
+  },
+  "skills": {
+    "language": "Language: {{name}}"
   }
 }

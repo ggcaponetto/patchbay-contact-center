@@ -20,7 +20,9 @@ test(
     const items = callPage.transcript().getByRole('listitem');
     await expect(items).toHaveCount(3);
     await expect(items.nth(1)).toContainText('I would like to change my booking.');
-    await expect(items.nth(1)).toContainText('customer');
+    // speakers are labelled, not raw roles
+    await expect(items.nth(1)).toContainText('Customer');
+    await expect(items.nth(0)).toContainText('AI assistant');
     await expect(items.nth(2)).toContainText('Sure, which date would you prefer?');
   },
 );

@@ -1,4 +1,5 @@
 {
+  "title": "Impostazioni",
   "tabs": {
     "routing": "Routing e AI",
     "hours": "Orari di apertura",
@@ -49,7 +50,9 @@
     "greeting": "Istruzione di saluto dell'AI",
     "instructions": "Istruzioni aziendali per l'AI",
     "instructionsPlaceholder": "Orari di apertura, prodotti, cosa l'AI può e non può fare…",
-    "saved": "Impostazioni di routing salvate"
+    "saved": "Impostazioni di routing salvate",
+    "skillsTitle": "Competenze di routing",
+    "skillsHint": "L'AI sceglie da questo elenco al momento del passaggio; le lingue vengono instradate automaticamente."
   },
   "hours": {
     "title": "Orari di apertura",
@@ -136,7 +139,8 @@
     "deleteTitle": "Eliminare la coda {{name}}?",
     "deleteMessage": "La coda scompare dal routing e dagli snippet di incorporamento. Se vi sono mai state gestite chiamate, viene archiviata così lo storico ne conserva il nome.",
     "members": "Membri",
-    "newQueue": "Nuova coda"
+    "newQueue": "Nuova coda",
+    "relaxAfterSec": "Allenta i requisiti di competenza dopo (s, 0 = mai)"
   },
   "sounds": {
     "title": "Suoni",
@@ -201,5 +205,14 @@
     "create": "Crea chiave API",
     "keyRevoked": "Chiave revocata",
     "keyDeleted": "Chiave eliminata"
+  },
+  "skillCatalog": {
+    "label": "Etichetta",
+    "key": "Chiave",
+    "description": "Descrizione (cosa deve riconoscere l'AI)",
+    "add": "+ Aggiungi competenza",
+    "remove": "rimuovi competenza {{label}}",
+    "invalidKey": "Solo lettere minuscole, cifre e trattini",
+    "empty": "Nessuna competenza di routing: l'AI passa la chiamata senza indicare competenze."
   }
 }

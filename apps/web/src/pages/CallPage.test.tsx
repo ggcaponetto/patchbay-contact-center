@@ -44,11 +44,56 @@ const detail: CallDetail = {
   endedAt: null,
   aiSummary: 'Wants a refund',
   customerMeta: {},
-  participants: [],
+  participants: [
+    {
+      kind: 'human',
+      identity: 'human:u1',
+      userId: 'u1',
+      name: 'Ann',
+      joinedAt: '2026-01-01T00:00:02Z',
+      leftAt: null,
+    },
+  ],
   transcript: [
     { id: 't1', speaker: 'ai', identity: 'ai:1', text: 'Hello', createdAt: '2026-01-01T00:00:01Z' },
+    {
+      id: 't2',
+      speaker: 'customer',
+      identity: 'customer:call-1234-5678',
+      text: 'Hi there',
+      createdAt: '2026-01-01T00:00:02Z',
+    },
+    {
+      id: 't3',
+      speaker: 'human',
+      identity: 'human:u1',
+      text: 'Ann here',
+      createdAt: '2026-01-01T00:00:03Z',
+    },
   ],
   events: [{ id: 'e1', type: 'call.created', payload: {}, at: '2026-01-01T00:00:00Z' }],
+};
+
+/** The same call with the AI's routing tags and the escalation events. */
+const routed: CallDetail = {
+  ...detail,
+  requiredSkills: ['vip', 'billing'],
+  language: 'it',
+  events: [
+    ...detail.events,
+    {
+      id: 'e2',
+      type: 'escalation.requested',
+      payload: { reason: 'r', summary: 's', skills: ['vip'] },
+      at: '2026-01-01T00:00:05Z',
+    },
+    {
+      id: 'e3',
+      type: 'escalation.relaxed',
+      payload: { dropped: ['vip', 'billing'] },
+      at: '2026-01-01T00:00:25Z',
+    },
+  ],
 };
 
 const segment = (text: string) => ({ speaker: 'ai' as const, identity: 'ai:1', text });
@@ -83,10 +128,32 @@ describe('CallPage', () => {
     expect(screen.getByText('Live tail')).toBeTruthy();
     expect(screen.getByText('Wants a refund')).toBeTruthy();
     expect(screen.getByText('call.created')).toBeTruthy();
+    // speakers are labelled: AI, customer by call id, humans by name
+    expect(screen.getAllByText('AI assistant')).toHaveLength(2);
+    expect(screen.getByText('Customer call-123')).toBeTruthy();
+    expect(screen.getByText('Ann · Agent')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Call call-123');
     // Agents never see the supervisor buttons.
     expect(screen.queryByText('Listen in')).toBeNull();
     await userEvent.click(screen.getByText('← Back'));
     expect(location.hash).toBe('#/history');
+  });
+
+  it('shows the routing skills and language and narrates the escalation events', async () => {
+    mocks.api.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/desk/settings'
+          ? { skills: [{ key: 'vip', label: 'VIP customers', description: '' }] }
+          : routed,
+      ),
+    );
+    renderPage(fakeDesk({}), false);
+    expect(await screen.findByText('VIP customers')).toBeTruthy();
+    expect(screen.getByText('billing')).toBeTruthy();
+    expect(screen.getByText('Language: Italiano')).toBeTruthy();
+    expect(screen.getByText('call.created')).toBeTruthy();
+    expect(screen.getByText(/Escalation requested, skills: VIP customers/)).toBeTruthy();
+    expect(screen.getByText(/Skill requirements relaxed: VIP customers, billing/)).toBeTruthy();
   });
 
   it('hides listen / take over once the call ended', async () => {
@@ -128,7 +195,7 @@ describe('CallPage', () => {
     await userEvent.click(await screen.findByText('Take over'));
     expect(mocks.post).toHaveBeenCalledWith(`/desk/calls/${detail.id}/join`, { mode: 'takeover' });
     expect(await screen.findByText('You took over this call')).toBeTruthy();
-    expect(screen.getByText('Hello|More')).toBeTruthy();
+    expect(screen.getByText('Hello|Hi there|Ann here|More')).toBeTruthy();
     await userEvent.click(screen.getByText('Leave'));
     await act(async () => {});
     expect(mocks.post).toHaveBeenLastCalledWith(`/desk/calls/${detail.id}/leave`, {

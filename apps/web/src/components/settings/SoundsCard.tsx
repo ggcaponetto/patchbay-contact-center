@@ -102,7 +102,7 @@ export function SoundsCard() {
     setDraft({ ...draft, [key]: value.trim() || undefined });
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('sounds.title')}
       </Typography>
       <Stack spacing={2}>
@@ -110,14 +110,18 @@ export function SoundsCard() {
           const value = draft[s.key] ?? '';
           return (
             <Stack key={s.key} spacing={0.5}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+              >
                 <TextField
                   size="small"
                   label={t('sounds.url', { label: t(`sounds.labels.${s.key}`) })}
                   placeholder={t('sounds.urlPlaceholder')}
                   value={value}
                   onChange={(e) => set(s.key, e.target.value)}
-                  sx={{ flex: 1, minWidth: 280 }}
+                  sx={{ flex: 1, minWidth: { xs: '100%', sm: 280 } }}
                 />
                 <Button size="small" component="label" disabled={upload.isPending}>
                   {t('sounds.upload')}

@@ -52,7 +52,7 @@ export function SkillsEditor({
           />
         ))}
       </Stack>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
         <Autocomplete
           freeSolo
           size="small"
@@ -60,7 +60,7 @@ export function SkillsEditor({
           inputValue={skill}
           onInputChange={(_e, v) => setSkill(v)}
           onChange={(_e, v) => setSkill(typeof v === 'string' ? v : '')}
-          sx={{ minWidth: 200, flex: 1 }}
+          sx={{ minWidth: { xs: '100%', sm: 200 }, flex: 1 }}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -81,7 +81,7 @@ export function SkillsEditor({
           label={t(kind === 'min' ? 'skills.minLabel' : 'skills.levelLabel')}
           value={level}
           onChange={(e) => setLevel(Number(e.target.value))}
-          sx={{ width: 90 }}
+          sx={{ width: { xs: '100%', sm: 90 } }}
         >
           {[1, 2, 3, 4, 5].map((n) => (
             <MenuItem key={n} value={n}>

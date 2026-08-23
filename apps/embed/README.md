@@ -19,7 +19,7 @@ served by the API, with React and `livekit-client` bundled in.
 | `src/state.ts`                | Pure reducer plus `statusKey` / `peerInfo`, which return translation keys rather than English text    |
 | `src/i18n.ts`, `src/locales/` | `createEmbedI18n(language)` over `@cc/i18n` and the `en` / `de` / `it` JSON resources (~12 keys)      |
 | `src/i18next.d.ts`            | Types `t()` against `en.json`: a misspelt key fails `tsc`                                             |
-| `src/styles.ts`               | The scoped stylesheet                                                                                 |
+| `src/styles.ts`               | The scoped stylesheet: light / dark via `prefers-color-scheme`, focus ring, 44px buttons              |
 
 ## Embedding
 
@@ -53,6 +53,49 @@ The full tag is sent to the API (`language: "de-CH"`); for the UI it is normaliz
 Every attribute is observed: changing one re-renders the element and the next call uses
 the new value, so they can be set from script after the element exists; the demo page
 does exactly that.
+
+### Placement
+
+The element is `display: inline-block` and takes no position of its own: it renders
+wherever the host page puts it, in the flow of the page (a contact section, a footer, a
+sidebar). The host page decides whether it floats. To keep it in the bottom-right corner
+of every page, as the demo does, wrap it in a fixed container:
+
+```html
+<div class="call-launcher">
+  <cc-call-button key="pk_…" api="https://API_ORIGIN"></cc-call-button>
+</div>
+<style>
+  .call-launcher {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 50;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
+  }
+  @media (max-width: 600px) {
+    .call-launcher {
+      right: 12px;
+      bottom: 12px;
+      left: 12px;
+    }
+  }
+</style>
+```
+
+### Accessibility
+
+The shadow root keeps the host page's CSS out, so the button brings its own: colors
+follow `prefers-color-scheme` (the status text stays readable on dark sites), every
+button is at least 44px tall and shows a `:focus-visible` ring, hover transitions are
+dropped under `prefers-reduced-motion`. The status line is a `role="status"` /
+`aria-live="polite"` region, so screen readers announce "Please hold…", "AI assistant ·
+0:05" and errors without stealing focus, and **Mute** carries `aria-pressed` while the
+microphone is off. The element inherits nothing but its `font` from the page; set `font`
+or `color` on `cc-call-button` itself to restyle it.
 
 ## How a call starts
 
@@ -141,8 +184,9 @@ The hook enables the local microphone right after `Room.connect`
 (`localParticipant.setMicrophoneEnabled(true)`), which is what triggers the browser's
 permission prompt. For playback it listens to `RoomEvent.TrackSubscribed` and, for every
 audio track, appends `track.attach()` (an `<audio autoplay>` element) into a hidden
-`<div>` inside the shadow root. Elements are removed again on hang-up. Because playback
-starts from a user click, autoplay policies are satisfied.
+`<div>` inside the shadow root. `RoomEvent.TrackUnsubscribed` removes the elements of a
+peer that left (`track.detach()`, e.g. the AI handing off to a human), and hang-up clears
+the holder. Because playback starts from a user click, autoplay policies are satisfied.
 
 Mute toggles `setMicrophoneEnabled` on the local participant; it never unsubscribes
 remote audio.
@@ -181,7 +225,12 @@ built.
 
 ## Demo page
 
-`index.html` is a stand-in for "any website". `npm run dev:embed` serves it on
+`index.html` is a stand-in for "any website": the landing page of **Acme Bikes**, a
+fictional shop (nav, hero, three feature cards, opening hours, footer), plain HTML and
+CSS with light / dark colors from `prefers-color-scheme`. The element sits in a fixed
+bottom-right "Need help? Talk to us" launcher card; that launcher is **demo-only**
+chrome (see [Placement](#placement)), the element itself is inline. The hero CTA scrolls
+to the launcher and focuses the call button. `npm run dev:embed` serves the page on
 `http://localhost:3001` with the element loaded from source (hot reload). Query
 parameters override the attributes for quick testing:
 
@@ -190,7 +239,9 @@ http://localhost:3001/?key=pk_…&api=http://localhost:4000&queue=support&langua
 ```
 
 `label` and `language` are copied too; with a `language` but no `label` the page drops
-its `label="Call us"` attribute so the translated default shows.
+its `label="Call us"` attribute so the translated default shows. The footer badge
+(`#key-state`) reads `No key set yet` or `Using key pk_….`; the e2e smoke and embed
+specs assert these texts and the `Call us` / `Hang up` button names, so keep them.
 
 The defaults point at `http://localhost:4000`; the API must be running, and the AI
 worker (`npm run dev:agent`) if you want someone to answer.

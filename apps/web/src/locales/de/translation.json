@@ -17,7 +17,10 @@
     },
     "notMember": "<b>{{email}}</b> ist in keinem Contact Center Mitglied. Bitten Sie einen Supervisor um eine Einladung.",
     "loggedOutBy": "{{name}} hat Sie vom Desk abgemeldet.",
-    "connecting": "Verbindung zum Desk wird hergestellt…"
+    "connecting": "Verbindung zum Desk wird hergestellt…",
+    "skipToContent": "Zum Inhalt springen",
+    "account": "Konto",
+    "navigation": "Hauptnavigation"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -54,7 +57,11 @@
     "decline": "Ablehnen",
     "accept": "Annehmen",
     "couldNotAccept": "Annehmen nicht möglich: {{error}}",
-    "colleague": "Kollege"
+    "colleague": "Kollege",
+    "title": "Arbeitsplatz",
+    "skills": "Routing-Anforderungen",
+    "language": "Sprache: {{name}}",
+    "relaxed": "Anforderungen gelockert"
   },
   "stateBar": {
     "greeting": "Hallo {{name}}, Sie sind",
@@ -119,7 +126,8 @@
     "liveCalls": "Laufende Gespräche ({{count}})",
     "noCalls": "Keine laufenden Gespräche.",
     "agentsOnline": "Mitarbeiter online ({{count}})",
-    "nobodyOnline": "Niemand ist online."
+    "nobodyOnline": "Niemand ist online.",
+    "title": "Dashboard"
   },
   "history": {
     "title": "Anrufe",
@@ -128,7 +136,11 @@
     "status": "Status",
     "duration": "Dauer",
     "disposition": "Nachbearbeitungscode",
-    "summary": "Zusammenfassung"
+    "summary": "Zusammenfassung",
+    "openCall": "Anruf {{id}} öffnen ({{queue}})",
+    "columns": {
+      "skills": "Fähigkeiten"
+    }
   },
   "call": {
     "title": "Anruf {{id}}",
@@ -148,7 +160,12 @@
     },
     "transcript": "Transkript",
     "aiSummary": "KI-Zusammenfassung:",
-    "events": "Ereignisse"
+    "events": {
+      "title": "Ereignisse",
+      "relaxed": "Fähigkeitsanforderungen gelockert: {{skills}}",
+      "requested": "Übergabe angefordert, Fähigkeiten: {{skills}}"
+    },
+    "skills": "Fähigkeiten"
   },
   "wallboard": {
     "waiting": "Wartend",
@@ -161,7 +178,8 @@
     "notReady": "Nicht bereit",
     "callsToday": "Anrufe heute",
     "answeredByHuman": "Von Menschen angenommen",
-    "avgHandleTime": "Ø Bearbeitungszeit (s)"
+    "avgHandleTime": "Ø Bearbeitungszeit (s)",
+    "title": "Wallboard"
   },
   "devUser": {
     "signedInAs": "Angemeldet als {{name}}",
@@ -171,6 +189,12 @@
     "defaultUser": "Standardbenutzer",
     "otherEmail": "Andere E-Mail…",
     "prompt": "Anmelden als (E-Mail)"
+  },
+  "speakers": {
+    "agent": "Agent",
+    "supervisor": "Supervisor",
+    "customer": "Kunde {{id}}",
+    "ai": "KI-Assistent"
   },
   "errors": {
     "generic": "Etwas ist schiefgelaufen",
@@ -201,5 +225,8 @@
     "unknown_code": "Unbekannter Nachbearbeitungscode",
     "unknown_embed_key_or_queue": "Unbekannter Schlüssel oder unbekannte Warteschlange",
     "unsupported_type": "Dieser Dateityp wird nicht unterstützt"
+  },
+  "skills": {
+    "language": "Sprache: {{name}}"
   }
 }

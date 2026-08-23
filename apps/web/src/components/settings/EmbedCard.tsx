@@ -52,12 +52,16 @@ export function EmbedCard() {
   const queueKey = queues.data?.[0]?.key ?? 'support';
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('embed.title')}
       </Typography>
       {(keys.data ?? []).map((k) => (
         <Paper key={k.id} variant="outlined" sx={{ p: 1.5, mb: 1 }}>
-          <Stack direction="row" sx={{ alignItems: 'center' }} spacing={1}>
+          <Stack
+            direction="row"
+            sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+            spacing={1}
+          >
             <Typography sx={{ flex: 1 }}>
               <b>{k.label}</b>{' '}
               <Typography component="span" color="text.secondary">
@@ -86,7 +90,7 @@ export function EmbedCard() {
           />
         </Paper>
       ))}
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('embed.label')}

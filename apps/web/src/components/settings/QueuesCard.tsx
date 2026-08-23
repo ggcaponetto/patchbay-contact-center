@@ -23,6 +23,7 @@ import { type Member, type Queue, api, del, post, put } from '../../lib/api.ts';
 import { errorText, useToast } from '../../lib/useToast.tsx';
 import { ConfirmButton } from '../ConfirmButton.tsx';
 import { SkillsEditor } from './SkillsEditor.tsx';
+import { useSkillSuggestions } from './TeamCard.tsx';
 
 /** The queue selection algorithms in menu order; their labels are `queues.algorithms.*`. */
 const ALGORITHMS = [
@@ -41,14 +42,24 @@ type Config = {
   languageRouting?: boolean;
   moh?: 'calm' | 'bright';
   holdMusicUrl?: string;
+  relaxAfterSec?: number;
 };
 
 /**
  * Routing configuration of one queue: selection algorithm, required skills (chips with
- * a minimum level), language routing and hold music. `PUT /api/admin/queues/:id/config`
+ * a minimum level), language routing, the relax timeout of call-pinned skills and hold
+ * music. `PUT /api/admin/queues/:id/config`
  * sends every field so nothing silently resets to its default.
  */
-function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void }) {
+function QueueRouting({
+  queue,
+  suggestions,
+  onSaved,
+}: {
+  queue: Queue;
+  suggestions: string[];
+  onSaved: () => void;
+}) {
   const { t, i18n } = useTranslation('settings');
   const toast = useToast();
   const cfg = (queue.config ?? {}) as Config;
@@ -59,12 +70,14 @@ function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void })
   const [language, setLanguage] = useState(cfg.languageRouting ?? false);
   const [moh, setMoh] = useState<'calm' | 'bright'>(cfg.moh ?? 'calm');
   const [holdMusicUrl, setHoldMusicUrl] = useState(cfg.holdMusicUrl ?? '');
+  const [relaxAfterSec, setRelaxAfterSec] = useState(cfg.relaxAfterSec ?? 20);
   const save = useMutation({
     mutationFn: () =>
       put(`/admin/queues/${queue.id}/config`, {
         algorithm,
         requiredSkills: skills.map((p) => ({ skill: p.skill, min: p.level })),
         languageRouting: language,
+        relaxAfterSec,
         moh,
         ...(holdMusicUrl.trim() ? { holdMusicUrl: holdMusicUrl.trim() } : {}),
       }),
@@ -83,7 +96,7 @@ function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void })
           label={t('queues.ringOrder')}
           value={algorithm}
           onChange={(e) => setAlgorithm(e.target.value)}
-          sx={{ minWidth: 170 }}
+          sx={{ minWidth: { xs: '100%', sm: 170 } }}
         >
           {ALGORITHMS.map((value) => (
             <MenuItem key={value} value={value}>
@@ -102,12 +115,20 @@ function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void })
           }
         />
         <TextField
+          type="number"
+          size="small"
+          label={t('queues.relaxAfterSec')}
+          value={relaxAfterSec}
+          onChange={(e) => setRelaxAfterSec(Number(e.target.value))}
+          sx={{ width: { xs: '100%', sm: 300 } }}
+        />
+        <TextField
           select
           size="small"
           label={t('queues.mohStyle')}
           value={moh}
           onChange={(e) => setMoh(e.target.value as 'calm' | 'bright')}
-          sx={{ minWidth: 150 }}
+          sx={{ minWidth: { xs: '100%', sm: 150 } }}
         >
           <MenuItem value="calm">{t('queues.moh.calm')}</MenuItem>
           <MenuItem value="bright">{t('queues.moh.bright')}</MenuItem>
@@ -118,7 +139,7 @@ function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void })
           placeholder={t('queues.holdMusicPlaceholder')}
           value={holdMusicUrl}
           onChange={(e) => setHoldMusicUrl(e.target.value)}
-          sx={{ flex: 1, minWidth: 260 }}
+          sx={{ flex: 1, minWidth: { xs: '100%', sm: 260 } }}
         />
       </Stack>
       <SkillsEditor
@@ -126,6 +147,7 @@ function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void })
         kind="min"
         value={skills}
         onChange={setSkills}
+        suggestions={suggestions}
       />
       <div>
         <Button
@@ -151,6 +173,7 @@ export function QueuesCard() {
     queryKey: ['members'],
     queryFn: () => api<Member[]>('/admin/members'),
   });
+  const suggestions = useSkillSuggestions();
   const [name, setName] = useState('');
   const refresh = () => qc.invalidateQueries({ queryKey: ['queues'] });
   const fail = (e: unknown) => toast(errorText(e, i18n), 'error');
@@ -183,12 +206,16 @@ export function QueuesCard() {
   });
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('queues.title')}
       </Typography>
       {(queues.data ?? []).map((q) => (
         <Paper key={q.id} variant="outlined" sx={{ p: 1.5, mb: 2 }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap', rowGap: 1 }}
+          >
             <Typography sx={{ flex: 1 }}>
               <b>{q.name}</b>{' '}
               <Typography component="span" color="text.secondary">
@@ -207,7 +234,7 @@ export function QueuesCard() {
               {t('common.delete')}
             </ConfirmButton>
           </Stack>
-          <QueueRouting queue={q} onSaved={refresh} />
+          <QueueRouting queue={q} suggestions={suggestions} onSaved={refresh} />
           <Typography variant="subtitle2">{t('queues.members')}</Typography>
           <Stack direction="row" sx={{ flexWrap: 'wrap' }}>
             {(members.data ?? []).map((m) => (
@@ -233,7 +260,7 @@ export function QueuesCard() {
           </Stack>
         </Paper>
       ))}
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('queues.newQueue')}

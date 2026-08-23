@@ -8,19 +8,33 @@ import { Button, Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mu
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type Invite, type Member, type Queue, type Skill, api, post, put } from '../../lib/api.ts';
+import {
+  type Invite,
+  type Member,
+  type Queue,
+  type Skill,
+  type Tenant,
+  api,
+  post,
+  put,
+} from '../../lib/api.ts';
 import { errorText, useToast } from '../../lib/useToast.tsx';
 import { type SkillLevel, SkillsEditor } from './SkillsEditor.tsx';
 
-/** Skills named anywhere in the tenant (queue requirements), offered as suggestions. */
-function useSkillSuggestions(): string[] {
+/**
+ * Skills named anywhere in the tenant — the routing skill catalogue (`settings.skills`)
+ * and the queues' requirements — offered as suggestions by every skills editor.
+ */
+export function useSkillSuggestions(): string[] {
+  const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api<Queue[]>('/admin/queues') });
   return [
-    ...new Set(
-      (queues.data ?? []).flatMap((q) =>
+    ...new Set([
+      ...(tenant.data?.settings.skills ?? []).map((s) => s.key),
+      ...(queues.data ?? []).flatMap((q) =>
         ((q.config.requiredSkills as { skill: string }[] | undefined) ?? []).map((r) => r.skill),
       ),
-    ),
+    ]),
   ];
 }
 
@@ -97,7 +111,7 @@ export function TeamCard() {
   });
   return (
     <Paper sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom>
         {t('team.title')}
       </Typography>
       <Stack spacing={2} sx={{ mb: 2 }}>
@@ -124,7 +138,7 @@ export function TeamCard() {
             </Stack>
           ))}
       </Stack>
-      <Stack direction="row" spacing={1}>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <TextField
           size="small"
           label={t('team.inviteLabel')}

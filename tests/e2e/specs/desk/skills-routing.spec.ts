@@ -1,6 +1,7 @@
 /**
- * Skills-based routing: a queue that requires a skill never rings unqualified agents;
- * granting the skill (reskilling on the fly) makes the very next call ring them.
+ * Skills-based routing by queue requirement: a queue that requires a skill never rings
+ * unqualified agents; granting the skill (reskilling on the fly) makes the very next call
+ * ring them. Call-pinned skills tagged by the AI are covered in `attribute-routing.spec.ts`.
  */
 import { DeskPage, admin, expect, test } from '../../support/fixtures.ts';
 

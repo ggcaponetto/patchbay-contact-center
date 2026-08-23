@@ -115,6 +115,10 @@ export function useCall(options: CallOptions): Call {
           if (participant?.attributes['monitor'] === 'whisper') return;
           if (track.kind === Track.Kind.Audio) audioRef.current?.append(track.attach());
         })
+        // A peer left (the AI handing off, a transfer): drop its `<audio>` elements.
+        .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+          track.detach().forEach((el) => el.remove());
+        })
         .on(RoomEvent.Disconnected, () => void end(false));
       await r.connect(url, token);
       await r.localParticipant.setMicrophoneEnabled(true);

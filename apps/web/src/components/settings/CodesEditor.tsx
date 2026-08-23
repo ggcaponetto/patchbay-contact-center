@@ -34,7 +34,12 @@ export function CodesEditor({ value, onChange }: { value: Code[]; onChange: (v: 
         <Trans t={t} i18nKey="codes.hint" components={{ code: <code /> }} />
       </Typography>
       {value.map((c, i) => (
-        <Stack key={i} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack
+          key={i}
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}
+        >
           <TextField
             size="small"
             label={t('codes.label')}
@@ -53,7 +58,7 @@ export function CodesEditor({ value, onChange }: { value: Code[]; onChange: (v: 
             label={t('codes.code')}
             value={c.code}
             onChange={(e) => update(i, { code: e.target.value })}
-            sx={{ width: 180 }}
+            sx={{ width: { xs: '100%', sm: 180 } }}
             slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
           />
           <IconButton

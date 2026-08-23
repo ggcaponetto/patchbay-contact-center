@@ -101,6 +101,134 @@ describe.skipIf(!hasDb)('Routing (Postgres)', () => {
     expect(nobody).toHaveBeenCalledWith('cs1', tenantId, null);
   });
 
+  const offers = () =>
+    messages
+      .filter((m) => m.kind === 'send' && m.message.type === 'call.offer')
+      .map((m) => (m as { message: Record<string, unknown> }).message);
+  const relaxedEvents = async (callId: string) => {
+    const { callEvent } = await import('./db/schema.ts');
+    const { eq } = await import('drizzle-orm');
+    return (await db.select().from(callEvent).where(eq(callEvent.callId, callId))).filter(
+      (e) => e.type === 'escalation.relaxed',
+    );
+  };
+
+  describe('skill relaxation', () => {
+    it('waits for relaxAfterSec, then drops the call skills and rings', async () => {
+      const a = await agent('a'); // unskilled
+      await callRow('rx1');
+      await r.offer({
+        callId: 'rx1',
+        tenantId,
+        queueKey: 'support',
+        members: [a],
+        skills: [{ skill: 'vip', min: 1 }],
+        callSkills: ['vip'],
+        relaxAfterSec: 5,
+        language: 'de',
+      });
+      await flush();
+      expect(offersTo()).toEqual([]);
+      expect(nobody).not.toHaveBeenCalled();
+      await at(4_000);
+      expect(offersTo()).toEqual([]);
+      await at(5_000);
+      expect(offers()).toEqual([
+        expect.objectContaining({
+          callId: 'rx1',
+          requiredSkills: ['vip'],
+          relaxed: true,
+          language: 'de',
+        }),
+      ]);
+      expect((await relaxedEvents('rx1'))[0]?.payload).toEqual({ dropped: ['vip'] });
+      expect(nobody).not.toHaveBeenCalled();
+      expect(await r.accept('rx1', a)).toMatchObject({ relaxed: true });
+    });
+
+    it('rings a qualified agent immediately with the required skills', async () => {
+      const a = await agent('a');
+      await skill(a, 'vip', 2);
+      await callRow('rx2');
+      await r.offer({
+        callId: 'rx2',
+        tenantId,
+        queueKey: 'support',
+        members: [a],
+        skills: [{ skill: 'vip', min: 1 }],
+        callSkills: ['vip'],
+        relaxAfterSec: 5,
+      });
+      await flush();
+      expect(offers()).toEqual([
+        expect.objectContaining({ callId: 'rx2', requiredSkills: ['vip'] }),
+      ]);
+      expect(offers()[0]).not.toHaveProperty('relaxed');
+      expect(await relaxedEvents('rx2')).toEqual([]);
+    });
+
+    it('reports nobody immediately when relaxAfterSec is 0', async () => {
+      const a = await agent('a');
+      await callRow('rx3');
+      await r.offer({
+        callId: 'rx3',
+        tenantId,
+        queueKey: 'support',
+        members: [a],
+        skills: [{ skill: 'vip', min: 1 }],
+        callSkills: ['vip'],
+        relaxAfterSec: 0,
+      });
+      await flush();
+      expect(offersTo()).toEqual([]);
+      expect(nobody).toHaveBeenCalledWith('rx3', tenantId, null);
+    });
+
+    it('never drops the queue skills', async () => {
+      const a = await agent('a'); // has neither skill
+      await callRow('rx4');
+      await r.offer({
+        callId: 'rx4',
+        tenantId,
+        queueKey: 'support',
+        members: [a],
+        skills: [
+          { skill: 'billing', min: 1 },
+          { skill: 'vip', min: 1 },
+        ],
+        callSkills: ['vip'],
+        relaxAfterSec: 5,
+      });
+      await flush();
+      expect(nobody).not.toHaveBeenCalled();
+      await at(5_000);
+      expect(offersTo()).toEqual([]); // relaxed, but `billing` still gates
+      expect((await relaxedEvents('rx4'))[0]?.payload).toEqual({ dropped: ['vip'] });
+      expect(nobody).toHaveBeenCalledWith('rx4', tenantId, null);
+    });
+
+    it('gives up before relaxing when giveUpAt comes first', async () => {
+      const a = await agent('a');
+      await callRow('rx5');
+      await r.offer({
+        callId: 'rx5',
+        tenantId,
+        queueKey: 'support',
+        members: [a],
+        skills: [{ skill: 'vip', min: 1 }],
+        callSkills: ['vip'],
+        relaxAfterSec: 10,
+        giveUpAfterSec: 5,
+      });
+      await flush();
+      expect(nobody).not.toHaveBeenCalled();
+      await at(5_000);
+      expect(offersTo()).toEqual([]);
+      expect(nobody).toHaveBeenCalledWith('rx5', tenantId, null);
+      expect(await relaxedEvents('rx5')).toEqual([]);
+    });
+  });
+
   it('orders by proficiency for the skilled algorithms', async () => {
     const a = await agent('a');
     const b = await agent('b');

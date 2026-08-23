@@ -46,6 +46,7 @@ erDiagram
   }
   account {
     text id PK
+    text issuer
     text account_id
     text provider_id
     text user_id FK
@@ -149,7 +150,13 @@ erDiagram
 ```
 
 `user`, `session`, `account` and `verification` are Better Auth's tables (generated
-shape; keep column names as they are). The rest is the contact center domain.
+shape; keep column names as they are). Better Auth 1.7 identifies an OAuth account by
+`(issuer, account_id)` — the OIDC issuer such as `https://accounts.google.com` — so
+`account.issuer` is mandatory and unique together with `account_id` (migration
+`0011_account_issuer` backfills existing Google rows). When upgrading Better Auth, diff
+its expected schema (`npx @better-auth/cli generate`) against `schema.ts`: a missing
+column surfaces only at the first real social sign-in, as a malformed query. The rest is
+the contact center domain.
 
 Constraints worth knowing:
 
@@ -164,6 +171,21 @@ Constraints worth knowing:
 | `media_asset` keeps the bytes (`bytea`)  | uploaded sounds (≤ 5 MiB each) need no object storage      |
 | `call.queue_id` no cascade               | a queue with call history cannot be deleted silently       |
 | every other FK `ON DELETE CASCADE`       | deleting a tenant or call removes its children             |
+
+### `ring_offer` (routing state)
+
+One row per call that is ringing (see `routing.ts`). Besides the identity columns:
+
+| Column                                                 | Meaning                                                                                                                                                               |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `members`, `tried`, `current_user_id`, `ring_until`    | who may be rung, who was, who is being rung and until when                                                                                                            |
+| `give_up_at`, `ring_ms`, `fallback`                    | whole-cycle deadline (human-first), per-agent ring time, AI dispatch metadata for `onNobody`                                                                          |
+| `algorithm`, `skills`, `preferred_user_id`, `priority` | queue selection algorithm, `SkillRequirement[]` a candidate must meet, sticky agent, priority (+1 per waiting minute)                                                 |
+| `call_skills`                                          | the keys of `skills` that came from the call (AI tags, `lang:<tag>`) and may be dropped; queue skills are never in it                                                 |
+| `relax_at`                                             | when `call_skills` get dropped if nobody qualified answered; `null` = never / already relaxed. While waiting, `current_user_id` is `null` and `ring_until = relax_at` |
+| `relaxed`                                              | true once `call_skills` were dropped (the `call.offer` frame carries it)                                                                                              |
+| `language`                                             | the caller's language, copied into the `call.offer` frame                                                                                                             |
+| `retrieve_on_accept`                                   | blind transfer: whoever accepts also takes the customer off hold                                                                                                      |
 
 Indexes: `call (tenant_id, started_at)`, `transcript_segment (call_id, created_at)`,
 `call_event (call_id, at)`, `media_asset (tenant_id)`, plus Better Auth's `user_id` /

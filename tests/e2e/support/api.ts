@@ -32,13 +32,29 @@ export type CallRow = {
   dispositionCode: string | null;
   tags: string[];
   recordingState: 'off' | 'on' | 'paused';
+  /** Skill keys pinned on the call (the AI's `escalateToHuman` tags). */
+  requiredSkills: string[];
+  /** The caller's language (base tag) when known. */
+  language: string | null;
 };
 
 /** A call with its children as returned by `GET /api/desk/calls/:id`. */
 export type CallDetail = CallRow & {
-  participants: { kind: string; identity: string; leftAt: string | null }[];
+  participants: { kind: string; identity: string; leftAt: string | null; name: string | null }[];
   transcript: { speaker: string; text: string }[];
   events: { type: string; payload: Record<string, unknown> }[];
+};
+
+/**
+ * What `PATCH /api/admin/tenant/settings` accepts from a test: any top-level key, and the
+ * nested objects (`hours`, `alerts`, …) may be partial too — the API fills the defaults.
+ */
+export type SettingsPatch = {
+  [K in keyof TenantSettings]?: TenantSettings[K] extends readonly unknown[]
+    ? TenantSettings[K]
+    : TenantSettings[K] extends object
+      ? Partial<TenantSettings[K]>
+      : TenantSettings[K];
 };
 
 /** Supervisor-side administration (`/api/admin/*`). */
@@ -47,7 +63,7 @@ export function admin(request: APIRequestContext) {
   return {
     tenant: () =>
       json<{ id: string; name: string; settings: TenantSettings }>(request.get(`${base}/tenant`)),
-    updateSettings: (settings: Partial<TenantSettings>) =>
+    updateSettings: (settings: SettingsPatch) =>
       json<unknown>(request.patch(`${base}/tenant/settings`, { data: settings })),
     createTenant: (name: string) =>
       json<{ id: string }>(request.post(`${base}/tenants`, { data: { name } })),
@@ -164,11 +180,13 @@ export function playAi(request: APIRequestContext, callId: string) {
       reason = 'Caller asked for a person',
       summary = 'Wants to change a booking.',
       ringSec = 20,
+      extra: { skills?: string[]; language?: string } = {},
     ) =>
       post<{ outcome: 'accepted' | 'nobody'; agentName?: string }>('/escalate', {
         reason,
         summary,
         ringSec,
+        ...extra,
       }),
     /** The worker's shutdown: summary then `ended`. */
     end: (summary?: string) =>

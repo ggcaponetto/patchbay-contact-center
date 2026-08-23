@@ -1,4 +1,5 @@
 {
+  "title": "Einstellungen",
   "tabs": {
     "routing": "Routing & KI",
     "hours": "Geschäftszeiten",
@@ -49,7 +50,9 @@
     "greeting": "Begrüßungsanweisung der KI",
     "instructions": "Unternehmensanweisungen für die KI",
     "instructionsPlaceholder": "Öffnungszeiten, Produkte, was die KI darf und was nicht…",
-    "saved": "Routing-Einstellungen gespeichert"
+    "saved": "Routing-Einstellungen gespeichert",
+    "skillsTitle": "Routing-Fähigkeiten",
+    "skillsHint": "Die KI wählt bei der Übergabe aus dieser Liste; Sprachen werden automatisch zugeordnet."
   },
   "hours": {
     "title": "Geschäftszeiten",
@@ -136,7 +139,8 @@
     "deleteTitle": "Warteschlange {{name}} löschen?",
     "deleteMessage": "Die Warteschlange verschwindet aus dem Routing und aus den Einbettungs-Snippets. Wurden darin jemals Anrufe angenommen, wird sie archiviert, damit der Verlauf den Namen behält.",
     "members": "Mitglieder",
-    "newQueue": "Neue Warteschlange"
+    "newQueue": "Neue Warteschlange",
+    "relaxAfterSec": "Fähigkeitsanforderungen lockern nach (s, 0 = nie)"
   },
   "sounds": {
     "title": "Töne",
@@ -201,5 +205,14 @@
     "create": "API-Schlüssel erstellen",
     "keyRevoked": "Schlüssel widerrufen",
     "keyDeleted": "Schlüssel gelöscht"
+  },
+  "skillCatalog": {
+    "label": "Bezeichnung",
+    "key": "Schlüssel",
+    "description": "Beschreibung (worauf die KI achten soll)",
+    "add": "+ Fähigkeit hinzufügen",
+    "remove": "Fähigkeit {{label}} entfernen",
+    "invalidKey": "Nur Kleinbuchstaben, Ziffern und Bindestriche",
+    "empty": "Noch keine Routing-Fähigkeiten: die KI übergibt ohne Fähigkeitskennzeichnung."
   }
 }
