@@ -245,6 +245,52 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     ).toBe('off');
   });
 
+  it('covers messaging, ticker, monitoring and flow edge cases', async () => {
+    const post = (url: string, payload?: unknown) =>
+      srv.as(boss).inject({ method: 'POST', url: `/api/desk${url}`, payload });
+    // malformed messaging bodies
+    expect((await post('/messages', {})).statusCode).toBe(400);
+    expect((await post('/messages', { text: '' })).statusCode).toBe(400);
+    expect(
+      (await srv.as(boss).inject({ method: 'PUT', url: '/api/desk/ticker', payload: {} }))
+        .statusCode,
+    ).toBe(400);
+
+    // monitoring an ended call is refused
+    const { callId } = await startCall();
+    await setCallStatus(db, callId, 'ended');
+    for (const mode of ['whisper', 'barge', 'intercept']) {
+      expect((await post(`/calls/${callId}/join`, { mode })).json()).toEqual({
+        error: 'call_over',
+      });
+    }
+    expect((await post('/calls/nope/recording', { action: 'start' })).statusCode).toBe(404);
+
+    // flow early returns on unknown or ended calls never throw
+    await srv.flow.unhold('nope');
+    await srv.flow.hold('nope');
+    await srv.flow.hold(callId); // ended
+    expect(await srv.flow.recording('nope', 'start', { id: boss.id })).toBe('not_live');
+    expect(await srv.flow.transfer('nope', boss, { kind: 'user', id: boss.id })).toBe('not_live');
+    expect(await srv.flow.consult('nope', boss, boss.id)).toBe('not_live');
+    expect(await srv.flow.consultComplete('nope', boss, 'transfer')).toBe('not_live');
+  });
+
+  it('frees only the leaver while other humans remain on the call', async () => {
+    const { callId } = await startCall();
+    const bob = await createUser(db, 'bob-stays@example.com', 'Bob');
+    await srv.flow.join(callId, { id: boss.id, name: boss.name }, 'agent');
+    await srv.flow.join(callId, { id: bob.id, name: 'Bob' }, 'agent');
+    await srv.flow.leave(callId, { id: boss.id }, 'human');
+    const detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).not.toBe('ended');
+    expect(
+      detail.participants.filter(
+        (p: { kind: string; leftAt: string | null }) => p.kind === 'human' && p.leftAt === null,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('blind-transfers with hold music until the target accepts', async () => {
     const { createInvite, bootstrapUser, updateSettings } = await import('../services/tenants.ts');
     const me = await srv.as(boss).inject({ url: '/api/me' });

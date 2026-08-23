@@ -24,6 +24,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { DevUserMenu } from './components/DevUserMenu.tsx';
+import { MessageCenter } from './components/MessageCenter.tsx';
 import { type Me, api, authClient, setTenant } from './lib/api.ts';
 import { useDeskSocket, useRoute } from './lib/hooks.ts';
 import { CallPage } from './pages/CallPage.tsx';
@@ -184,6 +185,7 @@ function Shell() {
             </Alert>
           )
         )}
+        <MessageCenter state={desk.state} />
         {route.page === 'desk' && <Desk desk={desk} me={me.data!} />}
         {route.page === 'dashboard' && supervisor && <Dashboard desk={desk} />}
         {route.page === 'history' && <History desk={desk} />}

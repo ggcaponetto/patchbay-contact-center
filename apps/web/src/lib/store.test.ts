@@ -96,6 +96,24 @@ describe('desk store', () => {
     expect(s.transcripts.c2).toHaveLength(1);
   });
 
+  it('collects instant messages (capped at 20) and tracks the ticker', () => {
+    const im = (text: string) => ({
+      type: 'server' as const,
+      message: {
+        type: 'im' as const,
+        from: { userId: 'u1', name: 'Boss' },
+        text,
+        broadcast: false,
+      },
+    });
+    const s = run([...Array.from({ length: 25 }, (_v, i) => im(`m${i}`))]);
+    expect(s.messages).toHaveLength(20);
+    expect(s.messages.at(-1)?.text).toBe('m24');
+    const t = run([{ type: 'server', message: { type: 'ticker', text: 'Maintenance tonight' } }]);
+    expect(t.ticker).toBe('Maintenance tonight');
+    expect(run([{ type: 'server', message: { type: 'ticker', text: '' } }]).ticker).toBe('');
+  });
+
   it('computes offer countdowns and durations', () => {
     const offer = { callId: 'c', queueKey: 'q', expiresAt: '2026-01-01T00:00:20.000Z' };
     expect(secondsLeft(offer, Date.parse('2026-01-01T00:00:05.500Z'))).toBe(15);

@@ -54,6 +54,10 @@ export type DeskState = {
   transcripts: Record<string, TranscriptSegmentInput[]>;
   /** Bumped on every call.updated so lists know to refetch. */
   callsVersion: number;
+  /** Instant messages received this session, newest last (capped at 20). */
+  messages: { from: { userId: string; name: string }; text: string; broadcast: boolean }[];
+  /** Tenant-wide banner text; empty hides the banner. Pushed on connect and on change. */
+  ticker: string;
 };
 
 /** State before the socket connects: no offer, nothing known. */
@@ -65,6 +69,8 @@ export const initialState: DeskState = {
   callStatus: {},
   transcripts: {},
   callsVersion: 0,
+  messages: [],
+  ticker: '',
 };
 
 /**
@@ -139,6 +145,16 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
           [m.callId]: [...(state.transcripts[m.callId] ?? []), m.segment],
         },
       };
+    case 'im':
+      return {
+        ...state,
+        messages: [
+          ...state.messages.slice(-19),
+          { from: m.from, text: m.text, broadcast: m.broadcast },
+        ],
+      };
+    case 'ticker':
+      return { ...state, ticker: m.text };
   }
 }
 

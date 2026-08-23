@@ -83,6 +83,7 @@ describe('Settings', () => {
         holdReminderSec: 60,
         autoAnswer: false,
         monitorNotify: true,
+        ticker: '',
         dispositions: [],
         dispositionRequired: false,
         notReadyReasons: ['Break', 'Coffee'],

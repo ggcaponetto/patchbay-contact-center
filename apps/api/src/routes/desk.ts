@@ -24,7 +24,7 @@ import type { Flow } from '../flow.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
 import { addEvent, callDetail, listCalls, setDisposition, setTags } from '../services/calls.ts';
-import { getTenant, listQueues } from '../services/tenants.ts';
+import { getTenant, listQueues, updateSettings } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
 import { parseBody } from './util.ts';
 
@@ -99,6 +99,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         dispositionRequired: tenant?.settings.dispositionRequired ?? false,
         holdReminderSec: tenant?.settings.holdReminderSec ?? 0,
         monitorNotify: tenant?.settings.monitorNotify ?? true,
+        ticker: tenant?.settings.ticker ?? '',
         autoAnswer: tenant?.settings.autoAnswer ?? false,
         queues: (await listQueues(db, request.ctx.tenantId)).map((q) => ({
           id: q.id,
@@ -374,6 +375,80 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       if (!detail) return undefined;
       if (!detail.heldAt) return reply.code(409).send({ error: 'not_held' });
       await flow.unhold(detail.id);
+      return { ok: true };
+    },
+  );
+
+  /** Body of `POST /messages`. */
+  const MessageBody = z.object({
+    text: z.string().min(1).max(2000),
+    toUserId: z.string().optional(),
+  });
+
+  /** Body of `PUT /ticker`. */
+  const TickerBody = z.object({ text: z.string().max(200) });
+
+  /**
+   * Sends an instant message to one colleague (`toUserId`) or — supervisors only — to
+   * every desk of the tenant (no `toUserId` = broadcast). Delivery is the `im` frame on
+   * the desk websocket; messages are not persisted.
+   */
+  app.post(
+    '/messages',
+    {
+      preHandler: read,
+      config: doc(
+        'Send an instant message to a colleague or broadcast to every desk',
+        'calls:read',
+        {
+          body: MessageBody,
+          errors: ['403 forbidden (broadcast without calls:supervise)'],
+        },
+      ),
+    },
+    async (request, reply) => {
+      const body = parseBody(MessageBody, request.body, reply);
+      if (!body) return undefined;
+      const message = {
+        type: 'im' as const,
+        from: { userId: request.ctx.user.id, name: request.ctx.user.name },
+        text: body.text,
+        broadcast: body.toUserId === undefined,
+      };
+      if (body.toUserId === undefined) {
+        if (!request.ctx.permissions.has('calls:supervise')) {
+          return reply.code(403).send({ error: 'forbidden' });
+        }
+        await sockets.bus.publish({ kind: 'tenant', tenantId: request.ctx.tenantId, message });
+      } else {
+        await sockets.bus.publish({ kind: 'send', userId: body.toUserId, message });
+      }
+      return { ok: true };
+    },
+  );
+
+  /**
+   * Sets (or clears, with an empty text) the tenant-wide ticker: a persistent banner on
+   * every desk. Stored in the tenant settings and pushed live as a `ticker` frame; new
+   * websocket connections receive the current ticker right after connecting.
+   */
+  app.put(
+    '/ticker',
+    {
+      preHandler: supervise,
+      config: doc('Set or clear the tenant-wide desk ticker banner', 'calls:supervise', {
+        body: TickerBody,
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(TickerBody, request.body, reply);
+      if (!body) return undefined;
+      await updateSettings(db, request.ctx.tenantId, { ticker: body.text });
+      await sockets.bus.publish({
+        kind: 'tenant',
+        tenantId: request.ctx.tenantId,
+        message: { type: 'ticker', text: body.text },
+      });
       return { ok: true };
     },
   );

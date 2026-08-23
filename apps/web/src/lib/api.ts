@@ -44,6 +44,7 @@ export type DeskSettings = {
   dispositionRequired: boolean;
   holdReminderSec: number;
   monitorNotify: boolean;
+  ticker: string;
   autoAnswer: boolean;
   queues: { id: string; key: string; name: string }[];
 };
