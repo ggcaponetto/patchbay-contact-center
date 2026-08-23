@@ -7,7 +7,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Google sign-in failed with `syntax error at or near "="` on the callback: Better Auth
+  1.7 looks OAuth accounts up by `(issuer, account_id)` and the `account` table had no
+  `issuer` column. Migration `0011_account_issuer` adds it (backfilling Google rows with
+  `https://accounts.google.com`) with the unique index Better Auth expects.
 
 ## [0.3.0] - 2026-08-23
 

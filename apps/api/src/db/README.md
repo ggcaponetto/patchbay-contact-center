@@ -46,6 +46,7 @@ erDiagram
   }
   account {
     text id PK
+    text issuer
     text account_id
     text provider_id
     text user_id FK
@@ -149,7 +150,13 @@ erDiagram
 ```
 
 `user`, `session`, `account` and `verification` are Better Auth's tables (generated
-shape; keep column names as they are). The rest is the contact center domain.
+shape; keep column names as they are). Better Auth 1.7 identifies an OAuth account by
+`(issuer, account_id)` — the OIDC issuer such as `https://accounts.google.com` — so
+`account.issuer` is mandatory and unique together with `account_id` (migration
+`0011_account_issuer` backfills existing Google rows). When upgrading Better Auth, diff
+its expected schema (`npx @better-auth/cli generate`) against `schema.ts`: a missing
+column surfaces only at the first real social sign-in, as a malformed query. The rest is
+the contact center domain.
 
 Constraints worth knowing:
 

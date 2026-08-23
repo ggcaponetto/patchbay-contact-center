@@ -47,7 +47,10 @@ describe('schema', () => {
     expect(foreignKeys('account')).toEqual(['user_id->user.id']);
     expect(foreignKeys('verification')).toEqual([]);
     expect(indexNames('session')).toEqual(['session_user_id_idx']);
-    expect(indexNames('account')).toEqual(['account_user_id_idx']);
+    expect(indexNames('account')).toEqual([
+      'account_user_id_idx',
+      'account_issuer_account_id_uidx',
+    ]);
     expect(indexNames('verification')).toEqual(['verification_identifier_idx']);
   });
 

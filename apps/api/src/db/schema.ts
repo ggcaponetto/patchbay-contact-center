@@ -70,11 +70,16 @@ export const session = pgTable(
   (t) => [index('session_user_id_idx').on(t.userId)],
 );
 
-/** Better Auth OAuth accounts linked to a user (one per provider). */
+/**
+ * Better Auth OAuth accounts linked to a user (one per provider). Since Better Auth 1.7
+ * an account is identified by `(issuer, accountId)` — the OIDC issuer, e.g.
+ * `https://accounts.google.com` — not by `providerId`.
+ */
 export const account = pgTable(
   'account',
   {
     id: text('id').primaryKey(),
+    issuer: text('issuer').notNull(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
     userId: text('user_id')
@@ -92,7 +97,10 @@ export const account = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
-  (t) => [index('account_user_id_idx').on(t.userId)],
+  (t) => [
+    index('account_user_id_idx').on(t.userId),
+    uniqueIndex('account_issuer_account_id_uidx').on(t.issuer, t.accountId),
+  ],
 );
 
 /** Better Auth short-lived verification values (OAuth state and similar). */

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTenant } from '../services/tenants.ts';
 import { createUser, dbAvailable, freshDb } from '../testing.ts';
 import type { Db } from './client.ts';
-import { mediaAsset, session, tenant, user } from './schema.ts';
+import { account, mediaAsset, session, tenant, user } from './schema.ts';
 
 const hasDb = await dbAvailable();
 
@@ -37,6 +37,36 @@ describe.skipIf(!hasDb)('schema in Postgres', () => {
 
     await db.delete(user).where(eq(user.id, u.id));
     expect(await db.select().from(session).where(eq(session.id, sid))).toEqual([]);
+  });
+
+  it('identifies OAuth accounts by (issuer, account_id), the way Better Auth 1.7 looks them up', async () => {
+    const u = await createUser(db, 'oauth@example.com');
+    const row = {
+      id: randomUUID(),
+      issuer: 'https://accounts.google.com',
+      accountId: 'google-sub-1',
+      providerId: 'google',
+      userId: u.id,
+      updatedAt: new Date(),
+    };
+    await db.insert(account).values(row);
+    // the same subject at the same issuer cannot be linked twice
+    const dup = await db
+      .insert(account)
+      .values({ ...row, id: randomUUID() })
+      .then(
+        () => null,
+        (e: unknown) => e as Error & { cause?: { constraint?: string } },
+      );
+    expect(dup?.cause?.constraint).toBe('account_issuer_account_id_uidx');
+    // the lookup Better Auth performs on every social sign-in
+    const [found] = await db
+      .select({ userId: account.userId })
+      .from(account)
+      .where(eq(account.issuer, 'https://accounts.google.com'));
+    expect(found?.userId).toBe(u.id);
+    await db.delete(user).where(eq(user.id, u.id));
+    expect(await db.select().from(account).where(eq(account.id, row.id))).toEqual([]);
   });
 
   it('round-trips bytea through a Buffer and cascades media assets from tenant', async () => {
