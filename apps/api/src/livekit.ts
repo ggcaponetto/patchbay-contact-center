@@ -16,8 +16,18 @@
  * @packageDocumentation
  */
 import type { ParticipantAttributes } from '@cc/shared';
-import { RoomAgentDispatch, RoomConfiguration } from '@livekit/protocol';
-import { AccessToken, AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
+import {
+  EncodedFileOutput,
+  RoomAgentDispatch,
+  RoomConfiguration,
+  S3Upload,
+} from '@livekit/protocol';
+import {
+  AccessToken,
+  AgentDispatchClient,
+  EgressClient,
+  RoomServiceClient,
+} from 'livekit-server-sdk';
 
 /** Must match the `agentName` the worker registers with (see `apps/agent`). */
 const AGENT_NAME = 'cc-agent';
@@ -60,21 +70,56 @@ export type LiveKit = {
   dispatchAgent(room: string, metadata: string): Promise<void>;
   /** Deletes the room (kicking everyone). Errors are swallowed; the room may already be gone. */
   deleteRoom(room: string): Promise<void>;
+  /** Removes one participant from the room (consult drop). Errors are swallowed. */
+  removeParticipant(room: string, identity: string): Promise<void>;
+  /**
+   * Starts an audio-only Egress recording of the room and returns its egress id, or
+   * `null` when recording is not configured (no `RECORDING_S3_*` env and no stub).
+   */
+  startRecording(room: string): Promise<string | null>;
+  /** Stops one recording segment. Errors are swallowed; the egress may already be done. */
+  stopRecording(egressId: string): Promise<void>;
 };
 
 /** The two server-API clients {@link createLiveKit} talks to; tests inject fakes. */
 export type LiveKitClients = {
-  /** `RoomServiceClient` (or a fake): only `deleteRoom` is used. */
-  rooms: Pick<RoomServiceClient, 'deleteRoom'>;
+  /** `RoomServiceClient` (or a fake): `deleteRoom` and `removeParticipant` are used. */
+  rooms: Pick<RoomServiceClient, 'deleteRoom' | 'removeParticipant'>;
   /** `AgentDispatchClient` (or a fake): only `createDispatch` is used. */
   dispatch: Pick<AgentDispatchClient, 'createDispatch'>;
+  /** `EgressClient` (or a fake) for call recording. */
+  egress: Pick<EgressClient, 'startRoomCompositeEgress' | 'stopEgress'>;
 };
 
 /** Builds the real SDK clients against the HTTP(S) form of `LIVEKIT_URL`. */
 const sdkClients = (httpUrl: string, apiKey: string, apiSecret: string): LiveKitClients => ({
   rooms: new RoomServiceClient(httpUrl, apiKey, apiSecret),
   dispatch: new AgentDispatchClient(httpUrl, apiKey, apiSecret),
+  egress: new EgressClient(httpUrl, apiKey, apiSecret),
 });
+
+/**
+ * Where recordings go, from `RECORDING_S3_*` env vars (any S3-compatible store works via
+ * `RECORDING_S3_ENDPOINT`). Returns `null` — recording unavailable — when unset. With
+ * `RECORDING_STUB=true` (dev, e2e) no Egress is started at all and fake ids are handed out.
+ */
+const recordingOutput = (): EncodedFileOutput | null => {
+  const bucket = process.env.RECORDING_S3_BUCKET ?? '';
+  if (!bucket) return null;
+  return new EncodedFileOutput({
+    filepath: 'recordings/{room_name}-{time}',
+    output: {
+      case: 's3',
+      value: new S3Upload({
+        bucket,
+        region: process.env.RECORDING_S3_REGION ?? '',
+        accessKey: process.env.RECORDING_S3_KEY ?? '',
+        secret: process.env.RECORDING_S3_SECRET ?? '',
+        endpoint: process.env.RECORDING_S3_ENDPOINT ?? '',
+      }),
+    },
+  });
+};
 
 /**
  * Real LiveKit Cloud client built from `LIVEKIT_*` env vars.
@@ -92,7 +137,9 @@ export function createLiveKit(
   const apiSecret = process.env.LIVEKIT_API_SECRET ?? '';
   if (!url || !apiKey || !apiSecret) throw new Error('LIVEKIT_URL/API_KEY/API_SECRET are not set');
   // The server APIs are HTTP(S); clients connect over ws(s) to the same host.
-  const { rooms, dispatch } = clients(url.replace(/^ws/, 'http'), apiKey, apiSecret);
+  const { rooms, dispatch, egress } = clients(url.replace(/^ws/, 'http'), apiKey, apiSecret);
+  const stubRecording = process.env.RECORDING_STUB === 'true';
+  let stubSeq = 0;
   return {
     url,
     async createToken(req) {
@@ -123,6 +170,27 @@ export function createLiveKit(
     },
     async deleteRoom(room) {
       await rooms.deleteRoom(room).catch(() => undefined);
+    },
+    async removeParticipant(room, identity) {
+      await rooms.removeParticipant(room, identity).catch(() => undefined);
+    },
+    async startRecording(room) {
+      if (stubRecording) return `stub-egress:${room}:${++stubSeq}`;
+      const output = recordingOutput();
+      if (!output) return null;
+      const info = await egress.startRoomCompositeEgress(
+        room,
+        { file: output },
+        { audioOnly: true },
+      );
+      return info.egressId;
+    },
+    async stopRecording(egressId) {
+      if (stubRecording) return;
+      await egress.stopEgress(egressId).then(
+        () => undefined,
+        () => undefined,
+      );
     },
   };
 }

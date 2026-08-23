@@ -5,7 +5,7 @@
 ## The `validate` pipeline
 
 ```console
-npm run format:check && npm run lint && npm run typecheck && npm run knip && npm run spell && npm run loc && npm test && npm run build && npm run docs:build
+npm run format:check && npm run lint && npm run typecheck && npm run knip && npm run spell && npm run loc && npm run e2e-plan && npm test && npm run build && npm run docs:build
 ```
 
 | Step       | Command                                            | What it checks                                                                                                                                                                                                                                                                                                                  |
@@ -15,7 +15,8 @@ npm run format:check && npm run lint && npm run typecheck && npm run knip && npm
 | Types      | `npm run typecheck` → `tsc --noEmit` per workspace | Each app and package has its own `tsconfig.json` extending `tsconfig.base.json` (strict, `erasableSyntaxOnly`, `allowImportingTsExtensions`).                                                                                                                                                                                   |
 | Dead code  | `knip`                                             | Unused files, exports, dependencies and devDependencies, configured per workspace in `knip.json`.                                                                                                                                                                                                                               |
 | Spelling   | `cspell --no-progress "**"`                        | Unknown words in every non-ignored file. Project words live in `cspell.json`.                                                                                                                                                                                                                                                   |
-| Size       | `node build/loc.mjs`                               | Non-blank tracked source lines; fails above 50 000, warns above 20 000. See [Build scripts](/build/).                                                                                                                                                                                                                           |
+| Size       | `node build/loc.mjs`                               | Non-blank tracked source lines, **product and tests budgeted separately**: product fails above 50 000 (warns above 20 000), tests fail above 50 000. See [Build scripts](/build/).                                                                                                                                              |
+| Test plan  | `node build/e2e-plan.mjs`                          | `tests/e2e/TEST-PLAN.md` and the tagged Playwright specs agree: every implemented row has its test, every test has a row, tier and area tags are present. See [Build scripts](/build/).                                                                                                                                         |
 | Tests      | `vitest run --coverage`                            | Unit + integration projects and the 90% coverage threshold on logic modules. See [Testing](/docs/guide/testing).                                                                                                                                                                                                                |
 | Builds     | `npm run --workspaces --if-present build`          | Vite builds of `apps/web` and `apps/embed` (the API and agent have no build step).                                                                                                                                                                                                                                              |
 | Docs       | `typedoc` then `vitepress build .`                 | The API reference is generated into `docs/api` with `treatWarningsAsErrors` and `validation.notDocumented`, so every exported class, function, interface, type alias, variable and module needs a doc comment. VitePress then builds the site with `ignoreDeadLinks: false`, so every link in every markdown page must resolve. |
@@ -37,6 +38,7 @@ If a hook fails, fix the cause; do not use `--no-verify`.
 - `typecheck` and `build` run everywhere.
 - `npm test` with coverage runs on Linux, which has a Postgres container; the other runners run vitest without coverage and the DB suites skip.
 - Agent evals run only when the `LIVEKIT_*` repository secrets exist.
+- `e2e-smoke` → `e2e-core` run the Playwright tiers with Postgres only; `e2e-cloud` (real agent on LiveKit Cloud) runs on `main` when the secrets exist. The `E2E` workflow (`e2e-nightly.yml`) repeats `core` + `cloud` every night and on demand.
 
 **Codecov** (`codecov.yml`) receives `coverage/lcov.info` and **SonarQube** (`sonar-project.properties`) scans the checkout; both run only when their token secret is set and are informational — `fail_ci_if_error: false`, no quality gate blocks the workflow. The hard gate is vitest's 90% threshold.
 
@@ -67,4 +69,4 @@ The separate `docs.yml` workflow builds the VitePress site and publishes it to G
 
 **VitePress: dead link.** Links use absolute paths without extension (`/docs/guide/architecture`, `/apps/api/`). A folder link needs a `README.md` or `index.md` in that folder.
 
-**LOC gate.** The budget is deliberate; delete or simplify code instead of raising `BUDGET` in `build/loc.mjs`.
+**LOC gate.** The budgets are deliberate; delete or simplify code instead of raising `PRODUCT_BUDGET` / `TEST_BUDGET` in `build/loc.mjs`. Tests are counted apart (files matching `*.test.*`, everything under `tests/`, `testing.ts`) because the coverage and e2e-plan gates make them track product code roughly 1 : 1 — the product budget is the design constraint.

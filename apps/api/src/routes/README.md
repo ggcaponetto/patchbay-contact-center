@@ -30,9 +30,9 @@ All error bodies are `{ error: '<code>' }`; `400 invalid_body` adds `issues` fro
 
 ## `public.ts` (prefix `/api/public`)
 
-| Method | Path     | Auth   | Body                                                   | Response                           | Errors                                                                         |
-| ------ | -------- | ------ | ------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------ |
-| POST   | `/calls` | public | `{ embedKey, queue? = 'support', customerMeta? = {} }` | `{ callId, roomName, token, url }` | 400 `invalid_body`, 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed` |
+| Method | Path     | Auth   | Body                                                              | Response                           | Errors                                                                         |
+| ------ | -------- | ------ | ----------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| POST   | `/calls` | public | `{ embedKey, queue? = 'support', language?, customerMeta? = {} }` | `{ callId, roomName, token, url }` | 400 `invalid_body`, 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed` |
 
 Side effects: `call` row (`ringing` → `ai` or `waiting_human`), `customer` participant,
 `call.created` event. In `ai-first` mode the token carries the agent dispatch; in
@@ -54,36 +54,83 @@ Side effects: `call` row (`ringing` → `ai` or `waiting_human`), `customer` par
 stopped). `escalate` blocks until a human accepted or nobody could; the worker needs an
 HTTP timeout longer than the whole ring cycle.
 
+## OpenAPI
+
+`GET /api/openapi.json` is the OpenAPI 3.1 document of everything below, generated at
+boot from the routes themselves (`openapi.ts`): each route declares `config.doc` with a
+summary, the required permission and its zod body / response schemas, which zod turns
+into JSON Schema — so the document cannot drift from the code. `server.test.ts` fails when
+a route is registered without documentation. Integrations (and the MCP server later)
+read this document; `x-permission` on every operation says which API-key permission it
+needs.
+
+## Authorization
+
+Every route names one **permission** (`Permission` in `@cc/shared`): `calls:read`,
+`calls:answer`, `calls:supervise`, `tenant:read`, `tenant:write`, `api-keys:manage`. A
+signed-in user has the permissions of their role in the selected tenant
+(`ROLE_PERMISSIONS`: agents read and answer; supervisors everything), an **API key**
+(`Authorization: Bearer ak_…`, managed under `/api/admin/api-keys`) exactly the set it was
+created with, always in its own tenant. `authorize(permission)` in `server.ts` is the
+only guard; the "Auth" columns below name the permission (`member` = `calls:read` /
+`calls:answer`, `supervisor` = `calls:supervise` or `tenant:write`).
+
 ## `desk.ts` (prefix `/api/desk`)
 
-| Method | Path                 | Auth       | Body                                  | Response                                | Errors                                      |
-| ------ | -------------------- | ---------- | ------------------------------------- | --------------------------------------- | ------------------------------------------- |
-| GET    | `/calls`             | member     | –                                     | latest 50 calls with `queueKey`         | 401, 403                                    |
-| GET    | `/calls/:id`         | member     | –                                     | call + participants, transcript, events | 404 `not_found`                             |
-| POST   | `/calls/:id/accept`  | member     | –                                     | `{ token, url }`                        | 404, 409 `not_ringing_you`, 409 `call_over` |
-| POST   | `/calls/:id/decline` | member     | –                                     | `{ ok: true }`                          | 401, 403                                    |
-| POST   | `/calls/:id/join`    | supervisor | `{ mode: 'listen' \| 'takeover' }`    | `{ token, url }`                        | 400, 404, 409 `call_over`                   |
-| POST   | `/calls/:id/leave`   | member     | `{ role? = 'human' \| 'supervisor' }` | `{ ok: true }`                          | 400, 404                                    |
+| Method | Path                          | Auth            | Body                                                                | Response                                | Errors                                                               |
+| ------ | ----------------------------- | --------------- | ------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------- |
+| GET    | `/settings`                   | member          | –                                                                   | `{ notReadyReasons, acwSec }`           | 401, 403                                                             |
+| GET    | `/agents`                     | member          | –                                                                   | `AgentPresence[]` (who is online)       | 401, 403                                                             |
+| POST   | `/state`                      | member          | `{ state: 'ready' \| 'not_ready', reason? }`                        | my `AgentPresence`                      | 400, 409 `offline` / `on_call`                                       |
+| POST   | `/acw/extend`                 | member          | –                                                                   | my `AgentPresence`                      | 409 `not_in_acw`                                                     |
+| POST   | `/acw/done`                   | member          | –                                                                   | my `AgentPresence`                      | 409 `not_in_acw`                                                     |
+| POST   | `/agents/:userId/state`       | supervisor      | `AgentStateRequest` or `{ state: 'logged_out' }`                    | presence or `{ ok: true }`              | 400, 404, 409 `on_call`                                              |
+| GET    | `/calls`                      | member          | –                                                                   | latest 50 calls with `queueKey`         | 401, 403                                                             |
+| GET    | `/calls/:id`                  | member          | –                                                                   | call + participants, transcript, events | 404 `not_found`                                                      |
+| POST   | `/calls/:id/accept`           | member          | –                                                                   | `{ token, url }`                        | 404, 409 `not_ringing_you`, 409 `call_over`                          |
+| POST   | `/calls/:id/decline`          | member          | –                                                                   | `{ ok: true }`                          | 401, 403                                                             |
+| POST   | `/calls/:id/join`             | supervisor      | `{ mode: 'listen' \| 'takeover' }`                                  | `{ token, url }`                        | 400, 404, 409 `call_over`                                            |
+| POST   | `/calls/:id/leave`            | member          | `{ role? = 'human' \| 'supervisor' }`                               | `{ ok: true }`                          | 400, 404                                                             |
+| POST   | `/calls/:id/transfer`         | calls:answer    | `{ target: { kind: 'queue' \| 'user', id } }`                       | `{ ok: true }`                          | 400, 404, 409 `not_live` / `empty_target`                            |
+| POST   | `/calls/:id/consult`          | calls:answer    | `{ targetUserId }`                                                  | `{ ok: true }`                          | 400, 404, 409 `not_live`                                             |
+| POST   | `/calls/:id/consult/complete` | calls:answer    | `{ mode: 'transfer' \| 'conference' \| 'drop', dropUserId? }`       | `{ ok: true }`                          | 400, 404, 409 `not_live` / `no_consultant`                           |
+| POST   | `/calls/:id/recording`        | calls:answer    | `{ action: 'start' \| 'pause' \| 'resume' \| 'stop' }`              | `{ ok: true }`                          | 400, 404, 409 `not_live` / `invalid_state` / `recording_unavailable` |
+| POST   | `/messages`                   | calls:read      | `{ text, toUserId? }` (no `toUserId` = broadcast, supervisors only) | `{ ok: true }`                          | 400, 403 `forbidden`                                                 |
+| PUT    | `/ticker`                     | calls:supervise | `{ text }` (empty clears the banner)                                | `{ ok: true }`                          | 400                                                                  |
+| GET    | `/stats`                      | calls:read      | —                                                                   | live stats + threshold alerts           | —                                                                    |
+| POST   | `/calls/:id/hold`             | calls:answer    | –                                                                   | `{ ok: true }`                          | 404, 409 `not_live` / `already_held`                                 |
+| POST   | `/calls/:id/retrieve`         | calls:answer    | –                                                                   | `{ ok: true }`                          | 404, 409 `not_held`                                                  |
+| POST   | `/calls/:id/note`             | calls:answer    | `{ text }`                                                          | `{ ok: true }`                          | 400, 404                                                             |
+| POST   | `/calls/:id/tags`             | calls:answer    | `{ tags: string[] }`                                                | `{ ok: true }`                          | 400, 404                                                             |
+| POST   | `/calls/:id/disposition`      | calls:answer    | `{ code, note? }`                                                   | `{ ok: true }`                          | 400 `unknown_code`, 404                                              |
 
 `accept` is gated by `Routing.accept`: only the agent currently being rung for that call
-succeeds. `leave` with `role: 'human'` ends the call.
+succeeds. `leave` with `role: 'human'` ends the call and puts the agent into wrap-up.
+`/agents/:userId/state` with `logged_out` closes the agent's desk sockets (they get a
+`logout` frame first).
 
 ## `admin.ts` (prefix `/api/admin`)
 
-| Method | Path                  | Auth        | Body                                             | Response                          | Errors        |
-| ------ | --------------------- | ----------- | ------------------------------------------------ | --------------------------------- | ------------- |
-| POST   | `/tenants`            | admin email | `{ name }`                                       | tenant row                        | 400, 403      |
-| GET    | `/tenant`             | supervisor  | –                                                | tenant row with parsed settings   | 401, 403      |
-| PATCH  | `/tenant/settings`    | supervisor  | partial `TenantSettings`                         | `{ settings }`                    | 400, 403      |
-| GET    | `/members`            | supervisor  | –                                                | `[{ userId, name, email, role }]` | 403           |
-| GET    | `/invites`            | supervisor  | –                                                | invite rows                       | 403           |
-| POST   | `/invites`            | supervisor  | `{ email, role: 'agent' \| 'supervisor' }`       | invite row                        | 400, 403      |
-| GET    | `/queues`             | supervisor  | –                                                | queue rows with `memberIds`       | 403           |
-| POST   | `/queues`             | supervisor  | `{ key, name }` (key is slugified)               | queue row                         | 400, 403      |
-| PUT    | `/queues/:id/members` | supervisor  | `{ userIds: string[] }`                          | `{ ok: true }`                    | 400, 403, 404 |
-| GET    | `/embed-keys`         | supervisor  | –                                                | embed key rows                    | 403           |
-| POST   | `/embed-keys`         | supervisor  | `{ label, allowedOrigins? = [] }` (full origins) | embed key row (`publicKey`)       | 400, 403      |
-| DELETE | `/embed-keys/:id`     | supervisor  | –                                                | `{ ok: true }`                    | 403, 404      |
+| Method | Path                      | Auth            | Body                                                       | Response                                                                | Errors        |
+| ------ | ------------------------- | --------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------- |
+| POST   | `/tenants`                | admin email     | `{ name }`                                                 | tenant row                                                              | 400, 403      |
+| GET    | `/tenant`                 | supervisor      | –                                                          | tenant row with parsed settings                                         | 401, 403      |
+| PATCH  | `/tenant/settings`        | supervisor      | partial `TenantSettings`                                   | `{ settings }`                                                          | 400, 403      |
+| GET    | `/members`                | supervisor      | –                                                          | `[{ userId, name, email, role }]`                                       | 403           |
+| GET    | `/invites`                | supervisor      | –                                                          | invite rows                                                             | 403           |
+| POST   | `/invites`                | supervisor      | `{ email, role: 'agent' \| 'supervisor' }`                 | invite row                                                              | 400, 403      |
+| GET    | `/queues`                 | supervisor      | –                                                          | queue rows with `memberIds`                                             | 403           |
+| POST   | `/queues`                 | supervisor      | `{ key, name }` (key is slugified)                         | queue row                                                               | 400, 403      |
+| PUT    | `/queues/:id/members`     | supervisor      | `{ userIds: string[] }`                                    | `{ ok: true }`                                                          | 400, 403, 404 |
+| PUT    | `/queues/:id/config`      | tenant:write    | `QueueConfig` (algorithm, requiredSkills, languageRouting) | `{ ok: true }`                                                          | 400, 404      |
+| GET    | `/members/:userId/skills` | tenant:read     | —                                                          | `[{ skill, proficiency }]`                                              | —             |
+| PUT    | `/members/:userId/skills` | tenant:write    | `{ skills: [{ skill, proficiency }] }`                     | `{ ok: true }`                                                          | 400           |
+| GET    | `/embed-keys`             | supervisor      | –                                                          | embed key rows                                                          | 403           |
+| POST   | `/embed-keys`             | supervisor      | `{ label, allowedOrigins? = [] }` (full origins)           | embed key row (`publicKey`)                                             | 400, 403      |
+| GET    | `/api-keys`               | tenant:read     | –                                                          | `[{ id, name, prefix, permissions, createdAt, lastUsedAt, revokedAt }]` | 403           |
+| POST   | `/api-keys`               | api-keys:manage | `{ name, permissions: Permission[] }`                      | key row + `secret` (shown once)                                         | 400, 403      |
+| DELETE | `/api-keys/:id`           | api-keys:manage | –                                                          | `{ ok: true }`                                                          | 404           |
+| DELETE | `/embed-keys/:id`         | supervisor      | –                                                          | `{ ok: true }`                                                          | 403, 404      |
 
 ## Top-level routes (in `server.ts` / `auth.ts`)
 

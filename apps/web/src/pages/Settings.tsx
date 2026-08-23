@@ -18,11 +18,13 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { ApiKeysCard } from '../components/ApiKeysCard.tsx';
 import {
   type EmbedKey,
   type Invite,
   type Member,
   type Queue,
+  type Skill,
   type Tenant,
   api,
   del,
@@ -40,6 +42,7 @@ export function Settings() {
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, md: 6 }}>
         <RoutingCard />
+        <HoursCard />
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <TeamCard />
@@ -49,6 +52,9 @@ export function Settings() {
       </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <EmbedCard />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <ApiKeysCard />
       </Grid>
     </Grid>
   );
@@ -63,8 +69,18 @@ function RoutingCard() {
   const qc = useQueryClient();
   const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
   const [draft, setDraft] = useState<TenantSettings | null>(null);
+  // The reason codes are edited as free text (commas would vanish while typing if the
+  // field were bound to the parsed array) and parsed into the draft on every change.
+  const [reasonsText, setReasonsText] = useState('');
+  const [dispositionsText, setDispositionsText] = useState('');
   useEffect(() => {
-    if (tenant.data) setDraft(tenant.data.settings);
+    if (tenant.data) {
+      setDraft(tenant.data.settings);
+      setReasonsText(tenant.data.settings.notReadyReasons.join(', '));
+      setDispositionsText(
+        tenant.data.settings.dispositions.map((d) => `${d.code} | ${d.label}`).join('\n'),
+      );
+    }
   }, [tenant.data]);
   const save = useMutation({
     mutationFn: (s: TenantSettings) => patch('/admin/tenant/settings', s),
@@ -115,7 +131,114 @@ function RoutingCard() {
             value={draft.humanFirstTimeoutSec}
             onChange={(e) => setDraft({ ...draft, humanFirstTimeoutSec: Number(e.target.value) })}
           />
+          <TextField
+            type="number"
+            label="Wrap-up time (s, 0 = off)"
+            value={draft.acwSec}
+            onChange={(e) => setDraft({ ...draft, acwSec: Number(e.target.value) })}
+          />
+          <TextField
+            type="number"
+            label="Hold reminder (s, 0 = off)"
+            value={draft.holdReminderSec}
+            onChange={(e) => setDraft({ ...draft, holdReminderSec: Number(e.target.value) })}
+          />
         </Stack>
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+          <TextField
+            type="number"
+            label="Alert: calls waiting (0 = off)"
+            value={draft.alerts.maxWaiting}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxWaiting: Number(e.target.value) },
+              })
+            }
+          />
+          <TextField
+            type="number"
+            label="Alert: longest wait (s, 0 = off)"
+            value={draft.alerts.maxWaitSec}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxWaitSec: Number(e.target.value) },
+              })
+            }
+          />
+          <TextField
+            type="number"
+            label="Alert: longest call (s, 0 = off)"
+            value={draft.alerts.maxCallSec}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxCallSec: Number(e.target.value) },
+              })
+            }
+          />
+        </Stack>
+        <TextField
+          label="Wrap-up codes (one per line: code | label; a / in the code groups)"
+          multiline
+          minRows={2}
+          value={dispositionsText}
+          onChange={(e) => {
+            setDispositionsText(e.target.value);
+            setDraft({
+              ...draft,
+              dispositions: e.target.value
+                .split('\n')
+                .map((line) => {
+                  const [code, label] = line.split('|').map((p) => p.trim());
+                  return code ? { code, label: label || code } : null;
+                })
+                .filter((d): d is { code: string; label: string } => d !== null),
+            });
+          }}
+        />
+        <FormControlLabel
+          label="Disposition required before finishing wrap-up"
+          control={
+            <Checkbox
+              checked={draft.dispositionRequired}
+              onChange={(e) => setDraft({ ...draft, dispositionRequired: e.target.checked })}
+            />
+          }
+        />
+        <FormControlLabel
+          label="Auto-answer offers with a zip tone"
+          control={
+            <Checkbox
+              checked={draft.autoAnswer}
+              onChange={(e) => setDraft({ ...draft, autoAnswer: e.target.checked })}
+            />
+          }
+        />
+        <FormControlLabel
+          label="Tell agents when a supervisor is monitoring their call"
+          control={
+            <Checkbox
+              checked={draft.monitorNotify}
+              onChange={(e) => setDraft({ ...draft, monitorNotify: e.target.checked })}
+            />
+          }
+        />
+        <TextField
+          label="Not-ready reason codes (comma separated)"
+          value={reasonsText}
+          onChange={(e) => {
+            setReasonsText(e.target.value);
+            setDraft({
+              ...draft,
+              notReadyReasons: e.target.value
+                .split(',')
+                .map((r) => r.trim())
+                .filter(Boolean),
+            });
+          }}
+        />
         <TextField
           label="AI greeting instruction"
           value={draft.aiAgent.greeting}
@@ -172,10 +295,16 @@ function TeamCard() {
       </Typography>
       <Stack spacing={1} sx={{ mb: 2 }}>
         {(members.data ?? []).map((m) => (
-          <Stack key={m.userId} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Stack
+            key={m.userId}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
             <Typography>{m.name}</Typography>
             <Typography color="text.secondary">{m.email}</Typography>
             <Chip size="small" label={m.role} />
+            <MemberSkills member={m} />
           </Stack>
         ))}
         {(invites.data ?? [])
@@ -217,6 +346,237 @@ function TeamCard() {
  * `POST /api/admin/queues { key, name }` (key = name for now) and
  * `PUT /api/admin/queues/:id/members { userIds }` on every checkbox change.
  */
+/** Day names in `dow` order (0 = Sunday), for the business-hours window lines. */
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/** Parses `mon 09:00-17:00` lines into weekly windows; malformed lines are dropped. */
+function parseWindows(text: string): { dow: number; from: string; to: string }[] {
+  return text
+    .split('\n')
+    .map((line) => /^\s*(\w{3})\w*\s+(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$/.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => ({ dow: DAYS.indexOf(m[1]!.toLowerCase()), from: m[2]!, to: m[3]! }))
+    .filter((w) => w.dow >= 0);
+}
+
+/**
+ * Business hours: mode (always open, weekly schedule, or forced open / closed /
+ * emergency), timezone, weekly windows, holidays and the messages shown to callers
+ * while closed. `PATCH /api/admin/tenant/settings { hours }`.
+ */
+function HoursCard() {
+  const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => api<Tenant>('/admin/tenant') });
+  const [draft, setDraft] = useState<TenantSettings['hours'] | null>(null);
+  const [windows, setWindows] = useState<string | null>(null);
+  const [holidays, setHolidays] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (hours: TenantSettings['hours']) => patch('/admin/tenant/settings', { hours }),
+  });
+  if (!tenant.data) return null;
+  const hours = draft ?? tenant.data.settings.hours;
+  const windowsText =
+    windows ?? hours.open.map((w) => `${DAYS[w.dow]} ${w.from}-${w.to}`).join('\n');
+  const holidaysText = holidays ?? hours.holidays.join('\n');
+  const set = (patchPart: Partial<TenantSettings['hours']>) => setDraft({ ...hours, ...patchPart });
+  return (
+    <Paper sx={{ p: 2 }}>
+      <Typography variant="h6" gutterBottom>
+        Business hours
+      </Typography>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          select
+          label="Mode"
+          value={hours.mode}
+          onChange={(e) => set({ mode: e.target.value as TenantSettings['hours']['mode'] })}
+          sx={{ minWidth: 190 }}
+        >
+          <MenuItem value="off">Always open</MenuItem>
+          <MenuItem value="auto">Follow the schedule</MenuItem>
+          <MenuItem value="open">Forced open</MenuItem>
+          <MenuItem value="closed">Forced closed</MenuItem>
+          <MenuItem value="emergency">Emergency</MenuItem>
+        </TextField>
+        <TextField
+          label="Timezone (IANA)"
+          value={hours.timezone}
+          onChange={(e) => set({ timezone: e.target.value })}
+        />
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Weekly windows (one per line: mon 09:00-17:00)"
+          multiline
+          minRows={2}
+          value={windowsText}
+          onChange={(e) => {
+            setWindows(e.target.value);
+            set({ open: parseWindows(e.target.value) });
+          }}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+        <TextField
+          label="Holidays (one date per line: 2026-12-25)"
+          multiline
+          minRows={2}
+          value={holidaysText}
+          onChange={(e) => {
+            setHolidays(e.target.value);
+            set({
+              holidays: e.target.value
+                .split('\n')
+                .map((l) => l.trim())
+                .filter((l) => /^\d{4}-\d{2}-\d{2}$/.test(l)),
+            });
+          }}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Closed message"
+          value={hours.closedMessage}
+          onChange={(e) => set({ closedMessage: e.target.value })}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+        <TextField
+          label="Emergency message"
+          value={hours.emergencyMessage}
+          onChange={(e) => set({ emergencyMessage: e.target.value })}
+          sx={{ flex: 1, minWidth: 260 }}
+        />
+      </Stack>
+      <Button variant="contained" onClick={() => save.mutate(hours)} disabled={save.isPending}>
+        Save hours
+      </Button>
+      {save.isError && <Typography color="error">{String(save.error)}</Typography>}
+    </Paper>
+  );
+}
+
+/** Parses `billing=3, lang:de=2` into skill/level pairs (levels clamp to 1-5). */
+function parseSkills(text: string): { skill: string; level: number }[] {
+  return text
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eq = part.lastIndexOf('=');
+      const skill = (eq === -1 ? part : part.slice(0, eq)).trim();
+      const level = Math.min(5, Math.max(1, Number(eq === -1 ? 1 : part.slice(eq + 1)) || 1));
+      return { skill, level };
+    })
+    .filter((p) => p.skill.length > 0);
+}
+
+/**
+ * Routing configuration of one queue: selection algorithm, required skills
+ * (`skill=minimum` pairs) and language routing. `PUT /api/admin/queues/:id/config`.
+ */
+function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void }) {
+  const cfg = (queue.config ?? {}) as {
+    algorithm?: string;
+    requiredSkills?: { skill: string; min: number }[];
+    languageRouting?: boolean;
+  };
+  const [algorithm, setAlgorithm] = useState(cfg.algorithm ?? 'longest_idle');
+  const [skills, setSkills] = useState(
+    (cfg.requiredSkills ?? []).map((r) => `${r.skill}=${r.min}`).join(', '),
+  );
+  const [language, setLanguage] = useState(cfg.languageRouting ?? false);
+  const save = useMutation({
+    mutationFn: () =>
+      put(`/admin/queues/${queue.id}/config`, {
+        algorithm,
+        requiredSkills: parseSkills(skills).map((p) => ({ skill: p.skill, min: p.level })),
+        languageRouting: language,
+      }),
+    onSuccess: onSaved,
+  });
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+      <TextField
+        select
+        size="small"
+        label="Ring order"
+        value={algorithm}
+        onChange={(e) => setAlgorithm(e.target.value)}
+        sx={{ minWidth: 170 }}
+      >
+        {Object.entries(ALGORITHM_LABELS).map(([value, label]) => (
+          <MenuItem key={value} value={value}>
+            {label}
+          </MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        size="small"
+        label={`Required skills for ${queue.name} (skill=min, ...)`}
+        value={skills}
+        onChange={(e) => setSkills(e.target.value)}
+        sx={{ flex: 1, minWidth: 220 }}
+      />
+      <FormControlLabel
+        label="Match caller language"
+        control={
+          <Checkbox
+            size="small"
+            checked={language}
+            onChange={(e) => setLanguage(e.target.checked)}
+          />
+        }
+      />
+      <Button size="small" onClick={() => save.mutate()}>
+        Save routing
+      </Button>
+    </Stack>
+  );
+}
+
+/** Labels of the queue selection algorithms, in menu order. */
+const ALGORITHM_LABELS: Record<string, string> = {
+  longest_idle: 'Longest idle',
+  least_occupied: 'Least occupied',
+  round_robin: 'Round robin',
+  most_skilled: 'Most skilled',
+  least_skilled: 'Least skilled',
+  linear: 'Fixed order',
+};
+
+/**
+ * Skills of one member as an editable `skill=level` list.
+ * `GET` / `PUT /api/admin/members/:userId/skills`.
+ */
+function MemberSkills({ member }: { member: Member }) {
+  const skills = useQuery({
+    queryKey: ['skills', member.userId],
+    queryFn: () => api<Skill[]>(`/admin/members/${member.userId}/skills`),
+  });
+  const [text, setText] = useState<string | null>(null);
+  const value = text ?? (skills.data ?? []).map((s) => `${s.skill}=${s.proficiency}`).join(', ');
+  const save = useMutation({
+    mutationFn: () =>
+      put(`/admin/members/${member.userId}/skills`, {
+        skills: parseSkills(value).map((p) => ({ skill: p.skill, proficiency: p.level })),
+      }),
+    onSuccess: () => void skills.refetch(),
+  });
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      <TextField
+        size="small"
+        label={`Skills of ${member.name} (skill=level, ...)`}
+        value={value}
+        onChange={(e) => setText(e.target.value)}
+        sx={{ minWidth: 260 }}
+      />
+      <Button size="small" onClick={() => save.mutate()}>
+        Save skills
+      </Button>
+    </Stack>
+  );
+}
+
 function QueuesCard() {
   const qc = useQueryClient();
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api<Queue[]>('/admin/queues') });
@@ -251,6 +611,7 @@ function QueuesCard() {
               ({q.key})
             </Typography>
           </Typography>
+          <QueueRouting queue={q} onSaved={refresh} />
           <Stack direction="row" sx={{ flexWrap: 'wrap' }}>
             {(members.data ?? []).map((m) => (
               <FormControlLabel

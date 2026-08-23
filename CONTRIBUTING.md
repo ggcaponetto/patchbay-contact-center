@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for helping out. This page is the short version; the
-[developer documentation](https://ggcaponetto.github.io/livekit-playground/) has the details.
+[developer documentation](https://ggcaponetto.github.io/patchbay-contact-center/) has the details.
 
 ## Setup
 
@@ -41,8 +41,8 @@ is usually a green PR. Typical fixes:
   behavior changes.
 - **Contracts in one place.** Anything shared between API, agent, web and embed is a zod schema in
   `packages/shared`. Add optional fields with defaults to stay backwards compatible.
-- **Keep it small.** The repo has a hard budget of 50k non-blank source lines (`npm run loc`) and a
-  POC target below 20k. Prefer deleting to adding.
+- **Keep it small.** Product code has a hard budget of 50k non-blank lines (`npm run loc`, POC
+  target below 20k) and tests a separate 50k. Prefer deleting to adding.
 - **Style** is enforced by Prettier and ESLint; no enums, namespaces or parameter properties
   (Node strips types at runtime, see `tsconfig.base.json`).
 

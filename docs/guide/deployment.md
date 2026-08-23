@@ -57,4 +57,4 @@ Add a second authorized redirect URI to the OAuth client: `https://<desk host>/a
 
 ## Docs site
 
-`.github/workflows/docs.yml` builds the VitePress site (`npm run docs:build`, which first runs typedoc) and deploys `.vitepress/dist` to GitHub Pages on every push to `main` that touches `docs/**`, `packages/shared/**`, `typedoc.json` or the workflow itself. The site's `base` is `/livekit-playground/`. Enable **Pages → Source: GitHub Actions** in the repository settings once.
+`.github/workflows/docs.yml` builds the VitePress site (`npm run docs:build`, which first runs typedoc) and deploys `.vitepress/dist` to GitHub Pages on every push to `main` that touches `docs/**`, `packages/shared/**`, `typedoc.json` or the workflow itself. The site's `base` is `/patchbay-contact-center/`. Enable **Pages → Source: GitHub Actions** in the repository settings once.

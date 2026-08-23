@@ -71,10 +71,16 @@ describe('schema', () => {
   });
 
   it('cascades call children but never drops a queue with history', () => {
-    expect(foreignKeys('call')).toEqual(['tenant_id->tenant.id', 'queue_id->queue.id']);
+    expect(foreignKeys('call')).toEqual([
+      'tenant_id->tenant.id',
+      'queue_id->queue.id',
+      'preferred_agent_id->user.id',
+    ]);
+    // a deleted preferred agent must not take the call's history with it
     expect(getTableConfig(schema.call).foreignKeys.map((fk) => fk.onDelete)).toEqual([
       'cascade',
       'no action',
+      'set null',
     ]);
     expect(foreignKeys('callParticipant')).toEqual(['call_id->call.id', 'user_id->user.id']);
     expect(foreignKeys('transcriptSegment')).toEqual(['call_id->call.id']);

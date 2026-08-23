@@ -87,6 +87,8 @@ describe('buildServer', () => {
       user: { id: 'u1', email: 'boss@example.com', name: 'Boss' },
       isAdmin: true,
       memberships: [],
+      permissions: [],
+      devMode: false,
     });
     const denied = await app.inject({ method: 'POST', url: '/api/internal/calls/x/status' });
     expect(denied.statusCode).toBe(401);
@@ -95,6 +97,45 @@ describe('buildServer', () => {
       headers: { 'x-internal-secret': 'env-secret' },
     });
     expect(accepted.statusCode).toBe(404);
+  });
+
+  it('documents every route in /api/openapi.json, built from the zod contracts', async () => {
+    const { app } = await build({ getSession, internalSecret: 's' });
+    const res = await app.inject({ url: '/api/openapi.json' });
+    const doc = res.json();
+    expect(doc.openapi).toBe('3.1.0');
+    expect(doc.info.title).toBe('Patchbay Contact Center API');
+    // every registered API route is in the document (the auth handler and the root
+    // page are the only undocumented ones)
+    const registered = app
+      .printRoutes({ commonPrefix: false })
+      .split(/\r?\n/)
+      .map((l) => /^(?:[│├└─\s]*)(\/\S*) \(([A-Z, ]+)\)/.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null && m[1]!.startsWith('/api/'))
+      .filter((m) => !m[1]!.startsWith('/api/auth') && !m[1]!.startsWith('/api/ws'))
+      .map((m) => m[1]!.replace(/:(\w+)/g, '{$1}'));
+    for (const path of registered) expect(Object.keys(doc.paths)).toContain(path);
+    const accept = doc.paths['/api/desk/calls/{id}/accept'].post;
+    expect(accept).toMatchObject({
+      'x-permission': 'calls:answer',
+      parameters: [{ name: 'id', in: 'path', required: true }],
+      security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+    });
+    expect(accept.responses['200'].content['application/json'].schema.properties.token).toEqual({
+      type: 'string',
+    });
+    expect(accept.responses['409'].description).toContain('not_ringing_you');
+    const state = doc.paths['/api/desk/state'].post;
+    expect(state.requestBody.content['application/json'].schema.properties.state.enum).toEqual([
+      'ready',
+      'not_ready',
+    ]);
+    expect(doc.paths['/api/public/calls'].post.security).toEqual([]);
+    expect(doc.paths['/api/internal/calls/{id}/escalate'].post.description).toContain(
+      'x-internal-secret',
+    );
+    expect(doc.paths['/api/admin/tenants'].post.description).toContain('ADMIN_EMAILS');
+    expect(doc.paths['/api/me'].get.description).toContain('Any signed-in');
   });
 
   it('serves the embed bundle only when apps/embed/dist exists', async () => {

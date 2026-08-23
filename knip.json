@@ -7,6 +7,7 @@
         ".vitepress/config.ts",
         "playwright.config.ts",
         "tests/e2e/*.ts",
+        "tests/e2e/specs/**/*.spec.ts",
         "tests/load/*.mjs"
       ],
       "project": ["build/*.mjs", "*.ts", ".vitepress/*.ts", "tests/**/*.{ts,mjs}"]
@@ -25,6 +26,10 @@
       "project": ["src/**/*.{ts,tsx}"]
     },
     "apps/embed": {
+      "project": ["src/**/*.ts"]
+    },
+    "apps/media": {
+      "entry": ["src/index.ts"],
       "project": ["src/**/*.ts"]
     }
   }

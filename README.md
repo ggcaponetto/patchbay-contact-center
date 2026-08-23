@@ -1,6 +1,6 @@
 <div align="center">
 
-# Contact Center POC
+# Patchbay Contact Center
 
 **An AI-first contact center on LiveKit Cloud — the AI answers, humans take over.**
 
@@ -8,23 +8,24 @@ A "Call us" button for any website, a voice AI that picks up first, a React desk
 human agents and supervisors take over live calls, and every conversation stored in
 Postgres for the next LLM to act on.
 
-[![CI](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml/badge.svg)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/ci.yml)
-[![Docs](https://github.com/ggcaponetto/livekit-playground/actions/workflows/docs.yml/badge.svg)](https://ggcaponetto.github.io/livekit-playground/)
-[![SAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/sast.yml)
-[![DAST](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/livekit-playground/actions/workflows/dast.yml)
-[![Release](https://img.shields.io/github/v/release/ggcaponetto/livekit-playground?sort=semver)](https://github.com/ggcaponetto/livekit-playground/releases)
-[![codecov](https://codecov.io/gh/ggcaponetto/livekit-playground/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/livekit-playground)
+[![CI](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/ci.yml/badge.svg)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/ci.yml)
+[![Docs](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/docs.yml/badge.svg)](https://ggcaponetto.github.io/patchbay-contact-center/)
+[![SAST](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/sast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/sast.yml)
+[![DAST](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/dast.yml/badge.svg?branch=main)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/dast.yml)
+[![Release](https://img.shields.io/github/v/release/ggcaponetto/patchbay-contact-center?sort=semver)](https://github.com/ggcaponetto/patchbay-contact-center/releases)
+[![codecov](https://codecov.io/gh/ggcaponetto/patchbay-contact-center/branch/main/graph/badge.svg)](https://codecov.io/gh/ggcaponetto/patchbay-contact-center)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ggcaponetto_livekit-playground)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=ggcaponetto_livekit-playground&metric=ncloc)](https://sonarcloud.io/summary/overall?id=ggcaponetto_livekit-playground)
-[![E2E: Playwright](https://img.shields.io/badge/e2e-playwright-2EAD33?logo=playwright&logoColor=white)](tests/README.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ggcaponetto/livekit-playground/blob/main/LICENSE)
+[![E2E](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/e2e-nightly.yml/badge.svg)](https://github.com/ggcaponetto/patchbay-contact-center/actions/workflows/e2e-nightly.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/ggcaponetto/patchbay-contact-center/blob/main/LICENSE)
 [![Node ≥ 24](https://img.shields.io/badge/node-%E2%89%A5%2024-brightgreen)](https://nodejs.org)
 [![LiveKit Agents](https://img.shields.io/badge/LiveKit%20Agents-1.7-0A84FF)](https://docs.livekit.io/agents/)
 
 **[Getting started](docs/guide/getting-started.md)** ·
-[Documentation](https://ggcaponetto.github.io/livekit-playground/) ·
+[Documentation](https://ggcaponetto.github.io/patchbay-contact-center/) ·
 [Architecture](docs/guide/architecture.md) ·
-[API Reference](https://ggcaponetto.github.io/livekit-playground/docs/api/)
+[Roadmap](docs/guide/roadmap.md) ·
+[API Reference](https://ggcaponetto.github.io/patchbay-contact-center/docs/api/)
 
 </div>
 
@@ -69,8 +70,8 @@ Deeper dives: [Architecture](docs/guide/architecture.md) · [Call lifecycle](doc
 **Prerequisites:** Node ≥ 24 and npm ≥ 11, Docker (Postgres), the [LiveKit CLI](https://docs.livekit.io/intro/basics/cli/) with a [LiveKit Cloud](https://cloud.livekit.io/) project, and optionally a Google OAuth client.
 
 ```sh
-git clone https://github.com/ggcaponetto/livekit-playground.git
-cd livekit-playground
+git clone https://github.com/ggcaponetto/patchbay-contact-center.git
+cd patchbay-contact-center
 npm install
 cp .env.example .env.local                 # fill in the values (see below)
 lk cloud auth && lk app env -w -d .env.local   # LIVEKIT_URL / API_KEY / API_SECRET
@@ -79,14 +80,14 @@ docker compose up -d                       # Postgres on localhost:5432
 
 Minimum `.env.local` besides the LiveKit values:
 
-| Variable                                    | Purpose                                                                                |
-| ------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                              | `postgres://cc:cc@localhost:5432/cc` (matches `docker-compose.yml`)                    |
-| `INTERNAL_API_SECRET`                       | shared secret between the agent worker and the API                                     |
-| `ADMIN_EMAILS`                              | who becomes supervisor of a fresh tenant on first login                                |
-| `BETTER_AUTH_SECRET`                        | random string (≥ 32 chars)                                                             |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client; redirect URI `http://localhost:3000/api/auth/callback/google`            |
-| `DEV_USER_EMAIL`                            | _dev only_: skip Google and sign every request in as this user (ignored in production) |
+| Variable                                    | Purpose                                                                            |
+| ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL`                              | `postgres://cc:cc@localhost:5432/cc` (matches `docker-compose.yml`)                |
+| `INTERNAL_API_SECRET`                       | shared secret between the agent worker and the API                                 |
+| `ADMIN_EMAILS`                              | who becomes supervisor of a fresh tenant on first login                            |
+| `BETTER_AUTH_SECRET`                        | random string (≥ 32 chars)                                                         |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client; redirect URI `http://localhost:3000/api/auth/callback/google`        |
+| `DEV_USER_EMAIL`                            | _dev only_: skip Google; the desk gets a "switch user" menu and a seeded demo team |
 
 Start everything with one command (color-coded output via `concurrently`), or each app in its own terminal:
 
@@ -96,6 +97,7 @@ npm run dev          # api + web + agent + embed together
 npm run dev:api      # http://localhost:4000  (set PORT / API_PORT if 4000 is taken)
 npm run dev:web      # http://localhost:3000  agent & supervisor desk
 npm run dev:agent    # registers the AI agent "cc-agent" with LiveKit Cloud
+npm run dev:media    # media worker: music on hold
 npm run dev:embed    # http://localhost:3001  demo page with the call button
 ```
 
@@ -111,8 +113,10 @@ walkthrough, env var reference and troubleshooting are in
 | ----------------- | ---------------------------------------------------------------------------------------------- |
 | `apps/api`        | Fastify API: Better Auth, LiveKit tokens & dispatch, routing, desk WebSocket, Drizzle/Postgres |
 | `apps/agent`      | LiveKit Agents worker on LiveKit Inference; escalation & hang-up tools, transcriber            |
+| `apps/media`      | Media worker: server-side audio (music on hold) over the Postgres bus                          |
 | `apps/web`        | Vite + React 19 + MUI desk for agents and supervisors                                          |
 | `apps/embed`      | `<cc-call-button>` web component, built to a single `call-button.js`                           |
+| `apps/mcp`        | MCP server: every API operation as a tool for LLM clients, keyed by an API key                 |
 | `packages/shared` | zod contracts shared by every app (settings, statuses, WebSocket protocol)                     |
 | `tests/`          | Playwright end-to-end (`e2e/`) and Artillery load (`load/`) suites                             |
 | `docs/`           | Hand-written guides (`guide/`) and the generated API reference (`api/`)                        |
@@ -128,20 +132,25 @@ Plain **npm workspaces**; Node runs TypeScript directly (type stripping) so ther
 | `npm test`                 | unit + integration tests with the 90 % coverage gate (integration needs Postgres)      |
 | `npm run test:unit`        | unit tests only — `*.test.ts` next to the sources, no services needed                  |
 | `npm run test:integration` | `*.integration.test.ts` — Postgres routes/flow, LLM-as-judge agent evals               |
-| `npm run test:e2e`         | Playwright against the real stack incl. LiveKit Cloud (opt-in)                         |
+| `npm run test:e2e`         | Playwright `core` tier against the real stack, AI played via the internal API          |
+| `npm run test:e2e:smoke`   | the `@smoke` subset, under a minute; `test:e2e:cloud` drives the real agent (LiveKit)  |
+| `npm run e2e-plan`         | checks `tests/e2e/TEST-PLAN.md` against the tagged specs (part of `validate`)          |
 | `npm run test:load`        | Artillery HTTP + WebSocket profile against a running API on :4100 (opt-in)             |
 | `npm run sast`             | static security scan: `npm audit` (prod deps) + Semgrep via Docker                     |
 | `npm run dast`             | dynamic security scan: boots the API, OWASP ZAP baseline via Docker (needs Postgres)   |
 | `npm run docs:dev`         | VitePress docs site with the typedoc API reference and mermaid diagrams                |
 | `npm run build`            | production builds of the web desk and the embed script                                 |
-| `npm run loc`              | size report against the 50k-line budget (POC target: under 20k)                        |
+| `npm run loc`              | size report: product code against 50k (POC target 20k), tests against their own 50k    |
 
 ## Quality gates
 
 Every push runs `validate` on Linux, Windows and macOS: Prettier, ESLint, `tsc` per
 workspace, [knip](https://knip.dev) (dead code and dependencies), cspell, the LOC gate,
-vitest with **90 % coverage** on logic modules, the Vite builds, and the docs build —
-where typedoc **fails on any undocumented export** and VitePress fails on dead links.
+the e2e test-plan gate, vitest with **90 % coverage** on logic modules, the Vite builds,
+and the docs build — where typedoc **fails on any undocumented export** and VitePress
+fails on dead links. Playwright runs the `smoke` and `core` end-to-end tiers on every
+push and PR, and the `cloud` tier (real AI agent on LiveKit Cloud) on `main` and nightly;
+one test per feature, tracked in [tests/e2e/TEST-PLAN.md](tests/e2e/TEST-PLAN.md).
 Husky runs Prettier + typecheck on commit and `validate` on push. On `main`, two more
 workflows run the **SAST** (`npm audit` + Semgrep) and **DAST** (OWASP ZAP baseline against
 the booted API) scanners — the same `npm run sast` / `npm run dast` you can run locally with
@@ -174,9 +183,9 @@ with the API (or proxy `/api`) for cookies; the embed script is served by the AP
 
 Proof of concept, working end to end against LiveKit Cloud: embedded call → AI → escalation →
 human takes over in the same room → transcript, events and summary in Postgres. Verified by
-unit, integration and Playwright e2e suites. Open items and known gaps are tracked in
-[TODO.md](TODO.md); the next big step is exposing stored conversations to an LLM through
-MCP tools.
+unit, integration and Playwright e2e suites. The path from here to a full contact center
+(call control, supervisor tools, skills-based routing, API-first + MCP) and why it fits the
+line budget is in the [Roadmap](docs/guide/roadmap.md); open items in [TODO.md](TODO.md).
 
 ## Contributing
 
@@ -188,4 +197,4 @@ Branching and versioning: [Releasing](docs/guide/releasing.md). Security issues:
 
 ## License
 
-[MIT](https://github.com/ggcaponetto/livekit-playground/blob/main/LICENSE) © 2026 Giuseppe Giulio Caponetto
+[MIT](https://github.com/ggcaponetto/patchbay-contact-center/blob/main/LICENSE) © 2026 Giuseppe Giulio Caponetto

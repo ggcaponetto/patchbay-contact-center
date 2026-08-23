@@ -34,6 +34,10 @@ export async function createCall(
     queueId: string;
     roomName: string;
     customerMeta: Record<string, unknown>;
+    /** Customer language (BCP 47), when the website told us. */
+    language?: string;
+    /** Routing priority (from the queue; higher first). */
+    priority?: number;
   },
 ) {
   const [row] = await db
@@ -143,9 +147,15 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
       id: call.id,
       status: call.status,
       queueKey: queue.key,
+      channel: call.channel,
+      priority: call.priority,
+      language: call.language,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
       aiSummary: call.aiSummary,
+      heldAt: call.heldAt,
+      dispositionCode: call.dispositionCode,
+      tags: call.tags,
       customerMeta: call.customerMeta,
     })
     .from(call)
@@ -155,6 +165,42 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
     .limit(limit);
 }
 
+/** Marks the customer held (music on hold) or retrieved. */
+export async function setHeld(db: Db, id: string, held: boolean) {
+  await db
+    .update(call)
+    .set({ heldAt: held ? new Date() : null })
+    .where(eq(call.id, id));
+}
+
+/** Sets the wrap-up disposition code of a call. */
+export async function setDisposition(db: Db, id: string, code: string) {
+  await db.update(call).set({ dispositionCode: code }).where(eq(call.id, id));
+}
+
+/** Replaces the tag list of a call. */
+export async function setTags(db: Db, id: string, tags: string[]) {
+  await db.update(call).set({ tags }).where(eq(call.id, id));
+}
+
+/** Remembers the accepting agent for last-agent (sticky) routing on this call. */
+export async function setPreferredAgent(db: Db, id: string, userId: string) {
+  await db.update(call).set({ preferredAgentId: userId }).where(eq(call.id, id));
+}
+
+/** Persists the recording state of a call together with the active egress id. */
+export async function setRecording(
+  db: Db,
+  id: string,
+  state: 'off' | 'on' | 'paused',
+  egressId: string | null,
+) {
+  await db
+    .update(call)
+    .set({ recordingState: state, recordingEgressId: egressId })
+    .where(eq(call.id, id));
+}
+
 /**
  * Full detail of one call: participants, transcript and events in order.
  * Tenant-scoped: returns `undefined` when the call belongs to another tenant.
@@ -162,7 +208,8 @@ export async function listCalls(db: Db, tenantId: string, limit = 50) {
 export async function callDetail(db: Db, tenantId: string, id: string) {
   const row = await getCall(db, id);
   if (!row || row.tenantId !== tenantId) return undefined;
-  const [participants, transcript, events] = await Promise.all([
+  const [[q], participants, transcript, events] = await Promise.all([
+    db.select({ key: queue.key }).from(queue).where(eq(queue.id, row.queueId)),
     db.select().from(callParticipant).where(eq(callParticipant.callId, id)),
     db
       .select()
@@ -171,5 +218,5 @@ export async function callDetail(db: Db, tenantId: string, id: string) {
       .orderBy(transcriptSegment.createdAt),
     db.select().from(callEvent).where(eq(callEvent.callId, id)).orderBy(callEvent.at),
   ]);
-  return { ...row, participants, transcript, events };
+  return { ...row, queueKey: q?.key ?? '', participants, transcript, events };
 }

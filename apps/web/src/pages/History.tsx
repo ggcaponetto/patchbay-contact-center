@@ -45,6 +45,7 @@ export function History({ desk }: Props) {
             <TableCell>Queue</TableCell>
             <TableCell>Status</TableCell>
             <TableCell>Duration</TableCell>
+            <TableCell>Disposition</TableCell>
             <TableCell>Summary</TableCell>
           </TableRow>
         </TableHead>
@@ -62,6 +63,7 @@ export function History({ desk }: Props) {
                 <Chip size="small" color={statusColor[c.status]} label={statusLabel[c.status]} />
               </TableCell>
               <TableCell>{formatDuration(c.startedAt, c.endedAt, now)}</TableCell>
+              <TableCell>{c.dispositionCode ?? ''}</TableCell>
               <TableCell sx={{ maxWidth: 420 }}>{c.aiSummary ?? ''}</TableCell>
             </TableRow>
           ))}

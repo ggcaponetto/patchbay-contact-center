@@ -20,7 +20,8 @@ Semgrep) and a dynamic scan (OWASP ZAP baseline against the booted API); see
 
 This is a proof of concept. Things to be aware of before exposing it to the internet:
 
-- `DEV_USER_EMAIL` disables authentication; it is ignored when `NODE_ENV=production`,
+- `DEV_USER_EMAIL` disables authentication (and the `cc_dev_user` cookie then lets a
+  request be any user — the e2e suite relies on it); it is ignored when `NODE_ENV=production`,
   but never set it on a reachable deployment.
 - Embed keys are public by design; restrict them with allowed origins in Settings.
   Origin checks rely on the browser-sent `Origin` header.

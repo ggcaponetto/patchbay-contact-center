@@ -5,37 +5,53 @@ LiveKit access, and the three modules that move a call between the AI and humans
 (`routing.ts`, `flow.ts`, `ws.ts`). Routes, services and the database live in their own
 folders with their own READMEs.
 
-| File         | Role                                                                   |
-| ------------ | ---------------------------------------------------------------------- |
-| `index.ts`   | Process entrypoint: loads `.env.local`, calls `start()`                |
-| `boot.ts`    | `start(env, deps)`: migrations, real dependencies, auth choice, listen |
-| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler      |
-| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                   |
-| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room               |
-| `routing.ts` | In-memory presence and ring-offer state machine (no I/O)               |
-| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave   |
-| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out                 |
-| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)               |
+| File         | Role                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| `index.ts`   | Process entrypoint: loads `.env.local`, calls `start()`                           |
+| `boot.ts`    | `start(env, deps)`: migrations, real dependencies, auth choice, listen            |
+| `server.ts`  | `buildServer`: composition root and the `authenticate` preHandler                 |
+| `auth.ts`    | Better Auth (Google) and the `DEV_USER_EMAIL` bypass                              |
+| `livekit.ts` | `LiveKit` interface: tokens, agent dispatch, delete room                          |
+| `routing.ts` | Postgres-backed presence and ring-offer engine (restart- and multi-instance-safe) |
+| `bus.ts`     | Cross-instance message bus (`LocalBus`, `PgBus` over LISTEN/NOTIFY)               |
+| `flow.ts`    | Orchestrator: escalation long-poll, human-first fallback, join/leave              |
+| `ws.ts`      | `/api/ws` websocket protocol and `DeskSockets` fan-out                            |
+| `testing.ts` | Test helpers (fake LiveKit, test server, fresh database)                          |
 
 ## `routing.ts`: presence and offers
 
-`Routing` holds two maps and nothing else: `agents` (one `Presence` per connected desk
-user) and `offers` (one per call currently ringing). It talks back through
-`RoutingEvents` callbacks, which `Flow` implements. Because it does no I/O and takes an
-injectable clock, `routing.test.ts` drives it with fake timers.
+`Routing` keeps its state in two Postgres tables — `agent_presence` (one row per connected
+desk user, with the agent state, reason, time-in-state and the owning API instance) and
+`ring_offer` (one row per call currently ringing). Nothing is in process memory, so an API
+restart loses no presence or ringing call, and several API instances share one engine:
+each runs the same `tick()` (heartbeat, dead-instance sweep, wrap-up and ring-timeout
+expiry) and a `FOR UPDATE SKIP LOCKED` row lock decides which instance advances an offer.
+It reaches desks through the {@link bus} (a desk may be on another instance) and reports
+outcomes to `Flow` through `RoutingEvents`. Driven with an injected clock and a
+`LocalBus` in `routing.integration.test.ts` (needs Postgres).
 
-### Presence rules
+### Agent states and presence rules
 
-- `ws.ts` calls `setPresence` when a desk connects (initially `away`) and on every
-  `status` message; `removePresence` when the user's last socket closes.
-- `setPresence` keeps the agent's current `callId`, so changing status while on a call
-  does not free the agent.
-- An agent is a **candidate** for an offer when: same tenant, status `available`,
-  `callId === null`, member of the offer's queue, not already tried for this offer, and
-  not currently being rung for another call. The first match in insertion order is taken;
-  there is no load balancing.
-- `accept` sets the agent to `busy` with that `callId`; `release` (call ended or a desk
-  participant left) sets them back to `available`.
+States are the classic contact-center ones — `ready`, `not_ready` (with a reason code:
+`Break`, `Lunch`, … from the tenant settings, or `RONA`), `busy` (on a call) and `acw`
+(after-call work / wrap-up) — each with the time it was entered, so desks show
+time-in-state timers. Logged out = no desk socket.
+
+- `ws.ts` calls `connect` when a desk connects (a new presence starts `not_ready`; a
+  second tab keeps the state) and `removePresence` when the user's last socket closes.
+- State changes are REST (`POST /api/desk/state`, `/acw/extend`, `/acw/done`, and the
+  supervisor's `POST /api/desk/agents/:userId/state`), handled by `setState` /
+  `extendAcw`; `busy` is never requested, it is set by `accept` / `busy` (take-over).
+- `setState` refuses while `busy` (`on_call`): a state change must never free an agent
+  on a call. Leaving `acw` by hand ends the wrap-up.
+- An agent is a **candidate** for an offer when: same tenant, state `ready`, member of
+  the offer's queue, not already tried for this offer, and not currently being rung for
+  another call. The first match in insertion order is taken; there is no load balancing.
+- A ring that times out parks the agent: `not_ready` with reason `RONA` (redirect on no
+  answer). Declines and disconnects do not.
+- `release` (call ended or a desk participant left) puts whoever was on the call into
+  `acw` for the tenant's `acwSec` (then `ready` automatically), or straight to `ready`
+  when `acwSec` is `0`.
 
 ### Life of an offer
 
@@ -57,11 +73,23 @@ timer. Two timings: `ringSec` (per agent, from `offerTimeoutSec` in tenant setti
 the escalation body) and the optional `giveUpAfterSec` deadline for the whole cycle used
 by human-first mode; the last agent's ring is shortened so it never passes the deadline.
 
-Presence is process memory: a restart forgets everyone and desks simply reconnect.
+Presence and offers live in Postgres, so a restart keeps them; a desk that reconnects to
+another instance is re-homed there (`instance_id`), and a crashed instance's users are
+swept by any instance's `tick` after the 30 s heartbeat window.
+
+## `bus.ts`: cross-instance messaging
+
+With more than one API process, an agent's desk socket lives on one instance while the
+ring that targets them may be advanced by another. Everything that must reach "whoever
+holds the socket" — offers, presence snapshots, `call.updated`, transcript frames,
+escalation outcomes, forced logouts — is published as a `BusMessage` and delivered to
+every instance, which forwards it to the connections it holds. `PgBus` uses Postgres
+`LISTEN` / `NOTIFY` (no extra infrastructure); `LocalBus` is an in-process emitter for
+tests and single-process runs and is the default when `buildServer` gets no bus.
 
 ## `flow.ts`: orchestration
 
-`Flow` owns the single `Routing` instance and is the only module that combines routing,
+`Flow` owns the single `Routing` instance per process and is the only module that combines routing,
 the database (`services/calls.ts`) and LiveKit. Every status write goes through its
 private `status()`, which persists and emits `call.updated` on the hub.
 
@@ -143,8 +171,7 @@ customer token's room configuration and only rings humans later via `escalate`.
 
 1. Client opens `ws(s)://<api>/api/ws?tenantId=<id>` with the session cookie.
 2. The server resolves the session and membership. Failure → close code `4401`.
-3. The connection is added to `DeskSockets`, the user's queue keys are loaded once, and
-   presence is set to `away`.
+3. The connection is added to `DeskSockets` and presence starts as `not_ready`.
 4. Messages are parsed with `ClientMessage` (zod); anything else is dropped silently.
 5. On close the socket is removed; presence is removed only when it was the user's last
    socket, which also moves any offer ringing them to the next agent.
@@ -154,14 +181,15 @@ agent must reconnect (reload the desk) to ring for the new queue.
 
 ### Client → server
 
-| `type`          | Fields                          | Effect                                               |
-| --------------- | ------------------------------- | ---------------------------------------------------- |
-| `status`        | `status: available\|busy\|away` | `Routing.setPresence`; only `available` gets offers  |
-| `subscribe`     | `callId`                        | Receive `transcript` messages for that call          |
-| `offer.decline` | `callId`                        | `Routing.decline`; the offer moves to the next agent |
+| `type`          | Fields   | Effect                                               |
+| --------------- | -------- | ---------------------------------------------------- |
+| `subscribe`     | `callId` | Receive `transcript` messages for that call          |
+| `offer.decline` | `callId` | `Routing.decline`; the offer moves to the next agent |
 
-Accepting is **not** a socket message: `POST /api/desk/calls/:id/accept` returns the
-LiveKit token.
+Accepting and every state change are **not** socket messages: `POST /api/desk/calls/:id/accept`
+returns the LiveKit token, `POST /api/desk/state` and the wrap-up routes answer with the
+new presence. The server → client `logout` frame tells a desk a supervisor logged it out
+(the socket is then closed with `4403` and the desk does not reconnect).
 
 ### Server → client
 
@@ -176,9 +204,9 @@ LiveKit token.
 ### Why early messages are buffered
 
 `ws` delivers a message only if a `message` listener is attached at that moment. The
-handler `await`s the session and membership lookups before it is ready, and a desk sends
-`status` right after `open`, so without a buffer the first message would be lost and the
-agent would stay `away`. The handler therefore attaches a listener immediately that
+handler `await`s the session and membership lookups before it is ready, and a desk may
+send `subscribe` right after `open`, so without a buffer the first message would be lost.
+The handler therefore attaches a listener immediately that
 pushes into `inbox.early` until `inbox.handle` exists, then replays the buffer in order.
 
 ## `auth.ts`

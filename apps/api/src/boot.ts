@@ -6,14 +6,15 @@
  *
  * 1. Apply pending SQL migrations so the schema is always current before any query runs.
  * 2. Open the Postgres pool and create the real LiveKit client.
- * 3. Pick the auth strategy: `DEV_USER_EMAIL` (dev bypass, never in production) or
- *    Better Auth with Google.
+ * 3. Pick the auth strategy: `DEV_USER_EMAIL` (dev bypass, never in production; seeds the
+ *    demo team unless `DEV_DEMO_TEAM=false`) or Better Auth with Google.
  * 4. `buildServer` wires everything together; then listen on `PORT` (default 4000).
  *
  * @see apps/api/README.md
  * @packageDocumentation
  */
 import { createAuth } from './auth.ts';
+import { PgBus } from './bus.ts';
 import { createDb } from './db/client.ts';
 import { runMigrations } from './db/migrate.ts';
 import { createLiveKit } from './livekit.ts';
@@ -26,27 +27,44 @@ export type BootDeps = {
   createLiveKit: typeof createLiveKit;
   createAuth: typeof createAuth;
   buildServer: typeof buildServer;
+  /** The cross-instance bus (Postgres LISTEN/NOTIFY); started before the server is built. */
+  createBus: (connectionString: string) => PgBus;
 };
 
-const realDeps: BootDeps = { runMigrations, createDb, createLiveKit, createAuth, buildServer };
+const realDeps: BootDeps = {
+  runMigrations,
+  createDb,
+  createLiveKit,
+  createAuth,
+  buildServer,
+  createBus: (c) => new PgBus(c),
+};
 
 /**
  * Migrates, wires and starts listening. Resolves once the server accepts connections.
  *
- * @param env - Environment to read `NODE_ENV`, `DEV_USER_EMAIL` and `PORT` from.
+ * @param env - Environment to read `NODE_ENV`, `DEV_USER_EMAIL`, `DEV_DEMO_TEAM` and `PORT` from.
  * @param deps - See {@link BootDeps}; defaults to the real implementations.
  * @returns The listening Fastify app, so callers (and tests) can close it.
  */
 export async function start(env: NodeJS.ProcessEnv = process.env, deps: BootDeps = realDeps) {
   await deps.runMigrations();
   const { db } = deps.createDb();
+  // Desks may be on any API instance: offers, presence and outcomes travel over Postgres.
+  const bus = deps.createBus(env.DATABASE_URL ?? '');
+  await bus.start();
   // The bypass is only honoured outside production, even if the variable is set.
   const devUser = env.NODE_ENV !== 'production' ? env.DEV_USER_EMAIL : undefined;
-  const { app } = await deps.buildServer({
+  const { app, flow } = await deps.buildServer({
     db,
     livekit: deps.createLiveKit(),
-    ...(devUser ? { devUserEmail: devUser } : { auth: deps.createAuth(db) }),
+    bus,
+    ...(devUser
+      ? { devUserEmail: devUser, devDemoTeam: env.DEV_DEMO_TEAM !== 'false' }
+      : { auth: deps.createAuth(db) }),
   });
+  // Ring timeouts, wrap-up expiries and dead-instance sweeps run on every instance.
+  flow.routing.start();
   const port = Number(env.PORT ?? 4000);
   try {
     await app.listen({ port, host: '0.0.0.0' });

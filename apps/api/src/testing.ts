@@ -16,6 +16,7 @@ import dotenv from 'dotenv';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { type SessionUser } from './auth.ts';
+import { LocalBus } from './bus.ts';
 import { type Db, createDb } from './db/client.ts';
 import { runMigrations } from './db/migrate.ts';
 import { user } from './db/schema.ts';
@@ -79,10 +80,22 @@ export async function createUser(
  *   `dispatched` and `deleted` (room names). Tokens are `token-for-<identity>`.
  */
 export function fakeLiveKit() {
-  const calls: { tokens: unknown[]; dispatched: string[]; deleted: string[] } = {
+  const calls: {
+    tokens: unknown[];
+    dispatched: string[];
+    deleted: string[];
+    removed: string[];
+    /** Rooms a recording segment was started in; ids are `eg-<n>`. */
+    egressStarted: string[];
+    /** Egress ids that were stopped, in order. */
+    egressStopped: string[];
+  } = {
     tokens: [],
     dispatched: [],
     deleted: [],
+    removed: [],
+    egressStarted: [],
+    egressStopped: [],
   };
   const livekit: LiveKit = {
     url: 'wss://fake.livekit.cloud',
@@ -95,6 +108,16 @@ export function fakeLiveKit() {
     },
     async deleteRoom(room) {
       calls.deleted.push(room);
+    },
+    async removeParticipant(room, identity) {
+      calls.removed.push(`${room}:${identity}`);
+    },
+    async startRecording(room) {
+      calls.egressStarted.push(room);
+      return `eg-${calls.egressStarted.length}`;
+    },
+    async stopRecording(egressId) {
+      calls.egressStopped.push(egressId);
     },
   };
   return { livekit, calls };
@@ -127,16 +150,18 @@ export async function testServer(
 ) {
   const current: { user: SessionUser | null } = { user: null };
   const lk = fakeLiveKit();
+  const bus = new LocalBus();
   const { app, hub, flow } = await buildServer({
     db,
     adminEmails,
     livekit: lk.livekit,
     internalSecret: INTERNAL_SECRET,
+    bus,
     getSession: async () => (resolve ? resolve() : current.user),
   });
   const as = (u: SessionUser | null) => {
     current.user = u;
     return app;
   };
-  return { app, as, hub, flow, lk: lk.calls };
+  return { app, as, hub, flow, lk: lk.calls, bus };
 }

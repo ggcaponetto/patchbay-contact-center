@@ -26,19 +26,20 @@ Migrations run automatically at boot. `GET /api/health` answers `{ "ok": true }`
 
 Read from `apps/api/.env.local`, then the repo root `.env.local`.
 
-| Variable                                    | Required | Purpose                                                                                                                |
-| ------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                      | no       | Listen port, default `4000`.                                                                                           |
-| `DATABASE_URL`                              | yes      | Postgres connection string. Tests use `DATABASE_URL_TEST` when set.                                                    |
-| `WEB_ORIGIN`                                | yes      | Origin of the web desk (`http://localhost:3000`). Better Auth base URL and trusted origin; the web app proxies `/api`. |
-| `API_ORIGIN`                                | no       | Not read by the API itself; the agent worker and e2e tests use it to find the API.                                     |
-| `INTERNAL_API_SECRET`                       | yes      | Shared secret the agent worker sends as `x-internal-secret`. Boot fails when empty.                                    |
-| `ADMIN_EMAILS`                              | no       | Comma-separated emails that may create tenants and get a personal tenant on first login.                               |
-| `BETTER_AUTH_SECRET`                        | yes\*    | Cookie/JWT signing secret for Better Auth.                                                                             |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | yes\*    | Google OAuth client used by Better Auth.                                                                               |
-| `DEV_USER_EMAIL`                            | no       | Dev only: skip Google and sign every request in as this user. Ignored when `NODE_ENV=production`.                      |
-| `LIVEKIT_URL`                               | yes      | `wss://...livekit.cloud`. Handed to clients with their token.                                                          |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`    | yes      | Sign tokens and call the room / dispatch APIs.                                                                         |
+| Variable                                    | Required | Purpose                                                                                                                                                                                                                  |
+| ------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                                      | no       | Listen port, default `4000`.                                                                                                                                                                                             |
+| `DATABASE_URL`                              | yes      | Postgres connection string. Tests use `DATABASE_URL_TEST` when set.                                                                                                                                                      |
+| `WEB_ORIGIN`                                | yes      | Origin of the web desk (`http://localhost:3000`). Better Auth base URL and trusted origin; the web app proxies `/api`.                                                                                                   |
+| `API_ORIGIN`                                | no       | Not read by the API itself; the agent worker and e2e tests use it to find the API.                                                                                                                                       |
+| `INTERNAL_API_SECRET`                       | yes      | Shared secret the agent worker sends as `x-internal-secret`. Boot fails when empty.                                                                                                                                      |
+| `ADMIN_EMAILS`                              | no       | Comma-separated emails that may create tenants and get a personal tenant on first login.                                                                                                                                 |
+| `BETTER_AUTH_SECRET`                        | yes\*    | Cookie/JWT signing secret for Better Auth.                                                                                                                                                                               |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | yes\*    | Google OAuth client used by Better Auth.                                                                                                                                                                                 |
+| `DEV_USER_EMAIL`                            | no       | Dev only: skip Google and sign every request in as this user; a `cc_dev_user=<email>` cookie picks another (`POST /api/auth/dev-switch`, the desk's "switch user" menu, e2e actors). Ignored when `NODE_ENV=production`. |
+| `DEV_DEMO_TEAM`                             | no       | With `DEV_USER_EMAIL` (default `true`): seed the demo team (`services/demo.ts`) into the dev user's tenant at boot.                                                                                                      |
+| `LIVEKIT_URL`                               | yes      | `wss://...livekit.cloud`. Handed to clients with their token.                                                                                                                                                            |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`    | yes      | Sign tokens and call the room / dispatch APIs.                                                                                                                                                                           |
 
 \* not needed when `DEV_USER_EMAIL` is set.
 
@@ -88,6 +89,10 @@ Three kinds of callers, three route groups, one orchestrator:
 
 - **Embed → `/api/public`**: unauthenticated, protected by embed key + origin allow-list.
   Creates the call and returns the customer's LiveKit token.
+- **Integrations → any `/api/desk` or `/api/admin` route**: `Authorization: Bearer ak_…`
+  API key with an explicit permission set (Settings → API keys). Same routes, same
+  contracts as the desk; the OpenAPI document is at `GET /api/openapi.json`. See
+  `routes/README.md` → OpenAPI / Authorization.
 - **Web desk → `/api/desk`, `/api/admin`, `/api/ws`**: cookie session. REST for anything
   that returns data (accepting an offer returns a token), websocket for pushes.
 - **AI agent worker → `/api/internal`**: shared secret. The worker has no database; it

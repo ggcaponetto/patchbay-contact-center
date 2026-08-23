@@ -32,6 +32,32 @@ export type Me = {
   isAdmin: boolean;
   /** One entry per contact center; the first one is selected by default. */
   memberships: { tenantId: string; role: 'agent' | 'supervisor'; tenantName: string }[];
+  /** The API runs with the dev-auth bypass: the app bar offers "switch user". */
+  devMode?: boolean;
+};
+
+/** `GET /api/desk/settings`: the tenant settings the Desk page needs (any member). */
+export type DeskSettings = {
+  notReadyReasons: string[];
+  acwSec: number;
+  dispositions: { code: string; label: string }[];
+  dispositionRequired: boolean;
+  holdReminderSec: number;
+  monitorNotify: boolean;
+  ticker: string;
+  autoAnswer: boolean;
+  queues: { id: string; key: string; name: string }[];
+};
+
+/** `GET /api/desk/stats`: live tenant statistics and threshold alerts. */
+export type TenantStats = {
+  waiting: number;
+  longestWaitSec: number;
+  active: number;
+  longestCallSec: number;
+  agents: { ready: number; notReady: number; busy: number; acw: number };
+  today: { calls: number; answered: number; avgHandleSec: number };
+  alerts: string[];
 };
 
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */
@@ -43,6 +69,20 @@ export type CallSummary = {
   endedAt: string | null;
   /** Written by the AI agent at the end of the call (or on escalation). */
   aiSummary: string | null;
+  /** When the customer was put on hold, `null` while not held. */
+  heldAt: string | null;
+  /** Wrap-up code picked by the handling agent, or `null`. */
+  dispositionCode: string | null;
+  /** Recording state machine: `off` → `on` ⇄ `paused` → `off`. */
+  recordingState: 'off' | 'on' | 'paused';
+  /** Free-form categorization tags. */
+  tags: string[];
+  /** How the contact came in (`voice` for now). */
+  channel: string;
+  /** Routing priority; higher first. */
+  priority: number;
+  /** Customer language (BCP 47), when known. */
+  language: string | null;
   /** Free-form data sent by the embed button, e.g. `{ page, userAgent }`. */
   customerMeta: Record<string, unknown>;
 };
@@ -65,7 +105,17 @@ export type CallDetail = CallSummary & {
 /** `GET /api/admin/tenant`. */
 export type Tenant = { id: string; name: string; slug: string; settings: TenantSettings };
 /** `GET /api/admin/queues`; `memberIds` are the agents rung for this queue. */
-export type Queue = { id: string; key: string; name: string; memberIds: string[] };
+export type Queue = {
+  id: string;
+  key: string;
+  name: string;
+  memberIds: string[];
+  /** Routing configuration (`QueueConfig` in `@cc/shared`), `{}` for the defaults. */
+  config: Record<string, unknown>;
+};
+
+/** One skill with proficiency 1-5, `GET /api/admin/members/:userId/skills`. */
+export type Skill = { skill: string; proficiency: number };
 /** `GET /api/admin/members`. */
 export type Member = { userId: string; name: string; email: string; role: 'agent' | 'supervisor' };
 /** `GET /api/admin/invites`; `acceptedAt` is null while the invite is pending. */
@@ -75,6 +125,16 @@ export type Invite = { id: string; email: string; role: string; acceptedAt: stri
  * empty `allowedOrigins` means any website may use the key.
  */
 export type EmbedKey = { id: string; label: string; publicKey: string; allowedOrigins: string[] };
+/** `GET /api/admin/api-keys`; `POST` additionally returns `secret` once. */
+export type ApiKey = {
+  id: string;
+  name: string;
+  prefix: string;
+  permissions: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
 
 /** The tenant every request is scoped to; set once after sign-in. */
 let tenantId = '';

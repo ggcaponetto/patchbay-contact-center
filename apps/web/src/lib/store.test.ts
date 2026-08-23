@@ -3,37 +3,46 @@ import { describe, expect, it } from 'vitest';
 import {
   type DeskState,
   formatDuration,
+  formatSince,
   initialState,
+  myPresence,
   parseRoute,
   reduce,
   secondsLeft,
 } from './store.ts';
 
+const agent = (
+  userId: string,
+  state: 'ready' | 'busy' = 'ready',
+  callId: string | null = null,
+) => ({
+  userId,
+  name: userId.toUpperCase(),
+  state,
+  reason: null,
+  since: '2026-01-01T00:00:00Z',
+  callId,
+  acwUntil: null,
+});
+
 const run = (actions: Parameters<typeof reduce>[1][], start: DeskState = initialState) =>
   actions.reduce(reduce, start);
 
 describe('desk store', () => {
-  it('tracks socket and own status', () => {
-    let s = run([
-      { type: 'socket', connected: true },
-      { type: 'myStatus', status: 'available' },
-    ]);
-    expect(s).toMatchObject({ connected: true, myStatus: 'available' });
+  it('tracks the socket, presence (own state included) and a forced logout', () => {
+    let s = run([{ type: 'socket', connected: true }]);
+    expect(s).toMatchObject({ connected: true, loggedOutBy: null });
+    expect(myPresence(s, 'u')).toBeUndefined();
     s = run(
-      [
-        {
-          type: 'server',
-          message: {
-            type: 'presence',
-            agents: [{ userId: 'u', name: 'U', status: 'busy', callId: 'c' }],
-          },
-        },
-      ],
+      [{ type: 'server', message: { type: 'presence', agents: [agent('u', 'busy', 'c')] } }],
       s,
     );
     expect(s.agents).toHaveLength(1);
+    expect(myPresence(s, 'u')).toMatchObject({ state: 'busy', callId: 'c' });
     s = run([{ type: 'socket', connected: false }], s);
     expect(s.agents).toEqual([]);
+    s = run([{ type: 'server', message: { type: 'logout', by: 'Boss' } }], s);
+    expect(s).toMatchObject({ loggedOutBy: 'Boss', agents: [], offer: null });
   });
 
   it('handles offers, cancellations and call updates', () => {
@@ -87,6 +96,24 @@ describe('desk store', () => {
     expect(s.transcripts.c2).toHaveLength(1);
   });
 
+  it('collects instant messages (capped at 20) and tracks the ticker', () => {
+    const im = (text: string) => ({
+      type: 'server' as const,
+      message: {
+        type: 'im' as const,
+        from: { userId: 'u1', name: 'Boss' },
+        text,
+        broadcast: false,
+      },
+    });
+    const s = run([...Array.from({ length: 25 }, (_v, i) => im(`m${i}`))]);
+    expect(s.messages).toHaveLength(20);
+    expect(s.messages.at(-1)?.text).toBe('m24');
+    const t = run([{ type: 'server', message: { type: 'ticker', text: 'Maintenance tonight' } }]);
+    expect(t.ticker).toBe('Maintenance tonight');
+    expect(run([{ type: 'server', message: { type: 'ticker', text: '' } }]).ticker).toBe('');
+  });
+
   it('computes offer countdowns and durations', () => {
     const offer = { callId: 'c', queueKey: 'q', expiresAt: '2026-01-01T00:00:20.000Z' };
     expect(secondsLeft(offer, Date.parse('2026-01-01T00:00:05.500Z'))).toBe(15);
@@ -96,6 +123,7 @@ describe('desk store', () => {
       '0:09',
     );
     expect(formatDuration('2026-01-01T00:00:10Z', null, 0)).toBe('0:00');
+    expect(formatSince('2026-01-01T00:00:00Z', Date.parse('2026-01-01T00:02:03Z'))).toBe('2:03');
   });
 
   it('parses hash routes', () => {

@@ -1,53 +1,112 @@
 /**
- * `#/desk`: the page every agent lives on. Availability toggle, the incoming-call
- * dialog with its countdown and, once accepted, the {@link CallPanel} for the active
- * call. State comes from the desk websocket (`desk.state`), joining happens over REST
- * because the accept call returns a LiveKit token.
+ * `#/desk`: the page every agent lives on. The {@link StateBar} (Ready / Not ready,
+ * wrap-up), the incoming-call dialog with its countdown and, once accepted, the
+ * {@link CallPanel} for the active call. State comes from the desk websocket
+ * (`desk.state`), every action happens over REST.
  */
-import type { AgentStatus } from '@cc/shared';
 import {
   Alert,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Paper,
   Stack,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
+import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
-import { type Me, post } from '../lib/api.ts';
+import { RecordingControls } from '../components/RecordingControls.tsx';
+import { StateBar } from '../components/StateBar.tsx';
+import { TransferConsult } from '../components/TransferConsult.tsx';
+import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
-import { secondsLeft } from '../lib/store.ts';
+import { myPresence, secondsLeft } from '../lib/store.ts';
+
+/**
+ * The zip tone announcing an auto-answered call: a short 880 Hz beep via WebAudio.
+ * Silently does nothing where WebAudio is unavailable (tests).
+ */
+function zipTone(): void {
+  if (typeof AudioContext === 'undefined') return;
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = 880;
+  gain.gain.value = 0.2;
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.25);
+  osc.onended = () => void ctx.close();
+}
 
 /** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
 
 /**
- * The agent's workplace: availability toggle, incoming offers, the active call.
+ * The agent's workplace: state bar, incoming offers, the active call.
  *
  * Uses:
- * - WS `status` (via `desk.setStatus`) when the Available/Away toggle changes.
+ * - `POST /api/desk/state`, `/acw/*` from the {@link StateBar}; the server echoes the
+ *   new state in the `presence` frame (`myPresence`).
  * - WS `call.offer` / `call.offer.cancelled` (already reduced into `state.offer`).
  * - `POST /api/desk/calls/:id/accept` to answer; returns `{ token, url }`.
  * - WS `subscribe` so live transcript segments of the call start arriving.
  * - WS `offer.decline` to pass the call to the next agent.
  * - `POST /api/desk/calls/:id/leave` (`role: 'human'`) when hanging up; a human leaving
- *   ends the call server-side.
- *
- * `myStatus` becomes `busy` only through the server's presence; the toggle never shows
- * it, hence the "(on a call)" hint.
+ *   ends the call server-side and puts the agent into wrap-up.
  */
 export function Desk({ desk, me }: Props) {
-  const { state, dispatch, send, setStatus } = desk;
+  const { state, dispatch, send } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const settings = useQuery({
+    queryKey: ['desk-settings'],
+    queryFn: () => api<DeskSettings>('/desk/settings'),
+  });
   const now = useNow();
+  const mine = myPresence(state, me.user.id);
+  // Caller and call info for the ring dialog (page, language, priority).
+  const offered = useQuery({
+    queryKey: ['call', state.offer?.callId],
+    queryFn: () => api<CallDetail>(`/desk/calls/${state.offer!.callId}`),
+    enabled: state.offer !== null,
+  });
+  // The active call as the server sees it: hold state and who else is on it. Refetched
+  // on every call.updated (hold, retrieve, consult accept, drop all bump it).
+  const activeDetail = useQuery({
+    queryKey: ['call', active?.callId, state.callsVersion],
+    queryFn: () => api<CallDetail>(`/desk/calls/${active!.callId}`),
+    enabled: active !== null,
+  });
+  const heldAt = activeDetail.data?.heldAt ?? null;
+  // Monitoring notification: a supervisor is on the call (listen / whisper / barge).
+  const monitored =
+    (settings.data?.monitorNotify ?? true) &&
+    (activeDetail.data?.participants ?? []).some(
+      (p) => p.kind === 'supervisor' && p.leftAt === null,
+    );
+  const consultants = (activeDetail.data?.participants ?? [])
+    .filter((p) => p.kind === 'human' && p.leftAt === null && p.userId !== me.user.id)
+    .map((p) => ({
+      userId: p.userId,
+      name: state.agents.find((a) => a.userId === p.userId)?.name ?? 'colleague',
+    }));
+
+  /** Hold / retrieve the customer; the server starts and stops the music. */
+  const toggleHold = async () => {
+    if (!active) return;
+    try {
+      await post(`/desk/calls/${active.callId}/${heldAt ? 'retrieve' : 'hold'}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   /** Accept the ringing offer: get a token, subscribe to the transcript, open the panel. */
   const accept = async () => {
@@ -77,30 +136,24 @@ export function Desk({ desk, me }: Props) {
     if (!active) return;
     const { callId } = active;
     setActive(null);
+    // The server frees us into wrap-up (or straight to ready) and broadcasts it.
     await post(`/desk/calls/${callId}/leave`, { role: 'human' }).catch(() => undefined);
-    setStatus('available');
-  }, [active, setStatus]);
+  }, [active]);
+
+  // Auto-answer: a zip tone, then the offer is accepted without a click.
+  const offerId = state.offer?.callId;
+  const autoAnswer = settings.data?.autoAnswer ?? false;
+  useEffect(() => {
+    if (!offerId || active || !autoAnswer) return;
+    zipTone();
+    const timer = setTimeout(() => void accept(), 600);
+    return () => clearTimeout(timer);
+  }, [offerId, active, autoAnswer]);
 
   return (
     <Stack spacing={2}>
       <Paper sx={{ p: 2 }}>
-        <Stack direction="row" sx={{ alignItems: 'center' }} spacing={2}>
-          <Typography>Hi {me.user.name}, you are</Typography>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={state.myStatus}
-            onChange={(_e, v: AgentStatus | null) => v && setStatus(v)}
-          >
-            <ToggleButton value="available" color="success">
-              Available
-            </ToggleButton>
-            <ToggleButton value="away" color="warning">
-              Away
-            </ToggleButton>
-          </ToggleButtonGroup>
-          {state.myStatus === 'busy' && <Typography color="text.secondary">(on a call)</Typography>}
-        </Stack>
+        <StateBar name={me.user.name} me={mine} now={now} onError={setError} />
       </Paper>
       {error && (
         <Alert severity="error" onClose={() => setError(null)}>
@@ -113,17 +166,54 @@ export function Desk({ desk, me }: Props) {
           title="Customer call"
           transcript={state.transcripts[active.callId] ?? []}
           onLeave={() => void leave()}
+          extras={
+            <>
+              {monitored ? (
+                <Chip
+                  size="small"
+                  color="warning"
+                  label="A supervisor is on this call"
+                  sx={{ mb: 1 }}
+                />
+              ) : null}
+              <TransferConsult
+                callId={active.callId}
+                myUserId={me.user.id}
+                consultants={consultants}
+                onLeft={() => setActive(null)}
+                onError={setError}
+              />
+              <RecordingControls
+                callId={active.callId}
+                state={activeDetail.data?.recordingState ?? 'off'}
+                onError={setError}
+              />
+              <CallNotes callId={active.callId} onError={setError} />
+            </>
+          }
+          hold={{
+            heldAt,
+            reminderAfterSec: settings.data?.holdReminderSec ?? 0,
+            onToggle: () => void toggleHold(),
+          }}
         />
       ) : (
         <Typography color="text.secondary">
-          {state.myStatus === 'available'
+          {mine?.state === 'ready'
             ? 'Waiting for calls. Keep this tab open to get rung.'
-            : 'Set yourself to Available to receive calls.'}
+            : 'Set yourself to Ready to receive calls.'}
         </Typography>
       )}
       <Dialog open={state.offer !== null && !active}>
         <DialogTitle>Incoming call · {state.offer?.queueKey}</DialogTitle>
         <DialogContent>
+          {offered.data && (
+            <Typography gutterBottom color="text.secondary">
+              {String(offered.data.customerMeta['page'] ?? '')}
+              {offered.data.language ? ` · ${offered.data.language}` : ''}
+              {offered.data.priority ? ` · priority ${offered.data.priority}` : ''}
+            </Typography>
+          )}
           {state.offer?.reason && (
             <Typography gutterBottom>
               <b>Reason:</b> {state.offer.reason}

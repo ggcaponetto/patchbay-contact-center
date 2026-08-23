@@ -6,7 +6,8 @@
  * Message contracts are the zod schemas `ClientMessage` / `ServerMessage` in `@cc/shared`.
  *
  * Server → client: `presence`, `call.offer`, `call.offer.cancelled`, `call.updated`,
- * `transcript`. Client → server: `status`, `subscribe`, `offer.decline`.
+ * `transcript`, `logout`. Client → server: `subscribe`, `offer.decline` (agent states are
+ * set over REST, `routes/desk.ts`).
  *
  * Sources of outgoing messages:
  *
@@ -29,20 +30,30 @@ import type { FastifyInstance } from 'fastify';
 import type { EventEmitter } from 'node:events';
 import type { WebSocket } from 'ws';
 import type { GetSession } from './auth.ts';
+import type { Bus } from './bus.ts';
 import type { Db } from './db/client.ts';
 import type { Flow } from './flow.ts';
-import { membershipsOf } from './services/tenants.ts';
+import { getTenant, membershipsOf } from './services/tenants.ts';
 
 /** One open desk socket. A user may have several (tabs); presence is per user. */
 type Conn = { socket: WebSocket; userId: string; tenantId: string; subscribed: Set<string> };
 
 /**
- * Fan-out of server messages to connected desks; also what `Flow` uses to ring agents.
+ * Fan-out of server messages to the desks connected to **this** instance. Anything that
+ * must reach a desk wherever it is goes through the {@link Bus}: `registerWs` subscribes
+ * and turns `send` / `tenant` / `call` / `presence` / `logout` bus messages into socket
+ * frames for the connections it holds.
  *
  * Pure bookkeeping over a `Set<Conn>`; it does not know about authentication or routing.
  */
 export class DeskSockets {
   private readonly conns = new Set<Conn>();
+  /** The cross-instance bus; routes publish on it to reach desks on other instances. */
+  readonly bus: Bus;
+
+  constructor(bus: Bus) {
+    this.bus = bus;
+  }
 
   /** Registers an authenticated connection. */
   add(conn: Conn): void {
@@ -64,6 +75,14 @@ export class DeskSockets {
   /** Sends to every socket of a tenant (presence, call status changes). */
   toTenant(tenantId: string, message: ServerMessage): void {
     this.each((c) => c.tenantId === tenantId, message);
+  }
+  /** Closes every socket of a user (forced logout); the desk stops reconnecting. */
+  closeUser(userId: string, by: string): void {
+    for (const c of [...this.conns]) {
+      if (c.userId !== userId) continue;
+      c.socket.send(JSON.stringify({ type: 'logout', by } satisfies ServerMessage));
+      c.socket.close(4403, 'logged_out');
+    }
   }
   /** Sends to sockets that subscribed to the call (live transcript). */
   toSubscribers(callId: string, message: ServerMessage): void {
@@ -91,8 +110,8 @@ export type WsDeps = {
  *
  * 1. Upgrade. The session cookie is resolved with `getSession`; `?tenantId=` picks the
  *    membership (first one otherwise). No session or membership: close `4401`.
- * 2. The connection is registered, the user's queue keys are loaded, and presence starts
- *    as `away` until the client sends `status`.
+ * 2. The connection is registered and presence starts as `not_ready` until the desk
+ *    asks for a state over `POST /api/desk/state`.
  * 3. Client messages are parsed with `ClientMessage`; invalid JSON or unknown shapes are
  *    silently dropped.
  * 4. On close the connection is removed; presence is dropped only when the user has no
@@ -105,26 +124,45 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
   const { db, getSession, flow, hub, sockets } = deps;
   await app.register(websocket);
 
-  const presenceMessage = (tenantId: string): ServerMessage => ({
-    type: 'presence',
-    agents: flow.routing.snapshot(tenantId).map((a) => ({
-      userId: a.userId,
-      name: a.name,
-      status: a.status,
-      callId: a.callId,
-    })),
-  });
-  hub.on('presence', ({ tenantId }: { tenantId: string }) =>
-    sockets.toTenant(tenantId, presenceMessage(tenantId)),
-  );
+  // Hub events are this instance's; republish them on the bus so every instance's desks
+  // get them, then deliver bus messages to the sockets held here.
   hub.on(
     'call.updated',
     ({ tenantId, callId, status }: { tenantId: string; callId: string; status: CallStatus }) =>
-      sockets.toTenant(tenantId, { type: 'call.updated', callId, status }),
+      void sockets.bus.publish({
+        kind: 'tenant',
+        tenantId,
+        message: { type: 'call.updated', callId, status },
+      }),
   );
-  hub.on('transcript', ({ callId, segment }: { callId: string; segment: TranscriptSegmentInput }) =>
-    sockets.toSubscribers(callId, { type: 'transcript', callId, segment }),
+  hub.on(
+    'transcript',
+    ({ callId, segment }: { callId: string; segment: TranscriptSegmentInput }) =>
+      void sockets.bus.publish({
+        kind: 'call',
+        callId,
+        message: { type: 'transcript', callId, segment },
+      }),
   );
+  sockets.bus.subscribe((m) => {
+    switch (m.kind) {
+      case 'send':
+        return sockets.toUser(m.userId, m.message);
+      case 'tenant':
+        return sockets.toTenant(m.tenantId, m.message);
+      case 'call':
+        return sockets.toSubscribers(m.callId, m.message);
+      case 'presence':
+        return void flow.routing
+          .snapshot(m.tenantId)
+          .then((agents) => sockets.toTenant(m.tenantId, { type: 'presence', agents }))
+          .catch(() => undefined);
+      case 'logout':
+        return sockets.closeUser(m.userId, m.by);
+      case 'offer':
+        return undefined;
+    }
+  });
 
   app.get('/api/ws', { websocket: true }, async (socket, request) => {
     // Buffer client messages until the session is resolved; `ws` drops messages
@@ -151,19 +189,18 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       subscribed: new Set(),
     };
     sockets.add(conn);
-    const presence = (status: 'available' | 'busy' | 'away') =>
-      flow.routing.setPresence({
-        userId: user.id,
-        tenantId: membership.tenantId,
-        name: user.name,
-        status,
-      });
-
     socket.on('close', () => {
       const stillConnected = sockets.remove(conn);
-      if (!stillConnected) flow.routing.removePresence(user.id);
+      if (!stillConnected) void flow.routing.disconnect(user.id).catch(() => undefined);
     });
-    presence('away');
+    await flow.routing.connect({ userId: user.id, tenantId: membership.tenantId, name: user.name });
+    // A late joiner still sees the tenant-wide ticker banner: push the current one.
+    const tenant = await getTenant(db, membership.tenantId);
+    if (tenant && tenant.settings.ticker !== '') {
+      socket.send(
+        JSON.stringify({ type: 'ticker', text: tenant.settings.ticker } satisfies ServerMessage),
+      );
+    }
 
     inbox.handle = (raw) => {
       let json: unknown;
@@ -176,14 +213,11 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       if (!parsed.success) return;
       const msg = parsed.data;
       switch (msg.type) {
-        case 'status':
-          presence(msg.status);
-          break;
         case 'subscribe':
           conn.subscribed.add(msg.callId);
           break;
         case 'offer.decline':
-          flow.routing.decline(msg.callId, user.id);
+          void flow.routing.decline(msg.callId, user.id).catch(() => undefined);
           break;
       }
     };

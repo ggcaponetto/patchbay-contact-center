@@ -44,13 +44,22 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
       method: 'POST',
       url: '/api/public/calls',
       headers,
-      payload: { embedKey: publicKey, queue: 'support', customerMeta: { page: '/pricing' } },
+      payload: {
+        embedKey: publicKey,
+        queue: 'support',
+        language: 'de-CH',
+        customerMeta: { page: '/pricing' },
+      },
     });
 
   it('creates an AI-first call with a dispatching customer token', async () => {
+    const updates: unknown[] = [];
+    srv.hub.on('call.updated', (e) => updates.push(e));
     const res = await startCall();
     expect(res.statusCode).toBe(200);
     const body = res.json();
+    // desks learn about the new call right away
+    expect(updates).toEqual([{ tenantId, callId: body.callId, status: 'ai' }]);
     expect(body.url).toBe('wss://fake.livekit.cloud');
     expect(body.roomName).toBe(`cc-${tenantId}-${body.callId}`);
     expect(srv.lk.tokens[0]).toMatchObject({
@@ -65,7 +74,18 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     });
 
     const detail = await srv.as(boss).inject({ url: `/api/desk/calls/${body.callId}` });
-    expect(detail.json()).toMatchObject({ status: 'ai', participants: [{ kind: 'customer' }] });
+    expect(detail.json()).toMatchObject({
+      status: 'ai',
+      channel: 'voice',
+      priority: 0,
+      requiredSkills: [],
+      language: 'de-CH',
+      participants: [{ kind: 'customer' }],
+    });
+    expect((await srv.as(boss).inject({ url: '/api/desk/calls' })).json()[0]).toMatchObject({
+      channel: 'voice',
+      language: 'de-CH',
+    });
     expect(detail.json().events.map((e: { type: string }) => e.type)).toEqual(['call.created']);
   });
 
@@ -92,6 +112,18 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     expect(unknownQueue.statusCode).toBe(404);
     const noKey = await srv.app.inject({ method: 'POST', url: '/api/public/calls', payload: {} });
     expect(noKey.statusCode).toBe(400);
+  });
+
+  it('refuses new calls while the tenant is closed', async () => {
+    const { updateSettings } = await import('../services/tenants.ts');
+    await updateSettings(db, tenantId, {
+      hours: { mode: 'closed', closedMessage: 'Back on Monday.' },
+    });
+    const closed = await startCall({ origin: 'https://shop.example' });
+    expect(closed.statusCode).toBe(403);
+    expect(closed.json()).toEqual({ error: 'closed', message: 'Back on Monday.' });
+    await updateSettings(db, tenantId, { hours: { mode: 'off' } });
+    expect((await startCall({ origin: 'https://shop.example' })).statusCode).toBe(200);
   });
 
   it('accepts worker updates over the internal API and ends the room', async () => {

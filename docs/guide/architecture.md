@@ -7,7 +7,7 @@ The repo is an npm-workspaces monorepo (`packages/*`, `apps/*`). Node 24 runs th
 | Path              | Package      | What it is                                                                                                                                                                             |
 | ----------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/shared` | `@cc/shared` | zod schemas and inferred types shared by every app: `TenantSettings`, `CallStatus`, `ParticipantKind`, `DispatchMetadata`, websocket `ServerMessage` / `ClientMessage`, `roomNameFor`. |
-| `apps/api`        | `@cc/api`    | Fastify 5 API: Better Auth (Google), Drizzle + Postgres, LiveKit tokens and agent dispatch, in-memory routing, `/api/ws` desk websocket, serves the built embed script.                |
+| `apps/api`        | `@cc/api`    | Fastify 5 API: Better Auth (Google), Drizzle + Postgres, LiveKit tokens and agent dispatch, Postgres-backed routing, `/api/ws` desk websocket, serves the built embed script.          |
 | `apps/agent`      | `@cc/agent`  | LiveKit Agents worker registered as `cc-agent`. Voice pipeline on LiveKit Inference, `escalateToHuman` / `endCall` tools, post-handoff transcriber, LLM summary.                       |
 | `apps/web`        | `@cc/web`    | Vite + React 19 + MUI desk for agents and supervisors (Desk, Dashboard, History, Settings, call page). Hash routing, TanStack Query, one websocket per tenant.                         |
 | `apps/embed`      | `@cc/embed`  | `<cc-call-button>` web component built as a single IIFE `call-button.js`. Pure state reducer in `state.ts`, LiveKit client in `call-button.ts`.                                        |
@@ -24,7 +24,7 @@ flowchart TB
   end
   subgraph apiBox[apps/api — one Node process]
     routes["Routes<br/>/api/public · /api/desk · /api/admin · /api/internal"]
-    flow["Flow + Routing<br/>(in-memory presence & offers)"]
+    flow["Flow + Routing<br/>(presence & offers in Postgres)"]
     hub["EventEmitter hub"]
     ws["/api/ws DeskSockets"]
     routes --> flow
@@ -159,7 +159,7 @@ sequenceDiagram
 
 **Long-poll escalation.** `POST /api/internal/calls/:id/escalate` does not return until `Flow` resolves the waiter (`accepted` with the agent's name, or `nobody`). The agent's `escalateToHuman` tool therefore gets a concrete sentence to say back. The cost is an open HTTP request for up to the whole ring cycle, acceptable for the POC.
 
-**In-memory routing.** `Routing` (`apps/api/src/routing.ts`) keeps presence and ringing offers in two `Map`s inside the API process. It is trivially testable with an injected clock and needs no Redis. A restart drops presence until desks reconnect, and it does not scale past one API instance — noted in `TODO.md`.
+**Postgres-backed routing.** `Routing` (`apps/api/src/routing.ts`) keeps presence (`agent_presence`) and ringing offers (`ring_offer`) in Postgres, so a restart loses neither and several API instances share one engine: each runs the same periodic `tick()` and a `FOR UPDATE SKIP LOCKED` lock decides who advances an offer. Cross-instance delivery (an offer must reach a desk that may be on another instance) goes over a message bus (`bus.ts`): Postgres `LISTEN`/`NOTIFY` in production, an in-process emitter in tests. No Redis.
 
 **zod contracts in `packages/shared`.** Tenant settings, call status, participant attributes, dispatch metadata and both websocket message unions are zod schemas; every boundary (`parseBody`, `ClientMessage.safeParse`, `DispatchMetadata.parse`) validates at runtime and the types are inferred once. The same file also owns `roomNameFor`.
 

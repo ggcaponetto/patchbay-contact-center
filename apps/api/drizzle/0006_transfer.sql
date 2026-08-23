@@ -1,0 +1,1 @@
+ALTER TABLE "ring_offer" ADD COLUMN "retrieve_on_accept" boolean DEFAULT false NOT NULL;

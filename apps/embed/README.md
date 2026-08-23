@@ -25,12 +25,13 @@ is reachable (`http://localhost:4000` in development).
 
 ### Attributes
 
-| Attribute | Required | Default                     | Meaning                                                                                |
-| --------- | -------- | --------------------------- | -------------------------------------------------------------------------------------- |
-| `key`     | yes      | —                           | Public embed key (`pk_…`) created in the supervisor settings.                          |
-| `queue`   | no       | `support`                   | Key of the queue to ring. Must exist in the tenant.                                    |
-| `api`     | no       | origin the script came from | Origin of the API, without path. Only needed when the script is self-hosted elsewhere. |
-| `label`   | no       | `Call us`                   | Text of the button in the idle state.                                                  |
+| Attribute  | Required | Default                     | Meaning                                                                                |
+| ---------- | -------- | --------------------------- | -------------------------------------------------------------------------------------- |
+| `key`      | yes      | —                           | Public embed key (`pk_…`) created in the supervisor settings.                          |
+| `queue`    | no       | `support`                   | Key of the queue to ring. Must exist in the tenant.                                    |
+| `api`      | no       | origin the script came from | Origin of the API, without path. Only needed when the script is self-hosted elsewhere. |
+| `label`    | no       | `Call us`                   | Text of the button in the idle state.                                                  |
+| `language` | no       | the page's `<html lang>`    | The customer's language (BCP 47), stored on the call for language routing.             |
 
 Attributes are read when they are needed (on click / render), so they can be set from
 script after the element exists; the demo page does exactly that.

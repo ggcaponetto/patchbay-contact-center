@@ -27,6 +27,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -165,8 +166,28 @@ export const queue = pgTable(
       .references(() => tenant.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     name: text('name').notNull(),
+    /** Routing configuration (`QueueConfig` in `@cc/shared`): algorithm, skills, language. */
+    config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
   },
   (t) => [uniqueIndex('queue_tenant_key_uidx').on(t.tenantId, t.key)],
+);
+
+/** Skills a user holds within a tenant, with proficiency 1–5 (skills-based routing). */
+export const userSkill = pgTable(
+  'user_skill',
+  {
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenant.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** Skill key, e.g. `billing` or `lang:de`. */
+    skill: text('skill').notNull(),
+    /** 1–5, 5 = expert. */
+    proficiency: integer('proficiency').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.userId, t.skill] })],
 );
 
 /** Which users ring for which queue (composite primary key). */
@@ -198,6 +219,25 @@ export const embedKey = pgTable('embed_key', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+/**
+ * Machine credentials for the public API (`Authorization: Bearer ak_…`). Only the SHA-256
+ * of the secret is stored; `prefix` (the first 12 characters) identifies the key in lists.
+ * `permissions` is an explicit subset of `Permission` from `@cc/shared`.
+ */
+export const apiKey = pgTable('api_key', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id')
+    .notNull()
+    .references(() => tenant.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  prefix: text('prefix').notNull(),
+  hash: text('hash').notNull().unique(),
+  permissions: jsonb('permissions').$type<string[]>().default([]).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+});
+
 /** One customer call = one LiveKit room. `status` is the `CallStatus` state machine. */
 export const call = pgTable(
   'call',
@@ -213,6 +253,32 @@ export const call = pgTable(
     status: text('status')
       .$type<'ringing' | 'ai' | 'waiting_human' | 'human' | 'ended'>()
       .notNull(),
+    // Contact fields (channel-agnostic routing inputs; voice is the only channel today).
+    /** How the contact came in; `voice` (WebRTC) for now, `sip` / `chat` / … later. */
+    channel: text('channel').default('voice').notNull(),
+    /** Routing priority; higher is served first. Set by the queue, never by the customer. */
+    priority: integer('priority').default(0).notNull(),
+    /** Skill keys the handling agent must have (empty = any queue member). */
+    requiredSkills: jsonb('required_skills').$type<string[]>().default([]).notNull(),
+    /** Agent to try first (last-agent / sticky routing), if still online and ready. */
+    preferredAgentId: text('preferred_agent_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    /** BCP 47 language tag of the customer, when known (language routing). */
+    language: text('language'),
+    /** When the customer was put on hold (music plays), `null` while not held. */
+    heldAt: timestamp('held_at', { withTimezone: true }),
+    /** Wrap-up (disposition) code the handling agent picked; see `TenantSettings.dispositions`. */
+    dispositionCode: text('disposition_code'),
+    /** Recording state machine: `off` → `on` ⇄ `paused` → `off` (pause = PCI-safe gap). */
+    recordingState: text('recording_state')
+      .$type<'off' | 'on' | 'paused'>()
+      .default('off')
+      .notNull(),
+    /** LiveKit egress id of the running recording segment, `null` while not recording. */
+    recordingEgressId: text('recording_egress_id'),
+    /** Free-form tags agents attach during or after the call. */
+    tags: jsonb('tags').$type<string[]>().default([]).notNull(),
     customerMeta: jsonb('customer_meta').$type<Record<string, unknown>>().default({}).notNull(),
     startedAt: timestamp('started_at').defaultNow().notNull(),
     endedAt: timestamp('ended_at'),
@@ -227,7 +293,9 @@ export const callParticipant = pgTable('call_participant', {
   callId: text('call_id')
     .notNull()
     .references(() => call.id, { onDelete: 'cascade' }),
-  kind: text('kind').$type<'customer' | 'ai' | 'human' | 'supervisor' | 'transcriber'>().notNull(),
+  kind: text('kind')
+    .$type<'customer' | 'ai' | 'human' | 'supervisor' | 'transcriber' | 'media'>()
+    .notNull(),
   userId: text('user_id').references(() => user.id),
   identity: text('identity').notNull(),
   joinedAt: timestamp('joined_at').defaultNow().notNull(),
@@ -266,3 +334,71 @@ export const callEvent = pgTable(
   },
   (t) => [index('call_event_call_idx').on(t.callId, t.at)],
 );
+
+/**
+ * Routing state, part 1: who is online and in which agent state. One row per desk user
+ * with an open socket; written by `routing.ts`, owned by the API instance whose sockets
+ * the user is on (`instanceId`, refreshed in `lastSeen` by a heartbeat so a crashed
+ * instance's users are swept). Timestamps are `timestamptz` because the engine compares
+ * them to `Date.now()`.
+ */
+export const agentPresence = pgTable(
+  'agent_presence',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenant.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    state: text('state').$type<'ready' | 'not_ready' | 'busy' | 'acw'>().notNull(),
+    reason: text('reason'),
+    since: timestamp('since', { withTimezone: true }).notNull(),
+    callId: text('call_id'),
+    acwUntil: timestamp('acw_until', { withTimezone: true }),
+    instanceId: text('instance_id').notNull(),
+    lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
+    /** Connection order; the `linear` algorithm rings in this order. */
+    seq: serial('seq').notNull(),
+    /** Calls handled since connecting (`least_occupied` ordering). */
+    handled: integer('handled').default(0).notNull(),
+    /** When this agent was last offered a call (`round_robin` ordering). */
+    lastOfferedAt: timestamp('last_offered_at', { withTimezone: true }),
+  },
+  (t) => [index('agent_presence_tenant_idx').on(t.tenantId)],
+);
+
+/**
+ * Routing state, part 2: one row per call that is ringing. `currentUserId` is the agent
+ * being rung until `ringUntil`; `tried` lists who already was. Advanced by the routing
+ * tick of whichever API instance gets the row lock first.
+ */
+export const ringOffer = pgTable('ring_offer', {
+  callId: text('call_id')
+    .primaryKey()
+    .references(() => call.id, { onDelete: 'cascade' }),
+  tenantId: text('tenant_id').notNull(),
+  queueKey: text('queue_key').notNull(),
+  reason: text('reason'),
+  summary: text('summary'),
+  members: jsonb('members').$type<string[]>().default([]).notNull(),
+  tried: jsonb('tried').$type<string[]>().default([]).notNull(),
+  currentUserId: text('current_user_id'),
+  ringUntil: timestamp('ring_until', { withTimezone: true }),
+  giveUpAt: timestamp('give_up_at', { withTimezone: true }),
+  ringMs: integer('ring_ms').notNull(),
+  /** Human-first: dispatch metadata for the AI when nobody answers (any instance may do it). */
+  fallback: jsonb('fallback').$type<Record<string, unknown>>(),
+  /** Blind transfer: take the customer off hold as soon as someone accepts. */
+  retrieveOnAccept: boolean('retrieve_on_accept').default(false).notNull(),
+  /** Selection algorithm of the queue (`RoutingAlgorithm`), frozen at offer time. */
+  algorithm: text('algorithm').default('longest_idle').notNull(),
+  /** Skill requirements a candidate must meet (`SkillRequirement[]`). */
+  skills: jsonb('skills').$type<{ skill: string; min: number }[]>().default([]).notNull(),
+  /** Ring this agent first if ready (sticky / last-agent routing). */
+  preferredUserId: text('preferred_user_id'),
+  /** Call priority (higher first) plus aging when agents are contended. */
+  priority: integer('priority').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

@@ -98,14 +98,18 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     current.user = u;
     return srv.app;
   };
+  /** `POST /api/desk/state` as `u` (states are REST, not socket messages). */
+  const setState = (u: User, state: 'ready' | 'not_ready', reason?: string) =>
+    asUser(u).inject({ method: 'POST', url: '/api/desk/state', payload: { state, reason } });
 
   it('rings an available agent on escalation and hands the call over', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
+    expect((await setState(agent, 'ready')).json()).toMatchObject({ state: 'ready' });
     await vi.waitFor(() =>
       expect(d.last('presence')).toMatchObject({
-        agents: [{ userId: agent.id, status: 'available' }],
+        agents: [{ userId: agent.id, state: 'ready', reason: null }],
       }),
     );
 
@@ -141,7 +145,7 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     });
     expect((await escalation).json()).toEqual({ outcome: 'accepted', agentName: 'Sam' });
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'busy', callId }] }),
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'busy', callId }] }),
     );
     await vi.waitFor(() =>
       expect(d.last('call.updated')).toMatchObject({ callId, status: 'human' }),
@@ -175,7 +179,20 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     );
     expect(srv.lk.deleted).toHaveLength(1);
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'available', callId: null }] }),
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'acw', callId }] }),
+    );
+    // wrap-up: extend, then finish by hand
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/extend' })).json(),
+    ).toMatchObject({ state: 'acw' });
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/done' })).json(),
+    ).toMatchObject({ state: 'ready', callId: null });
+    expect(
+      (await asUser(agent).inject({ method: 'POST', url: '/api/desk/acw/done' })).statusCode,
+    ).toBe(409);
+    await vi.waitFor(() =>
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'ready', callId: null }] }),
     );
     const detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
     expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
@@ -191,14 +208,14 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
     });
 
     await d.close();
-    await vi.waitFor(() => expect(srv.flow.routing.snapshot(tenantId)).toEqual([]));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
   it('reports nobody when the agent declines and nobody else is free', async () => {
     const { callId } = await startCall();
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
-    await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
+    await setState(agent, 'ready');
     const escalation = srv.app.inject({
       method: 'POST',
       url: `/api/internal/calls/${callId}/escalate`,
@@ -222,22 +239,97 @@ describe.skipIf(!hasDb)('call flow: escalation, ringing, handoff', () => {
       offerTimeoutSec: 5,
     });
     const d = await desk(port, agent, current);
-    d.send({ type: 'status', status: 'available' });
-    await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const { callId, roomName } = await startCall();
-      await vi.waitFor(() => expect(d.last('call.offer')).toMatchObject({ callId }));
-      expect(srv.lk.dispatched).toEqual([]);
-      await vi.advanceTimersByTimeAsync(5_000);
-      await vi.waitFor(() => expect(srv.lk.dispatched).toEqual([roomName]));
-      await vi.waitFor(() =>
-        expect(d.last('call.updated')).toMatchObject({ callId, status: 'ai' }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined()); // presence row exists
+    await setState(agent, 'ready');
+    const { callId, roomName } = await startCall();
+    await vi.waitFor(() => expect(d.last('call.offer')).toMatchObject({ callId }));
+    expect(srv.lk.dispatched).toEqual([]);
+    // Ring timeouts are detected by the engine's periodic tick when `ring_until` /
+    // `give_up_at` pass; age the offer into the past and run one tick by hand.
+    const { ringOffer } = await import('./db/schema.ts');
+    const past = new Date(Date.now() - 1000);
+    await db.update(ringOffer).set({ ringUntil: past, giveUpAt: past });
+    await srv.flow.routing.tick();
+    await vi.waitFor(() => expect(srv.lk.dispatched).toEqual([roomName]));
+    await vi.waitFor(() => expect(d.last('call.updated')).toMatchObject({ callId, status: 'ai' }));
     await d.close();
+  });
+
+  it('whispers to the agent only, barges audibly, and intercepts the agent', async () => {
+    const { callId } = await startCall();
+    // whisper: publishing supervisor whose tracks the embed will not play
+    const whisper = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'whisper' },
+    });
+    expect(whisper.statusCode).toBe(200);
+    expect(srv.lk.tokens.at(-1)).toMatchObject({
+      attributes: { role: 'supervisor', monitor: 'whisper' },
+      canPublish: true,
+    });
+    let detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).toBe('ai'); // monitoring never changes the status
+    expect(detail.events.map((e: { type: string }) => e.type)).toContain('whisper.joined');
+    await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/leave`,
+      payload: { role: 'supervisor' },
+    });
+
+    // barge: audible to everyone — no whisper flag on the token
+    const barge = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'barge' },
+    });
+    expect(barge.statusCode).toBe(200);
+    const bargeToken = srv.lk.tokens.at(-1) as { attributes: Record<string, string> };
+    expect(bargeToken.attributes['monitor']).toBeUndefined();
+    expect(bargeToken.attributes['role']).toBe('supervisor');
+    await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/leave`,
+      payload: { role: 'supervisor' },
+    });
+
+    // hand the call to the agent, then intercept it as the supervisor
+    await srv.flow.routing.connect({ userId: agent.id, tenantId, name: agent.name });
+    await setState(agent, 'ready');
+    const escalated = srv.app.inject({
+      method: 'POST',
+      url: `/api/internal/calls/${callId}/escalate`,
+      headers: internal,
+      payload: { reason: 'vip', summary: 'Needs a manager.' },
+    });
+    await vi.waitFor(async () => {
+      const r = await asUser(agent).inject({
+        method: 'POST',
+        url: `/api/desk/calls/${callId}/accept`,
+      });
+      expect(r.statusCode).toBe(200);
+    });
+    await escalated;
+    const intercept = await asUser(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/join`,
+      payload: { mode: 'intercept' },
+    });
+    expect(intercept.statusCode).toBe(200);
+    detail = (await asUser(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.status).toBe('human');
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining(['intercept', 'intercept.joined']),
+    );
+    // the agent was kicked from the room, marked gone and freed
+    expect(srv.lk.removed).toContainEqual(expect.stringContaining(`:human:${agent.id}`));
+    const humans = detail.participants.filter(
+      (p: { kind: string; leftAt: string | null }) => p.kind === 'human' && p.leftAt === null,
+    );
+    expect(humans).toHaveLength(1);
+    expect(humans[0].userId).toBe(boss.id);
+    const presence = await srv.flow.routing.presenceOf(agent.id);
+    expect(presence?.state).not.toBe('busy');
   });
 
   it('lets supervisors listen in or take over, and rejects bad requests', async () => {

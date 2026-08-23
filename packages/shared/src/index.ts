@@ -71,6 +71,83 @@ export const TenantSettings = z.object({
   humanFirstTimeoutSec: z.number().int().min(5).max(300).default(30),
   /** How long a single agent's offer rings before moving to the next agent. */
   offerTimeoutSec: z.number().int().min(5).max(120).default(20),
+  /**
+   * After-call work: seconds an agent stays in `acw` after a call before becoming
+   * `ready` automatically. `0` disables wrap-up (straight back to `ready`).
+   */
+  acwSec: z.number().int().min(0).max(600).default(30),
+  /**
+   * Disposition (wrap-up) codes agents pick after a call. A `/` in the code makes a
+   * two-level hierarchy (`billing/refund` shows as "Refund" under "billing").
+   */
+  dispositions: z
+    .array(z.object({ code: z.string().min(1).max(60), label: z.string().min(1).max(80) }))
+    .max(200)
+    .default([]),
+  /** When true, wrap-up cannot be finished before a disposition was set. */
+  dispositionRequired: z.boolean().default(false),
+  /** Desk reminder after a customer was on hold this long; `0` disables it. */
+  holdReminderSec: z.number().int().min(0).max(600).default(60),
+  /** Auto-answer: offers are accepted automatically after a zip tone at the desk. */
+  autoAnswer: z.boolean().default(false),
+  /** When true (default), the agent's desk shows that a supervisor is monitoring. */
+  monitorNotify: z.boolean().default(true),
+  /** Persistent banner shown on every desk of the tenant; empty hides it. */
+  ticker: z.string().max(200).default(''),
+  /**
+   * Business hours. `off` = always open; `auto` follows the weekly windows and
+   * holidays in `timezone`; `open` / `closed` / `emergency` are forced by a
+   * supervisor. While closed, `POST /api/public/calls` refuses with the message.
+   */
+  hours: z
+    .object({
+      mode: z.enum(['off', 'auto', 'open', 'closed', 'emergency']).default('off'),
+      /** IANA timezone the weekly windows are evaluated in. */
+      timezone: z.string().max(50).default('UTC'),
+      /** Weekly open windows: day of week (0 = Sunday) and `HH:MM` bounds. */
+      open: z
+        .array(
+          z.object({
+            dow: z.number().int().min(0).max(6),
+            from: z.string().regex(/^\d{2}:\d{2}$/),
+            to: z.string().regex(/^\d{2}:\d{2}$/),
+          }),
+        )
+        .max(50)
+        .default([]),
+      /** Closed dates (`YYYY-MM-DD`) in the tenant's timezone. */
+      holidays: z
+        .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+        .max(100)
+        .default([]),
+      /** Shown to callers while closed (schedule, holiday, or forced `closed`). */
+      closedMessage: z
+        .string()
+        .max(300)
+        .default('We are currently closed. Please call again during business hours.'),
+      /** Shown to callers in `emergency` mode. */
+      emergencyMessage: z
+        .string()
+        .max(300)
+        .default('We are currently unable to take calls. Please try again later.'),
+    })
+    .prefault({}),
+  /** Threshold alerts for the dashboard / wallboard; a value of `0` turns one off. */
+  alerts: z
+    .object({
+      /** Alert when at least this many calls are waiting for a human. */
+      maxWaiting: z.number().int().min(0).max(1000).default(0),
+      /** Alert when the oldest waiting call is at least this old (seconds). */
+      maxWaitSec: z.number().int().min(0).max(86400).default(0),
+      /** Alert when the oldest running call is at least this old (seconds). */
+      maxCallSec: z.number().int().min(0).max(86400).default(0),
+    })
+    .prefault({}),
+  /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
+  notReadyReasons: z
+    .array(z.string().min(1).max(40))
+    .max(20)
+    .default(['Break', 'Lunch', 'Meeting', 'Training']),
   /** Prompt material for the AI agent; both strings are appended to the built-in base prompt. */
   aiAgent: z
     .object({
@@ -81,6 +158,62 @@ export const TenantSettings = z.object({
     })
     .prefault({}),
 });
+/**
+ * How a queue picks the next agent to ring, applied after skill filtering:
+ *
+ * - `longest_idle`: ready for the longest time (default; fair by wait).
+ * - `least_occupied`: fewest calls handled since connecting.
+ * - `round_robin`: least-recently offered a call.
+ * - `most_skilled` / `least_skilled`: highest / lowest proficiency sum over the
+ *   required skills (expert-first or keep-experts-free).
+ * - `linear`: fixed order (connection order), like a hunt group.
+ */
+export const RoutingAlgorithm = z.enum([
+  'longest_idle',
+  'least_occupied',
+  'round_robin',
+  'most_skilled',
+  'least_skilled',
+  'linear',
+]);
+/** Inferred type of {@link RoutingAlgorithm}. */
+export type RoutingAlgorithm = z.infer<typeof RoutingAlgorithm>;
+
+/** One skill requirement on a queue: members need `skill` at `min` proficiency or more. */
+export const SkillRequirement = z.object({
+  /** Skill key, e.g. `billing` or `lang:de`. */
+  skill: z.string().min(1).max(40),
+  /** Minimum proficiency 1–5. */
+  min: z.number().int().min(1).max(5).default(1),
+});
+/** Inferred type of {@link SkillRequirement}. */
+export type SkillRequirement = z.infer<typeof SkillRequirement>;
+
+/**
+ * Per-queue routing configuration (stored on the queue row, edited in Settings).
+ * Everything defaults to the pre-skills behavior: no requirements, longest idle.
+ */
+export const QueueConfig = z.object({
+  /** Selection algorithm, see {@link RoutingAlgorithm}. */
+  algorithm: RoutingAlgorithm.default('longest_idle'),
+  /** Skills a member must have to be rung for this queue. */
+  requiredSkills: z.array(SkillRequirement).max(20).default([]),
+  /** Require the caller's language as a `lang:<tag>` skill when the call carries one. */
+  languageRouting: z.boolean().default(false),
+  /** Hold-music style of the queue, see `renderLoop` in the media worker. */
+  moh: z.enum(['calm', 'bright']).default('calm'),
+});
+/** Inferred type of {@link QueueConfig}. */
+export type QueueConfig = z.infer<typeof QueueConfig>;
+
+/** One skill a user holds, with proficiency 1–5 (5 = expert). */
+export const UserSkill = z.object({
+  skill: z.string().min(1).max(40),
+  proficiency: z.number().int().min(1).max(5),
+});
+/** Inferred type of {@link UserSkill}. */
+export type UserSkill = z.infer<typeof UserSkill>;
+
 /** Inferred type of {@link TenantSettings}. */
 export type TenantSettings = z.infer<typeof TenantSettings>;
 /** A fresh settings object with every default applied (used for new tenants and tests). */
@@ -116,8 +249,16 @@ export type CallStatus = z.infer<typeof CallStatus>;
  *   `supervisor:<userId>`.
  * - `transcriber`: the same AI worker after a `leave` handoff; it no longer speaks and
  *   only produces transcript segments for the humans.
+ * - `media`: the media worker playing music on hold, identity `media:<callId>`.
  */
-export const ParticipantKind = z.enum(['customer', 'ai', 'human', 'supervisor', 'transcriber']);
+export const ParticipantKind = z.enum([
+  'customer',
+  'ai',
+  'human',
+  'supervisor',
+  'transcriber',
+  'media',
+]);
 /** Inferred type of {@link ParticipantKind}. */
 export type ParticipantKind = z.infer<typeof ParticipantKind>;
 
@@ -135,32 +276,117 @@ export const ParticipantAttributes = z.object({
   userId: z.string().optional(),
   /** Name shown in the desk UI; only present for `human` and `supervisor`. */
   displayName: z.string().optional(),
+  /**
+   * Set on a whispering supervisor: their audio is meant for the agent only, so the
+   * embed (customer side) must not play tracks of participants carrying this flag.
+   */
+  monitor: z.literal('whisper').optional(),
 });
 /** Inferred type of {@link ParticipantAttributes}. */
 export type ParticipantAttributes = z.infer<typeof ParticipantAttributes>;
 
 /**
- * Presence of a desk user, chosen in the web desk and sent with the `status`
- * {@link ClientMessage}. Only `available` agents are offered calls.
+ * State of a desk user (classic contact-center agent states). Only `ready` agents are
+ * offered calls. `logged_out` is implicit: a user with no desk socket has no presence.
  *
- * - `available`: ready to take calls.
- * - `busy`: on a call (set by the API when an offer is accepted) or manually unavailable.
- * - `away`: logged in but not taking calls.
+ * - `ready`: taking calls.
+ * - `not_ready`: logged in, not taking calls; carries a reason (aux) code such as
+ *   `Break`, or `RONA` when set by the API after an unanswered ring.
+ * - `busy`: on a call (set by the API when an offer is accepted or a call is joined).
+ * - `acw`: after-call work / wrap-up, timed by {@link TenantSettings.acwSec}; the agent
+ *   can extend it or finish early.
  */
-export const AgentStatus = z.enum(['available', 'busy', 'away']);
-/** Inferred type of {@link AgentStatus}. */
-export type AgentStatus = z.infer<typeof AgentStatus>;
+export const AgentState = z.enum(['ready', 'not_ready', 'busy', 'acw']);
+/** Inferred type of {@link AgentState}. */
+export type AgentState = z.infer<typeof AgentState>;
+
+/** The reason code the API uses when an agent did not answer a ring (RONA). */
+export const RONA_REASON = 'RONA';
 
 /**
- * Role of a user inside a tenant (membership row), checked by the API's desk routes.
+ * Body of `POST /api/desk/state` (and of the supervisor's force-state route): the states
+ * a person can ask for. `busy` and `acw` are set by the API, never requested.
+ */
+export const AgentStateRequest = z.object({
+  state: z.enum(['ready', 'not_ready']),
+  /** Reason code for `not_ready`; ignored for `ready`. */
+  reason: z.string().min(1).max(40).optional(),
+});
+/** Inferred type of {@link AgentStateRequest}. */
+export type AgentStateRequest = z.infer<typeof AgentStateRequest>;
+
+/** One agent in the `presence` {@link ServerMessage}. */
+export const AgentPresence = z.object({
+  userId: z.string(),
+  name: z.string(),
+  state: AgentState,
+  /** Reason code while `not_ready`, else `null`. */
+  reason: z.string().nullable(),
+  /** ISO time the current state was entered (time-in-state timers). */
+  since: z.string(),
+  /** Call the agent is on (`busy`) or just left (`acw`), else `null`. */
+  callId: z.string().nullable(),
+  /** ISO time wrap-up ends automatically while `acw`, else `null`. */
+  acwUntil: z.string().nullable(),
+});
+/** Inferred type of {@link AgentPresence}. */
+export type AgentPresence = z.infer<typeof AgentPresence>;
+
+/**
+ * Role of a user inside a tenant (membership row). A role is a fixed set of
+ * {@link Permission}s ({@link ROLE_PERMISSIONS}); API keys carry an explicit set instead.
  *
  * - `agent`: can take calls.
- * - `supervisor`: can additionally edit {@link TenantSettings}, manage queues and
- *   listen in on / take over calls.
+ * - `supervisor`: can additionally edit {@link TenantSettings}, manage queues, members,
+ *   API keys, and listen in on / take over calls.
  */
 export const MembershipRole = z.enum(['agent', 'supervisor']);
 /** Inferred type of {@link MembershipRole}. */
 export type MembershipRole = z.infer<typeof MembershipRole>;
+
+/**
+ * What a route requires. Every API operation names exactly one permission; a signed-in
+ * user has the permissions of their role in the selected tenant, an API key the ones it
+ * was created with.
+ *
+ * - `calls:read`: list calls, call detail, who is online, desk settings.
+ * - `calls:answer`: accept / decline / leave calls, change one's own state and wrap-up.
+ * - `calls:supervise`: listen in, take over, force agent states, log agents out.
+ * - `tenant:read`: tenant settings, members, invites, queues, embed keys, API keys (read).
+ * - `tenant:write`: change all of the above.
+ * - `api-keys:manage`: create and revoke API keys.
+ */
+export const Permission = z.enum([
+  'calls:read',
+  'calls:answer',
+  'calls:supervise',
+  'tenant:read',
+  'tenant:write',
+  'api-keys:manage',
+]);
+/** Inferred type of {@link Permission}. */
+export type Permission = z.infer<typeof Permission>;
+
+/** The permissions of each {@link MembershipRole}. */
+export const ROLE_PERMISSIONS: Record<MembershipRole, readonly Permission[]> = {
+  agent: ['calls:read', 'calls:answer'],
+  supervisor: [
+    'calls:read',
+    'calls:answer',
+    'calls:supervise',
+    'tenant:read',
+    'tenant:write',
+    'api-keys:manage',
+  ],
+};
+
+/** Body of `POST /api/admin/api-keys`. */
+export const ApiKeyRequest = z.object({
+  name: z.string().min(1).max(80),
+  permissions: z.array(Permission).min(1),
+});
+/** Inferred type of {@link ApiKeyRequest}. */
+export type ApiKeyRequest = z.infer<typeof ApiKeyRequest>;
 
 /**
  * Job metadata the API passes to the AI agent worker when dispatching it.
@@ -184,6 +410,27 @@ export const DispatchMetadata = z.object({
 });
 /** Inferred type of {@link DispatchMetadata}. */
 export type DispatchMetadata = z.infer<typeof DispatchMetadata>;
+
+/**
+ * A command from the API to the media worker (`apps/media`), carried on the
+ * cross-instance bus as `{ kind: 'media', command }`. The worker joins the call's room
+ * with the given token and plays the hold-music loop until told to stop (or the room
+ * closes under it).
+ */
+export const MediaCommand = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('moh.start'),
+    /** Hold-music style (per queue); the worker defaults to `calm`. */
+    style: z.enum(['calm', 'bright']).optional(),
+    callId: z.string(),
+    roomName: z.string(),
+    token: z.string(),
+    url: z.string(),
+  }),
+  z.object({ action: z.literal('moh.stop'), callId: z.string() }),
+]);
+/** Inferred type of {@link MediaCommand}. */
+export type MediaCommand = z.infer<typeof MediaCommand>;
 
 /**
  * One line of transcript. Produced by the agent worker (`POST /api/internal/calls/:id/transcript`),
@@ -216,8 +463,8 @@ export type TranscriptSegmentInput = z.infer<typeof TranscriptSegmentInput>;
  * - `call.offer.cancelled`: the offer above is no longer for this agent (timed out,
  *   someone else took it or the call ended).
  * - `call.updated`: the call's {@link CallStatus} changed.
- * - `presence`: full list of the tenant's online agents and their {@link AgentStatus};
- *   sent whenever anyone's presence changes.
+ * - `presence`: full list of the tenant's online agents ({@link AgentPresence}); sent
+ *   whenever anyone's state changes.
  * - `transcript`: a new {@link TranscriptSegmentInput} for a call the desk subscribed to.
  */
 export const ServerMessage = z.discriminatedUnion('type', [
@@ -231,17 +478,16 @@ export const ServerMessage = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('call.offer.cancelled'), callId: z.string() }),
   z.object({ type: z.literal('call.updated'), callId: z.string(), status: CallStatus }),
+  z.object({ type: z.literal('presence'), agents: z.array(AgentPresence) }),
+  /** You were forced out by a supervisor; the desk signs out and stops reconnecting. */
+  z.object({ type: z.literal('logout'), by: z.string() }),
   z.object({
-    type: z.literal('presence'),
-    agents: z.array(
-      z.object({
-        userId: z.string(),
-        name: z.string(),
-        status: AgentStatus,
-        callId: z.string().nullable(),
-      }),
-    ),
+    type: z.literal('im'),
+    from: z.object({ userId: z.string(), name: z.string() }),
+    text: z.string(),
+    broadcast: z.boolean(),
   }),
+  z.object({ type: z.literal('ticker'), text: z.string() }),
   z.object({ type: z.literal('transcript'), callId: z.string(), segment: TranscriptSegmentInput }),
 ]);
 /** Inferred type of {@link ServerMessage}. */
@@ -250,17 +496,15 @@ export type ServerMessage = z.infer<typeof ServerMessage>;
 /**
  * Messages from a desk client to the API over the websocket, discriminated on `type`.
  *
- * - `status`: set my {@link AgentStatus} (for example `available` when ready to take calls).
  * - `offer.decline`: pass on the `call.offer` I was sent; the API rings the next agent.
  * - `subscribe`: start receiving `transcript` messages for `callId` (used when viewing
  *   or joining a call).
  *
- * Accepting an offer is deliberately **not** a websocket message: it happens over REST
- * because the response carries the LiveKit token to join the room.
+ * State changes (`ready`, `not_ready`, wrap-up) and accepting an offer are REST calls
+ * (`/api/desk/state`, `/api/desk/calls/:id/accept`): every operation has a public API,
+ * and accepting returns the LiveKit token.
  */
 export const ClientMessage = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('status'), status: AgentStatus }),
-  // Accepting happens over REST because it returns a LiveKit token.
   z.object({ type: z.literal('offer.decline'), callId: z.string() }),
   z.object({ type: z.literal('subscribe'), callId: z.string() }),
 ]);

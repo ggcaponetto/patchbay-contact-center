@@ -22,12 +22,12 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 ## Product / architecture
 
+- [ ] Build out the contact center per [docs/guide/roadmap.md](docs/guide/roadmap.md): Foundations → call control → supervisor → routing → MCP; omnichannel after.
+
 - [ ] MCP server over the stored conversations (`list_calls`, `get_transcript`, `get_events`, `add_note`, ...) so an LLM can decide follow-up actions. The `call`, `transcript_segment` and `call_event` tables are already shaped for this.
 - [ ] The AI summary only covers the AI segment of a call (`session.history`); generate it from the full stored transcript instead, after the call ends.
-- [ ] Routing state (presence, ringing offers) is in-memory in the API process; a restart drops it until desks reconnect. Fine for the POC, revisit before multi-instance deployment.
 - [ ] `listen` handoff mode keeps the AI muted but never re-engages it; add a "hand back to AI" action for agents.
 - [ ] Agent-side ring timeout uses the tenant's `offerTimeoutSec`; there is no overall cap on how long the AI waits for a human during escalation beyond exhausting the queue.
 - [ ] Recording consent / audio recordings (LiveKit Egress) if audio, not just transcripts, should be kept.
 - [ ] Human-first mode: while the call is still ringing humans (no AI in the room yet), a customer who hangs up leaves the call in `waiting_human`/`ringing` — nobody reports the end. Use a LiveKit webhook (`room_finished`) or have the API watch the room to mark such calls `ended`.
 - [ ] `Flow.join(mode: 'takeover')` and `Flow.escalate` accept any non-ended status, so `human → waiting_human` is technically reachable; guard the transitions explicitly.
-- [ ] After a desk websocket reconnect the agent is `away` until they toggle again; persist the last status client-side and resend it on reconnect.

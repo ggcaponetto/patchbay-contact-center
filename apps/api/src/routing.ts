@@ -1,136 +1,273 @@
 /**
- * In-memory presence and ring-offer state machine. No database, no LiveKit, no I/O:
- * the class only keeps maps and timers and reports back through {@link RoutingEvents},
- * which is what makes it unit-testable with fake timers (`routing.test.ts`).
+ * Routing engine over Postgres: who is online and in which agent state
+ * (`agent_presence`), and which call is ringing whom (`ring_offer`). Nothing lives in
+ * process memory, so an API restart loses no presence or ringing call, and several API
+ * instances share one engine: each runs the same {@link Routing.tick} and the row locks
+ * (`FOR UPDATE SKIP LOCKED`) decide who advances an offer.
  *
  * Two pieces of state:
  *
- * - **presence** (`agents`): one {@link Presence} per connected desk user, maintained by
- *   `ws.ts` (`setPresence` on connect / status change, `removePresence` on disconnect).
- * - **offers** (`offers`): one per call that is currently ringing. An offer rings one
- *   agent at a time (`current`), remembers who was already tried, and `advance`s on
- *   decline, timeout or disconnect until someone accepts or nobody is left.
+ * - **presence**: one row per connected desk user with the classic agent states
+ *   (`ready`, `not_ready` + reason, `busy`, `acw`), the time it was entered, and the
+ *   instance whose sockets the user is on (`lastSeen` heartbeat; users of a dead
+ *   instance are swept by the tick). Maintained by `ws.ts` (`connect` / `disconnect`)
+ *   and the desk routes (`setState`, wrap-up).
+ * - **offers**: one row per call that is currently ringing. An offer rings one agent at
+ *   a time (`currentUserId` until `ringUntil`), remembers who was already tried, and
+ *   advances on decline, timeout (the tick) or disconnect until someone accepts or
+ *   nobody is left. An agent who lets the ring time out goes `not_ready` with reason
+ *   `RONA`.
  *
- * `Flow` owns the single instance and implements the callbacks.
+ * After a call the agent enters `acw` (after-call work) for the tenant's `acwSec`; the
+ * tick turns that into `ready` when `acwUntil` passes.
+ *
+ * Everything that must reach a desk goes through the {@link Bus} (`send`, `presence`),
+ * because the desk may be on another instance. `Flow` owns the single instance per
+ * process and implements the callbacks.
  *
  * @see apps/api/src/README.md
  * @packageDocumentation
  */
-import type { AgentStatus, ServerMessage } from '@cc/shared';
+import {
+  type AgentPresence,
+  type AgentState,
+  RONA_REASON,
+  type RoutingAlgorithm,
+  type ServerMessage,
+  type SkillRequirement,
+} from '@cc/shared';
+import { and, eq, lt, lte, sql } from 'drizzle-orm';
+import type { Bus } from './bus.ts';
+import type { Db } from './db/client.ts';
+import { agentPresence, ringOffer, userSkill } from './db/schema.ts';
 
-/** A desk user as seen by the router: who, where, and whether they can take a call. */
-export type Presence = {
-  userId: string;
-  tenantId: string;
-  /** Display name, sent to colleagues in the `presence` websocket message. */
-  name: string;
-  /** `available` agents are ring candidates; `busy` / `away` are skipped. */
-  status: AgentStatus;
-  /** Call the agent accepted and is still on, or `null`. Set by `accept`, cleared by `release`. */
-  callId: string | null;
-};
-
-/** Ring cycle for one call. Private to the router; exposed to tests only through behavior. */
-type Offer = {
-  callId: string;
-  tenantId: string;
-  queueKey: string;
-  reason: string | undefined;
-  summary: string | undefined;
-  /** Agents already rung for this call (declined, timed out, or disconnected). */
-  tried: Set<string>;
-  /** Agent currently ringing, or `null` between steps. */
-  current: string | null;
-  /** Timeout that moves to the next agent when `current` does not answer. */
-  timer: ReturnType<typeof setTimeout> | null;
-  /** Deadline for the whole ring cycle (human-first fallback); null = ring until exhausted. */
-  giveUpAt: number | null;
-  /** How long each agent rings before the next one is tried. */
-  ringMs: number;
-  /** User ids that may take this call (members of the queue at offer time). */
-  members: Set<string>;
-};
+/** One `agent_presence` row. */
+export type Presence = typeof agentPresence.$inferSelect;
+type Offer = typeof ringOffer.$inferSelect;
 
 /** Callbacks through which the router talks to the rest of the system. */
 export type RoutingEvents = {
-  /** Deliver a websocket message to one user (all their open desks). */
-  send(userId: string, message: ServerMessage): void;
-  /** Nobody accepted (all declined, timed out, or none online): caller decides the fallback. */
-  onNobody(callId: string, tenantId: string): void;
-  /** The ringing agent accepted; the caller mints the join token. */
-  onAccepted(callId: string, userId: string): void;
-  /** Presence of the tenant changed; the caller broadcasts a fresh snapshot. */
-  presenceChanged(tenantId: string): void;
+  /**
+   * Nobody accepted (all declined, timed out, or none online). `fallback` is what
+   * `offer()` was given (human-first dispatch metadata), so any instance can act on it.
+   */
+  onNobody(
+    callId: string,
+    tenantId: string,
+    fallback: Record<string, unknown> | null,
+  ): Promise<void>;
+  /** The ringing agent accepted; the caller records it and resolves the escalation. */
+  onAccepted(callId: string, userId: string): Promise<void>;
+};
+
+/** Why {@link Routing.setState} refused. */
+export type StateError = 'offline' | 'on_call';
+
+/** Postgres array literal for a bound parameter (drizzle would expand a JS array to a tuple). */
+const pgArray = (values: string[]) => `{${values.map((v) => JSON.stringify(v)).join(',')}}`;
+
+/** A presence whose heartbeat is older than this is considered gone (its instance died). */
+const STALE_MS = 30_000;
+
+/** Dependencies of {@link Routing}. */
+export type RoutingDeps = {
+  db: Db;
+  bus: Bus;
+  /** Identifies this API process in `agent_presence.instance_id`. */
+  instanceId: string;
+  events: RoutingEvents;
+  /** Default ring time per agent when `offer()` gets no `ringSec`. */
+  offerTimeoutSec?: number;
+  /** Clock, injectable for tests (defaults to `Date.now`). */
+  now?: () => number;
 };
 
 /**
- * In-memory routing: who is online, and which call is ringing whom.
- * One process, one instance; restarts lose presence (agents reconnect) — fine for the POC.
+ * The engine. See the module comment.
  *
- * Candidate rule (see `candidate`): same tenant, status `available`, not on a call, member
- * of the offer's queue, not already tried for this offer, and not currently ringing for
- * another call. The first match in insertion order wins; there is no load balancing.
+ * Candidate rule (see `candidate`): same tenant, state `ready`, member of the offer's
+ * queue, not already tried for this offer, and not currently being rung for another
+ * call. The earliest-connected match wins; there is no load balancing yet.
  *
  * @example
  * ```ts
- * const routing = new Routing(events, 20);
- * routing.setPresence({ userId: 'u1', tenantId: 't', name: 'Ann', status: 'available', queues: ['support'] });
- * routing.offer({ callId: 'c1', tenantId: 't', queueKey: 'support' }); // events.send('u1', call.offer)
- * routing.accept('c1', 'u1'); // true; events.onAccepted('c1', 'u1')
+ * const routing = new Routing({ db, bus, instanceId: 'api-1', events });
+ * await routing.connect({ userId: 'u1', tenantId: 't', name: 'Ann' });
+ * await routing.setState('u1', 'ready');
+ * await routing.offer({ callId: 'c1', tenantId: 't', queueKey: 'support', members: ['u1'] });
+ * await routing.accept('c1', 'u1'); // true; events.onAccepted('c1', 'u1'); u1 is busy
+ * await routing.release('c1', { acwSec: 30 }); // u1 wraps up; tick() makes them ready later
  * ```
  */
 export class Routing {
-  private readonly agents = new Map<string, Presence>();
-  private readonly offers = new Map<string, Offer>();
-  private readonly offerTimeoutMs: number;
+  private readonly db: Db;
+  private readonly bus: Bus;
+  private readonly instanceId: string;
   private readonly events: RoutingEvents;
+  private readonly offerTimeoutMs: number;
   private readonly now: () => number;
+  private timer: ReturnType<typeof setInterval> | null = null;
 
-  /**
-   * @param events - Callbacks, see {@link RoutingEvents}.
-   * @param offerTimeoutSec - Default ring time per agent when `offer()` gets no `ringSec`.
-   * @param now - Clock, injectable for tests (defaults to `Date.now`).
-   */
-  constructor(events: RoutingEvents, offerTimeoutSec = 20, now: () => number = Date.now) {
-    this.events = events;
-    this.offerTimeoutMs = offerTimeoutSec * 1000;
-    this.now = now;
+  constructor(deps: RoutingDeps) {
+    this.db = deps.db;
+    this.bus = deps.bus;
+    this.instanceId = deps.instanceId;
+    this.events = deps.events;
+    this.offerTimeoutMs = (deps.offerTimeoutSec ?? 20) * 1000;
+    this.now = deps.now ?? Date.now;
+  }
+
+  /** Runs {@link Routing.tick} every `intervalMs` until {@link Routing.stop}. */
+  start(intervalMs = 1000): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.tick().catch(() => undefined), intervalMs);
+  }
+
+  /** Stops the periodic tick. */
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
   /**
-   * Called when a desk connects or changes status. Keeps the agent's current `callId`
-   * (a status change while on a call must not free the agent).
+   * One pass of the timers, safe to run on every instance concurrently:
+   * heartbeat for this instance's users, sweep of users whose instance died, wrap-ups
+   * that expired, rings that timed out (RONA for the agent, next candidate or nobody).
    */
-  setPresence(p: Omit<Presence, 'callId'> & { callId?: string | null }): void {
-    const prev = this.agents.get(p.userId);
-    this.agents.set(p.userId, { callId: prev?.callId ?? null, ...p });
-    this.events.presenceChanged(p.tenantId);
-  }
-
-  /** Called when a desk disconnects. Any ringing offer moves to the next agent. */
-  removePresence(userId: string): void {
-    const p = this.agents.get(userId);
-    if (!p) return;
-    this.agents.delete(userId);
-    for (const offer of this.offers.values()) {
-      if (offer.current === userId) this.advance(offer);
+  async tick(): Promise<void> {
+    const now = new Date(this.now());
+    await this.db
+      .update(agentPresence)
+      .set({ lastSeen: now })
+      .where(eq(agentPresence.instanceId, this.instanceId));
+    const stale = await this.db
+      .delete(agentPresence)
+      .where(lt(agentPresence.lastSeen, new Date(this.now() - STALE_MS)))
+      .returning();
+    for (const gone of stale) {
+      await this.publishPresence(gone.tenantId);
+      await this.advanceOffersOf(gone.userId, false);
     }
-    this.events.presenceChanged(p.tenantId);
+    const wrapped = await this.db
+      .update(agentPresence)
+      .set({ state: 'ready', reason: null, since: now, callId: null, acwUntil: null })
+      .where(and(eq(agentPresence.state, 'acw'), lte(agentPresence.acwUntil, now)))
+      .returning();
+    for (const a of wrapped) await this.publishPresence(a.tenantId);
+    // Highest effective priority first: the configured priority ages by one per
+    // waiting minute, so old low-priority calls eventually outrank fresh urgent ones.
+    const expired = await this.db
+      .select({ callId: ringOffer.callId })
+      .from(ringOffer)
+      .where(lte(ringOffer.ringUntil, now))
+      .orderBy(
+        sql`(${ringOffer.priority} + floor(extract(epoch from (now() - ${ringOffer.createdAt})) / 60)) desc`,
+        ringOffer.createdAt,
+      );
+    for (const { callId } of expired) await this.advance(callId, true);
+  }
+
+  /**
+   * A desk connected. A new presence starts `not_ready` (reason `null`); a user who is
+   * already online (second tab, reconnect after a restart) keeps their state and is
+   * re-homed on this instance.
+   */
+  async connect(p: { userId: string; tenantId: string; name: string }): Promise<void> {
+    const now = new Date(this.now());
+    await this.db
+      .insert(agentPresence)
+      .values({
+        ...p,
+        state: 'not_ready',
+        reason: null,
+        since: now,
+        instanceId: this.instanceId,
+        lastSeen: now,
+      })
+      .onConflictDoUpdate({
+        target: agentPresence.userId,
+        set: { name: p.name, tenantId: p.tenantId, instanceId: this.instanceId, lastSeen: now },
+      });
+    await this.publishPresence(p.tenantId);
+  }
+
+  /** Called when a desk disconnects (last socket). Any ringing offer moves on. */
+  async disconnect(userId: string): Promise<void> {
+    const [gone] = await this.db
+      .delete(agentPresence)
+      .where(eq(agentPresence.userId, userId))
+      .returning();
+    if (!gone) return;
+    await this.publishPresence(gone.tenantId);
+    await this.advanceOffersOf(userId, false);
+  }
+
+  /**
+   * The agent (or a supervisor on their behalf) asks for `ready` / `not_ready`. Allowed
+   * from any state except `busy` (a state change must not free an agent on a call);
+   * leaving `acw` this way ends the wrap-up.
+   */
+  async setState(
+    userId: string,
+    state: 'ready' | 'not_ready',
+    reason?: string,
+  ): Promise<StateError | null> {
+    const a = await this.presenceOf(userId);
+    if (!a) return 'offline';
+    if (a.state === 'busy') return 'on_call';
+    await this.enter(userId, state, state === 'not_ready' ? (reason ?? null) : null);
+    await this.publishPresence(a.tenantId);
+    return null;
+  }
+
+  /** Adds `acwSec` to the running wrap-up; `false` when the agent is not in `acw`. */
+  async extendAcw(userId: string, acwSec: number): Promise<boolean> {
+    const a = await this.presenceOf(userId);
+    if (!a || a.state !== 'acw') return false;
+    const until = new Date((a.acwUntil?.getTime() ?? this.now()) + acwSec * 1000);
+    await this.db
+      .update(agentPresence)
+      .set({ acwUntil: until })
+      .where(eq(agentPresence.userId, userId));
+    await this.publishPresence(a.tenantId);
+    return true;
   }
 
   /** Everyone currently online in the tenant (what the `presence` message carries). */
-  snapshot(tenantId: string): Presence[] {
-    return [...this.agents.values()].filter((a) => a.tenantId === tenantId);
+  async snapshot(tenantId: string): Promise<AgentPresence[]> {
+    const rows = await this.db
+      .select()
+      .from(agentPresence)
+      .where(eq(agentPresence.tenantId, tenantId))
+      .orderBy(agentPresence.seq);
+    return rows.map((a) => ({
+      userId: a.userId,
+      name: a.name,
+      state: a.state,
+      reason: a.reason,
+      since: a.since.toISOString(),
+      callId: a.callId,
+      acwUntil: a.acwUntil?.toISOString() ?? null,
+    }));
+  }
+
+  /** The raw presence row of one user, or `undefined` when offline. */
+  async presenceOf(userId: string): Promise<Presence | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(agentPresence)
+      .where(eq(agentPresence.userId, userId));
+    return row;
   }
 
   /**
-   * Starts ringing available agents of the queue, one at a time.
+   * Starts ringing ready agents of the queue, one at a time.
    * Idempotent per call: a second `offer` for a ringing call is ignored.
    *
    * With `giveUpAfterSec` (human-first mode) the cycle stops at the deadline even if
    * untried agents remain; without it, it stops when every candidate was tried.
    */
-  offer(input: {
+  async offer(input: {
     callId: string;
     tenantId: string;
     queueKey: string;
@@ -144,133 +281,310 @@ export class Routing {
     ringSec?: number;
     /** Members of the queue; only these agents are rung. */
     members: string[];
-  }): void {
-    if (this.offers.has(input.callId)) return;
-    const offer: Offer = {
-      callId: input.callId,
-      tenantId: input.tenantId,
-      queueKey: input.queueKey,
-      reason: input.reason,
-      summary: input.summary,
-      tried: new Set(),
-      current: null,
-      timer: null,
-      giveUpAt: input.giveUpAfterSec ? this.now() + input.giveUpAfterSec * 1000 : null,
-      ringMs: input.ringSec ? input.ringSec * 1000 : this.offerTimeoutMs,
-      members: new Set(input.members),
-    };
-    this.offers.set(input.callId, offer);
-    this.advance(offer);
+    /** Handed back to `onNobody` unchanged (human-first dispatch metadata). */
+    fallback?: Record<string, unknown>;
+    /** Blind transfer: whoever accepts also takes the customer off hold. */
+    retrieveOnAccept?: boolean;
+    /** Selection algorithm of the queue; defaults to `longest_idle`. */
+    algorithm?: RoutingAlgorithm;
+    /** Skill requirements candidates must meet. */
+    skills?: SkillRequirement[];
+    /** Ring this agent first if they are ready (sticky / last-agent routing). */
+    preferredUserId?: string;
+    /** Priority (higher first); ages by +1 per waiting minute under contention. */
+    priority?: number;
+  }): Promise<void> {
+    const inserted = await this.db
+      .insert(ringOffer)
+      .values({
+        callId: input.callId,
+        tenantId: input.tenantId,
+        queueKey: input.queueKey,
+        reason: input.reason ?? null,
+        summary: input.summary ?? null,
+        members: input.members,
+        giveUpAt: input.giveUpAfterSec ? new Date(this.now() + input.giveUpAfterSec * 1000) : null,
+        ringMs: input.ringSec ? input.ringSec * 1000 : this.offerTimeoutMs,
+        fallback: input.fallback ?? null,
+        retrieveOnAccept: input.retrieveOnAccept ?? false,
+        algorithm: input.algorithm ?? 'longest_idle',
+        skills: input.skills ?? [],
+        preferredUserId: input.preferredUserId ?? null,
+        priority: input.priority ?? 0,
+      })
+      .onConflictDoNothing()
+      .returning({ callId: ringOffer.callId });
+    if (inserted.length > 0) await this.advance(input.callId, false);
   }
 
   /**
-   * The ringing agent accepted. Returns false when the offer is no longer theirs
+   * The ringing agent accepted. Returns `null` when the offer is no longer theirs
    * (it moved on, was cancelled, or never existed), so the route can answer 409.
-   * On success the agent becomes `busy` on that call and `onAccepted` fires.
+   * On success the agent becomes `busy` on that call, `onAccepted` fires, and the
+   * consumed offer row is returned (`retrieveOnAccept` drives the transfer unhold).
    */
-  accept(callId: string, userId: string): boolean {
-    const offer = this.offers.get(callId);
-    if (!offer || offer.current !== userId) return false;
-    this.clear(offer);
-    this.offers.delete(callId);
-    const agent = this.agents.get(userId);
-    if (agent) {
-      agent.status = 'busy';
-      agent.callId = callId;
-      this.events.presenceChanged(agent.tenantId);
-    }
-    this.events.onAccepted(callId, userId);
-    return true;
+  async accept(callId: string, userId: string): Promise<Offer | null> {
+    const [deleted] = await this.db
+      .delete(ringOffer)
+      .where(and(eq(ringOffer.callId, callId), eq(ringOffer.currentUserId, userId)))
+      .returning();
+    if (!deleted) return null;
+    await this.busy(callId, userId);
+    await this.events.onAccepted(callId, userId);
+    return deleted;
+  }
+
+  /**
+   * Frees one user from a call without touching anyone else on it (a consult party was
+   * dropped or left while the call goes on): wrap-up like {@link Routing.release}.
+   */
+  async free(userId: string, opts: { acwSec: number } = { acwSec: 0 }): Promise<void> {
+    const a = await this.presenceOf(userId);
+    if (!a || a.state !== 'busy') return;
+    const now = new Date(this.now());
+    await this.db
+      .update(agentPresence)
+      .set(
+        opts.acwSec > 0
+          ? {
+              state: 'acw',
+              reason: null,
+              since: now,
+              acwUntil: new Date(this.now() + opts.acwSec * 1000),
+            }
+          : { state: 'ready', reason: null, since: now, callId: null, acwUntil: null },
+      )
+      .where(eq(agentPresence.userId, userId));
+    await this.publishPresence(a.tenantId);
+  }
+
+  /** Marks an online user `busy` on a call (accept, take-over). Offline users are ignored. */
+  async busy(callId: string, userId: string): Promise<void> {
+    const a = await this.presenceOf(userId);
+    if (!a) return;
+    await this.enter(userId, 'busy', null, callId);
+    await this.db
+      .update(agentPresence)
+      .set({ handled: a.handled + 1 })
+      .where(eq(agentPresence.userId, userId));
+    await this.publishPresence(a.tenantId);
   }
 
   /** The ringing agent declined: move on. Ignored unless the offer is currently theirs. */
-  decline(callId: string, userId: string): void {
-    const offer = this.offers.get(callId);
-    if (offer && offer.current === userId) this.advance(offer);
+  async decline(callId: string, userId: string): Promise<void> {
+    const [o] = await this.db.select().from(ringOffer).where(eq(ringOffer.callId, callId));
+    if (o?.currentUserId === userId) await this.advance(callId, false);
   }
 
   /**
-   * The call ended or was otherwise resolved; stop ringing and free the agent.
+   * The call ended or was otherwise resolved; stop ringing and free the agent, who goes
+   * into wrap-up for `acwSec` seconds (`ready` right away when `0`).
    * Safe to call for calls that are not ringing and have no agent (no-op).
    */
-  release(callId: string): void {
-    const offer = this.offers.get(callId);
-    if (offer) {
-      this.clear(offer);
-      this.offers.delete(callId);
-      if (offer.current) this.events.send(offer.current, { type: 'call.offer.cancelled', callId });
+  async release(callId: string, opts: { acwSec: number } = { acwSec: 0 }): Promise<void> {
+    const [o] = await this.db.delete(ringOffer).where(eq(ringOffer.callId, callId)).returning();
+    if (o?.currentUserId) {
+      await this.send(o.currentUserId, { type: 'call.offer.cancelled', callId });
     }
-    for (const agent of this.agents.values()) {
-      if (agent.callId === callId) {
-        agent.callId = null;
-        agent.status = 'available';
-        this.events.presenceChanged(agent.tenantId);
-      }
-    }
+    const now = new Date(this.now());
+    const freed = await this.db
+      .update(agentPresence)
+      .set(
+        opts.acwSec > 0
+          ? {
+              state: 'acw',
+              reason: null,
+              since: now,
+              acwUntil: new Date(this.now() + opts.acwSec * 1000),
+            }
+          : { state: 'ready', reason: null, since: now, callId: null, acwUntil: null },
+      )
+      .where(eq(agentPresence.callId, callId))
+      .returning();
+    for (const a of freed) await this.publishPresence(a.tenantId);
   }
 
   /** Who the call is ringing right now, or `null`. */
-  ringing(callId: string): string | null {
-    return this.offers.get(callId)?.current ?? null;
+  async ringing(callId: string): Promise<string | null> {
+    const [o] = await this.db
+      .select({ current: ringOffer.currentUserId })
+      .from(ringOffer)
+      .where(eq(ringOffer.callId, callId));
+    return o?.current ?? null;
   }
 
-  private candidate(offer: Offer): Presence | undefined {
-    return [...this.agents.values()].find(
-      (a) =>
-        a.tenantId === offer.tenantId &&
-        a.status === 'available' &&
-        a.callId === null &&
-        offer.members.has(a.userId) &&
-        !offer.tried.has(a.userId) &&
-        !this.isRingingSomeone(a.userId),
-    );
+  private async enter(
+    userId: string,
+    state: AgentState,
+    reason: string | null,
+    callId: string | null = null,
+  ): Promise<void> {
+    await this.db
+      .update(agentPresence)
+      .set({ state, reason, since: new Date(this.now()), callId, acwUntil: null })
+      .where(eq(agentPresence.userId, userId));
   }
 
-  private isRingingSomeone(userId: string): boolean {
-    for (const o of this.offers.values()) if (o.current === userId) return true;
-    return false;
+  private send(userId: string, message: ServerMessage): Promise<void> {
+    return this.bus.publish({ kind: 'send', userId, message });
+  }
+
+  private publishPresence(tenantId: string): Promise<void> {
+    return this.bus.publish({ kind: 'presence', tenantId });
+  }
+
+  /** Every offer currently ringing `userId` moves on (disconnect, sweep). */
+  private async advanceOffersOf(userId: string, rona: boolean): Promise<void> {
+    const mine = await this.db
+      .select({ callId: ringOffer.callId })
+      .from(ringOffer)
+      .where(eq(ringOffer.currentUserId, userId));
+    for (const { callId } of mine) await this.advance(callId, rona);
   }
 
   /**
-   * One step of the ring cycle: cancel the current agent (if any), then either give up
-   * or ring the next candidate and arm the timer that calls `advance` again.
+   * One step of the ring cycle, under the offer's row lock so only one instance takes
+   * it: cancel the current agent (if any; a timed-out ring parks them `not_ready` with
+   * reason `RONA`), then either give up or ring the next candidate until `ringUntil`.
+   * The timeout itself is detected by {@link Routing.tick}.
    */
-  private advance(offer: Offer): void {
-    this.clear(offer);
-    if (offer.current) {
-      this.events.send(offer.current, { type: 'call.offer.cancelled', callId: offer.callId });
-      offer.tried.add(offer.current);
-      offer.current = null;
+  private async advance(callId: string, rona: boolean): Promise<void> {
+    const step = await this.db.transaction(async (tx) => {
+      const [o] = await tx
+        .select()
+        .from(ringOffer)
+        .where(eq(ringOffer.callId, callId))
+        .for('update', { skipLocked: true });
+      if (!o) return null;
+      const tried = [...o.tried];
+      const cancelled = o.currentUserId;
+      if (cancelled) tried.push(cancelled);
+      const next =
+        o.giveUpAt !== null && this.now() >= o.giveUpAt.getTime()
+          ? undefined
+          : await this.candidate(tx, o, tried);
+      if (!next) {
+        await tx.delete(ringOffer).where(eq(ringOffer.callId, callId));
+        return { o, cancelled, next: undefined, ringFor: 0 };
+      }
+      const ringFor = Math.min(
+        o.ringMs,
+        o.giveUpAt === null ? o.ringMs : o.giveUpAt.getTime() - this.now(),
+      );
+      await tx
+        .update(ringOffer)
+        .set({ tried, currentUserId: next.userId, ringUntil: new Date(this.now() + ringFor) })
+        .where(eq(ringOffer.callId, callId));
+      // Round-robin bookkeeping: remember when this agent was last offered a call.
+      await tx
+        .update(agentPresence)
+        .set({ lastOfferedAt: new Date(this.now()) })
+        .where(eq(agentPresence.userId, next.userId));
+      return { o, cancelled, next, ringFor };
+    });
+    if (!step) return;
+    const { o, cancelled, next, ringFor } = step;
+    if (cancelled) {
+      await this.send(cancelled, { type: 'call.offer.cancelled', callId });
+      if (rona) {
+        const missed = await this.presenceOf(cancelled);
+        if (missed?.state === 'ready') {
+          await this.enter(cancelled, 'not_ready', RONA_REASON);
+          await this.publishPresence(missed.tenantId);
+        }
+      }
     }
-    if (offer.giveUpAt !== null && this.now() >= offer.giveUpAt) return this.nobody(offer);
-    const next = this.candidate(offer);
-    // Every eligible agent was tried (or nobody is online): give up, the caller falls back.
-    if (!next) return this.nobody(offer);
-    offer.current = next.userId;
-    // Never ring past the overall deadline: the last agent may get a shorter ring.
-    const ringFor = Math.min(
-      offer.ringMs,
-      offer.giveUpAt === null ? offer.ringMs : offer.giveUpAt - this.now(),
-    );
-    this.events.send(next.userId, {
+    if (!next) {
+      await this.events.onNobody(callId, o.tenantId, o.fallback);
+      return;
+    }
+    await this.send(next.userId, {
       type: 'call.offer',
-      callId: offer.callId,
-      queueKey: offer.queueKey,
-      ...(offer.reason !== undefined ? { reason: offer.reason } : {}),
-      ...(offer.summary !== undefined ? { summary: offer.summary } : {}),
+      callId,
+      queueKey: o.queueKey,
+      ...(o.reason !== null ? { reason: o.reason } : {}),
+      ...(o.summary !== null ? { summary: o.summary } : {}),
       expiresAt: new Date(this.now() + ringFor).toISOString(),
     });
-    offer.timer = setTimeout(() => this.advance(offer), ringFor);
   }
 
-  private nobody(offer: Offer): void {
-    this.clear(offer);
-    this.offers.delete(offer.callId);
-    this.events.onNobody(offer.callId, offer.tenantId);
-  }
-
-  private clear(offer: Offer): void {
-    if (offer.timer) clearTimeout(offer.timer);
-    offer.timer = null;
+  /**
+   * Picks the next agent to ring: ready queue members not yet tried and not ringing
+   * elsewhere, filtered by the offer's skill requirements, the preferred (sticky)
+   * agent first, then ordered by the queue's `RoutingAlgorithm`.
+   */
+  private async candidate(
+    tx: Pick<Db, 'select'>,
+    o: Offer,
+    tried: string[],
+  ): Promise<{ userId: string } | undefined> {
+    if (o.members.length === 0) return undefined;
+    const rows = await tx
+      .select({
+        userId: agentPresence.userId,
+        since: agentPresence.since,
+        seq: agentPresence.seq,
+        handled: agentPresence.handled,
+        lastOfferedAt: agentPresence.lastOfferedAt,
+      })
+      .from(agentPresence)
+      .where(
+        and(
+          eq(agentPresence.tenantId, o.tenantId),
+          eq(agentPresence.state, 'ready'),
+          sql`${agentPresence.userId} = any(${pgArray(o.members)}::text[])`,
+          sql`${agentPresence.userId} <> all(${pgArray(tried)}::text[])`,
+          sql`not exists (select 1 from ${ringOffer} where ${ringOffer.currentUserId} = ${agentPresence.userId} and ${ringOffer.callId} <> ${o.callId})`,
+        ),
+      );
+    if (rows.length === 0) return undefined;
+    type Row = (typeof rows)[number];
+    // Skill filtering and scoring, only when the offer needs it.
+    const skilled = o.algorithm === 'most_skilled' || o.algorithm === 'least_skilled';
+    const score = new Map<string, number>();
+    let pool = rows;
+    if (o.skills.length > 0 || skilled) {
+      const held = await tx
+        .select()
+        .from(userSkill)
+        .where(
+          and(
+            eq(userSkill.tenantId, o.tenantId),
+            sql`${userSkill.userId} = any(${pgArray(rows.map((r) => r.userId))}::text[])`,
+          ),
+        );
+      const skillsOf = (userId: string) =>
+        new Map(held.filter((h) => h.userId === userId).map((h) => [h.skill, h.proficiency]));
+      pool = rows.filter((r) => {
+        const mine = skillsOf(r.userId);
+        const ok = o.skills.every((req) => (mine.get(req.skill) ?? 0) >= req.min);
+        if (ok) {
+          // Score over the required skills, or over everything the agent holds when
+          // the queue has no requirements but still routes by skill.
+          const over = o.skills.length > 0 ? o.skills.map((req) => req.skill) : [...mine.keys()];
+          score.set(
+            r.userId,
+            over.reduce((sum, skill) => sum + (mine.get(skill) ?? 0), 0),
+          );
+        }
+        return ok;
+      });
+    }
+    if (pool.length === 0) return undefined;
+    const preferred = pool.find((r) => r.userId === o.preferredUserId);
+    if (preferred) return { userId: preferred.userId };
+    const orderings: Record<string, (a: Row, b: Row) => number> = {
+      longest_idle: (a, b) => a.since.getTime() - b.since.getTime() || a.seq - b.seq,
+      least_occupied: (a, b) => a.handled - b.handled || a.seq - b.seq,
+      round_robin: (a, b) =>
+        (a.lastOfferedAt?.getTime() ?? 0) - (b.lastOfferedAt?.getTime() ?? 0) || a.seq - b.seq,
+      most_skilled: (a, b) =>
+        (score.get(b.userId) ?? 0) - (score.get(a.userId) ?? 0) || a.seq - b.seq,
+      least_skilled: (a, b) =>
+        (score.get(a.userId) ?? 0) - (score.get(b.userId) ?? 0) || a.seq - b.seq,
+      linear: (a, b) => a.seq - b.seq,
+    };
+    pool.sort(orderings[o.algorithm] ?? orderings['longest_idle']!);
+    return { userId: pool[0]!.userId };
   }
 }

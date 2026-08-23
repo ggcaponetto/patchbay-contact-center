@@ -33,6 +33,7 @@ const styles = `
  * - `queue`: queue key to ring; defaults to `support`.
  * - `api`: origin of the API; defaults to the origin of the loaded script.
  * - `label`: text of the call button; defaults to "Call us".
+ * - `language`: the customer's language (BCP 47); defaults to the page's `<html lang>`.
  *
  * Network: `POST <api>/api/public/calls` with `{ embedKey, queue, customerMeta }` and
  * the browser-set `Origin` header, then `Room.connect(url, token)`.
@@ -85,10 +86,15 @@ export class CcCallButton extends HTMLElement {
         body: JSON.stringify({
           embedKey,
           queue: this.getAttribute('queue') ?? 'support',
+          // The customer's language, from the attribute or the page, for language routing.
+          language: this.getAttribute('language') || document.documentElement.lang || undefined,
           customerMeta: { page: location.href, userAgent: navigator.userAgent },
         }),
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? res.statusText);
+      }
       const { token, url } = (await res.json()) as { token: string; url: string };
       const room = new Room();
       this.room = room;
@@ -97,7 +103,9 @@ export class CcCallButton extends HTMLElement {
         .on(RoomEvent.ParticipantAttributesChanged, (_changed, p) => {
           if (!p.isLocal) this.onPeer(p as RemoteParticipant);
         })
-        .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+        .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, participant?) => {
+          // A whispering supervisor talks to the agent only: never play them here.
+          if (participant?.attributes['monitor'] === 'whisper') return;
           if (track.kind === Track.Kind.Audio) this.audio.append(track.attach());
         })
         .on(RoomEvent.Disconnected, () => this.endCall(false));

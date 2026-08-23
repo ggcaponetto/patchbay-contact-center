@@ -2,7 +2,7 @@ import type { ServerMessage } from '@cc/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { Db } from './db/client.ts';
-import { createTenant } from './services/tenants.ts';
+import { bootstrapUser, createInvite, createTenant } from './services/tenants.ts';
 import { createUser, dbAvailable, freshDb, resetDb, testServer } from './testing.ts';
 
 const hasDb = await dbAvailable();
@@ -60,17 +60,84 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
     const a = await desk(port, boss, current, `?tenantId=${tenantId}`);
     const b = await desk(port, boss, current);
     await vi.waitFor(() => expect(b.last('presence')).toBeDefined());
-    a.send({ type: 'status', status: 'available' });
+    current.user = boss;
+    await srv.app.inject({ method: 'POST', url: '/api/desk/state', payload: { state: 'ready' } });
     await vi.waitFor(() =>
       expect(b.last('presence')).toMatchObject({
-        agents: [{ userId: boss.id, status: 'available' }],
+        agents: [{ userId: boss.id, state: 'ready' }],
       }),
     );
     await a.close();
     await new Promise((r) => setTimeout(r, 50));
-    expect(srv.flow.routing.snapshot(tenantId)).toMatchObject([{ userId: boss.id }]);
+    expect(await srv.flow.routing.snapshot(tenantId)).toMatchObject([{ userId: boss.id }]);
     await b.close();
-    await vi.waitFor(() => expect(srv.flow.routing.snapshot(tenantId)).toEqual([]));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
+  });
+
+  it('delivers instant messages, broadcasts, and the ticker (also on connect)', async () => {
+    await createInvite(db, tenantId, 'agent@example.com', 'agent');
+    const agent = await createUser(db, 'agent@example.com', 'Sam');
+    await bootstrapUser(db, agent, []);
+    const bossDesk = await desk(port, boss, current);
+    const agentDesk = await desk(port, agent, current);
+    await vi.waitFor(() => expect(agentDesk.last('presence')).toBeDefined());
+
+    // direct message: only the addressee receives it
+    current.user = boss;
+    const im = await srv.app.inject({
+      method: 'POST',
+      url: '/api/desk/messages',
+      payload: { text: 'Take five after this call', toUserId: agent.id },
+    });
+    expect(im.statusCode).toBe(200);
+    await vi.waitFor(() =>
+      expect(agentDesk.last('im')).toMatchObject({
+        from: { userId: boss.id, name: 'Boss' },
+        text: 'Take five after this call',
+        broadcast: false,
+      }),
+    );
+    expect(bossDesk.last('im')).toBeUndefined();
+
+    // broadcast: everyone gets it; agents may not broadcast
+    const bc = await srv.app.inject({
+      method: 'POST',
+      url: '/api/desk/messages',
+      payload: { text: 'Stand-up in 5' },
+    });
+    expect(bc.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(bossDesk.last('im')).toMatchObject({ text: 'Stand-up in 5', broadcast: true });
+      expect(agentDesk.last('im')).toMatchObject({ text: 'Stand-up in 5', broadcast: true });
+    });
+    current.user = agent;
+    expect(
+      (
+        await srv.app.inject({
+          method: 'POST',
+          url: '/api/desk/messages',
+          payload: { text: 'nope' },
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    // ticker: pushed live, persisted, and handed to a fresh connection
+    current.user = boss;
+    expect(
+      (
+        await srv.app.inject({
+          method: 'PUT',
+          url: '/api/desk/ticker',
+          payload: { text: 'Systems degraded' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    await vi.waitFor(() =>
+      expect(agentDesk.last('ticker')).toMatchObject({ text: 'Systems degraded' }),
+    );
+    const late = await desk(port, agent, current);
+    await vi.waitFor(() => expect(late.last('ticker')).toMatchObject({ text: 'Systems degraded' }));
+    await Promise.all([bossDesk.close(), agentDesk.close(), late.close()]);
   });
 
   it('ignores malformed and unknown messages, including ones sent before auth finished', async () => {
@@ -78,16 +145,92 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
     // sent right after `open`, before the server resolved the session
     d.send('{not json');
     d.send({ type: 'nonsense' });
-    d.send({ type: 'status', status: 'busy' });
+    d.send({ type: 'subscribe', callId: 'c-early' });
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'busy' }] }),
+      expect(d.last('presence')).toMatchObject({ agents: [{ state: 'not_ready', reason: null }] }),
     );
     d.send('also not json');
-    d.send({ type: 'status', status: 'away' });
+    current.user = boss;
+    await srv.app.inject({
+      method: 'POST',
+      url: '/api/desk/state',
+      payload: { state: 'not_ready', reason: 'Lunch' },
+    });
     await vi.waitFor(() =>
-      expect(d.last('presence')).toMatchObject({ agents: [{ status: 'away' }] }),
+      expect(d.last('presence')).toMatchObject({
+        agents: [{ state: 'not_ready', reason: 'Lunch' }],
+      }),
     );
     await d.close();
+  });
+
+  it('lets a supervisor read presence, force states and log an agent out', async () => {
+    await createInvite(db, tenantId, 'agent@example.com', 'agent');
+    const agent = await createUser(db, 'agent@example.com', 'Sam');
+    await bootstrapUser(db, agent, []);
+    const d = await desk(port, agent, current);
+    await vi.waitFor(() => expect(d.last('presence')).toBeDefined());
+    const as = (u: User) => {
+      current.user = u;
+      return srv.app;
+    };
+    const force = (userId: string, payload: object) =>
+      as(boss).inject({ method: 'POST', url: `/api/desk/agents/${userId}/state`, payload });
+
+    expect((await as(boss).inject({ url: '/api/desk/agents' })).json()).toMatchObject([
+      { userId: agent.id, state: 'not_ready' },
+    ]);
+    // agents may not force anyone; unknown / offline targets are 404; bad bodies 400
+    expect(
+      (
+        await as(agent).inject({
+          method: 'POST',
+          url: `/api/desk/agents/${boss.id}/state`,
+          payload: { state: 'ready' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await force('nobody', { state: 'ready' })).statusCode).toBe(404);
+    expect((await force(agent.id, { state: 'busy' })).statusCode).toBe(400);
+    expect(
+      (await force(agent.id, { state: 'not_ready', reason: 'Training' })).json(),
+    ).toMatchObject({
+      state: 'not_ready',
+      reason: 'Training',
+    });
+    await vi.waitFor(() =>
+      expect(d.last('presence')).toMatchObject({ agents: [{ reason: 'Training' }] }),
+    );
+    // on a call: no state change, not even forced
+    await srv.flow.routing.busy('c1', agent.id);
+    expect((await force(agent.id, { state: 'ready' })).json()).toEqual({ error: 'on_call' });
+    expect(
+      (
+        await as(agent).inject({
+          method: 'POST',
+          url: '/api/desk/state',
+          payload: { state: 'ready' },
+        })
+      ).json(),
+    ).toEqual({ error: 'on_call' });
+    await srv.flow.routing.release('c1');
+    // offline users cannot set a state
+    expect(
+      (
+        await as(boss).inject({
+          method: 'POST',
+          url: '/api/desk/state',
+          payload: { state: 'ready' },
+        })
+      ).json(),
+    ).toEqual({ error: 'offline' });
+    expect(
+      (await as(boss).inject({ method: 'POST', url: '/api/desk/acw/extend' })).statusCode,
+    ).toBe(409);
+
+    expect((await force(agent.id, { state: 'logged_out' })).json()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(d.last('logout')).toMatchObject({ by: 'Boss' }));
+    await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
   it('rejects a tenant the user is not a member of', async () => {

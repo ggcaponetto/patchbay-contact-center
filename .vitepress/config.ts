@@ -24,6 +24,7 @@ const apiSidebar = (() => {
 const guide = [
   { text: 'Getting started', link: '/docs/guide/getting-started' },
   { text: 'Architecture', link: '/docs/guide/architecture' },
+  { text: 'Roadmap', link: '/docs/guide/roadmap' },
   { text: 'Call lifecycle', link: '/docs/guide/call-lifecycle' },
   { text: 'Testing', link: '/docs/guide/testing' },
   { text: 'Quality gates', link: '/docs/guide/quality-gates' },
@@ -46,17 +47,23 @@ const apps = [
     ],
   },
   { text: 'AI agent', link: '/apps/agent/' },
+  { text: 'Media worker', link: '/apps/media/' },
+  { text: 'MCP server', link: '/apps/mcp/' },
   { text: 'Web desk', link: '/apps/web/' },
   { text: 'Embed button', link: '/apps/embed/' },
-  { text: 'Tests', link: '/tests/' },
+  {
+    text: 'Tests',
+    link: '/tests/',
+    items: [{ text: 'E2E test plan', link: '/tests/e2e/TEST-PLAN' }],
+  },
   { text: 'Build scripts', link: '/build/' },
 ];
 
 export default withMermaid(
   defineConfig({
-    title: 'Contact Center POC',
+    title: 'Patchbay Contact Center',
     description: 'AI-first contact center on LiveKit Cloud — developer documentation',
-    base: '/livekit-playground/',
+    base: '/patchbay-contact-center/',
     srcDir: '.',
     srcExclude: [
       '**/node_modules/**',
@@ -106,7 +113,9 @@ export default withMermaid(
         ],
       },
       search: { provider: 'local' },
-      socialLinks: [{ icon: 'github', link: 'https://github.com/ggcaponetto/livekit-playground' }],
+      socialLinks: [
+        { icon: 'github', link: 'https://github.com/ggcaponetto/patchbay-contact-center' },
+      ],
     },
     mermaid: {},
   }),

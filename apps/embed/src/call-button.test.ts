@@ -126,6 +126,7 @@ describe('<cc-call-button>', () => {
   it('runs a full call: connect, peers, audio, mute, timer, hang up', async () => {
     const el = mount({ key: 'pk_1', queue: 'sales', label: 'Ring' });
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
+    document.documentElement.lang = 'de-CH';
     ui(el).button('Ring').click();
     expect(ui(el).button('Ring').disabled).toBe(true);
     expect(ui(el).status()).toBe('Connecting…');
@@ -135,9 +136,11 @@ describe('<cc-call-button>', () => {
       body: JSON.stringify({
         embedKey: 'pk_1',
         queue: 'sales',
+        language: 'de-CH',
         customerMeta: { page: location.href, userAgent: navigator.userAgent },
       }),
     });
+    document.documentElement.lang = '';
     // A second click while connecting is ignored by the reducer.
     ui(el).button('Ring').click();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -189,6 +192,13 @@ describe('<cc-call-button>', () => {
       kind: 'video',
       attach: () => document.createElement('video'),
     });
+    // ... and a whispering supervisor is never audible to the customer.
+    room.emit(
+      lk.RoomEvent.TrackSubscribed,
+      { kind: 'audio', attach: () => document.createElement('audio') },
+      undefined,
+      { attributes: { role: 'supervisor', monitor: 'whisper' } },
+    );
     expect([...ui(el2).audio().children]).toEqual([audioEl]);
 
     // Mute / unmute.
