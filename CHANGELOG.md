@@ -15,6 +15,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Team messaging (Phase 3): supervisors send instant messages to one agent or broadcast
+  to every desk (snackbar on any page), and set a persistent ticker banner shown on all
+  desks of the tenant (stored in the tenant settings, pushed live and on connect).
 - Supervisor monitoring modes (Phase 3): whisper (the agent hears the supervisor, the
   customer never does — the embed skips `monitor: whisper` tracks), barge-in (audible to
   everyone) and intercept (take over + the agent is dropped from the room and freed),

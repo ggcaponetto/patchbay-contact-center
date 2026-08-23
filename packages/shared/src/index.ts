@@ -92,6 +92,8 @@ export const TenantSettings = z.object({
   autoAnswer: z.boolean().default(false),
   /** When true (default), the agent's desk shows that a supervisor is monitoring. */
   monitorNotify: z.boolean().default(true),
+  /** Persistent banner shown on every desk of the tenant; empty hides it. */
+  ticker: z.string().max(200).default(''),
   /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
   notReadyReasons: z
     .array(z.string().min(1).max(40))
@@ -372,6 +374,13 @@ export const ServerMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('presence'), agents: z.array(AgentPresence) }),
   /** You were forced out by a supervisor; the desk signs out and stops reconnecting. */
   z.object({ type: z.literal('logout'), by: z.string() }),
+  z.object({
+    type: z.literal('im'),
+    from: z.object({ userId: z.string(), name: z.string() }),
+    text: z.string(),
+    broadcast: z.boolean(),
+  }),
+  z.object({ type: z.literal('ticker'), text: z.string() }),
   z.object({ type: z.literal('transcript'), callId: z.string(), segment: TranscriptSegmentInput }),
 ]);
 /** Inferred type of {@link ServerMessage}. */

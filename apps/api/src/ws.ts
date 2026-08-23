@@ -33,7 +33,7 @@ import type { GetSession } from './auth.ts';
 import type { Bus } from './bus.ts';
 import type { Db } from './db/client.ts';
 import type { Flow } from './flow.ts';
-import { membershipsOf } from './services/tenants.ts';
+import { getTenant, membershipsOf } from './services/tenants.ts';
 
 /** One open desk socket. A user may have several (tabs); presence is per user. */
 type Conn = { socket: WebSocket; userId: string; tenantId: string; subscribed: Set<string> };
@@ -194,6 +194,13 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       if (!stillConnected) void flow.routing.disconnect(user.id).catch(() => undefined);
     });
     await flow.routing.connect({ userId: user.id, tenantId: membership.tenantId, name: user.name });
+    // A late joiner still sees the tenant-wide ticker banner: push the current one.
+    const tenant = await getTenant(db, membership.tenantId);
+    if (tenant && tenant.settings.ticker !== '') {
+      socket.send(
+        JSON.stringify({ type: 'ticker', text: tenant.settings.ticker } satisfies ServerMessage),
+      );
+    }
 
     inbox.handle = (raw) => {
       let json: unknown;

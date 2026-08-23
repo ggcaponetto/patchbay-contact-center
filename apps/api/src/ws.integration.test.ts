@@ -74,6 +74,72 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
     await vi.waitFor(async () => expect(await srv.flow.routing.snapshot(tenantId)).toEqual([]));
   });
 
+  it('delivers instant messages, broadcasts, and the ticker (also on connect)', async () => {
+    await createInvite(db, tenantId, 'agent@example.com', 'agent');
+    const agent = await createUser(db, 'agent@example.com', 'Sam');
+    await bootstrapUser(db, agent, []);
+    const bossDesk = await desk(port, boss, current);
+    const agentDesk = await desk(port, agent, current);
+    await vi.waitFor(() => expect(agentDesk.last('presence')).toBeDefined());
+
+    // direct message: only the addressee receives it
+    current.user = boss;
+    const im = await srv.app.inject({
+      method: 'POST',
+      url: '/api/desk/messages',
+      payload: { text: 'Take five after this call', toUserId: agent.id },
+    });
+    expect(im.statusCode).toBe(200);
+    await vi.waitFor(() =>
+      expect(agentDesk.last('im')).toMatchObject({
+        from: { userId: boss.id, name: 'Boss' },
+        text: 'Take five after this call',
+        broadcast: false,
+      }),
+    );
+    expect(bossDesk.last('im')).toBeUndefined();
+
+    // broadcast: everyone gets it; agents may not broadcast
+    const bc = await srv.app.inject({
+      method: 'POST',
+      url: '/api/desk/messages',
+      payload: { text: 'Stand-up in 5' },
+    });
+    expect(bc.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(bossDesk.last('im')).toMatchObject({ text: 'Stand-up in 5', broadcast: true });
+      expect(agentDesk.last('im')).toMatchObject({ text: 'Stand-up in 5', broadcast: true });
+    });
+    current.user = agent;
+    expect(
+      (
+        await srv.app.inject({
+          method: 'POST',
+          url: '/api/desk/messages',
+          payload: { text: 'nope' },
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    // ticker: pushed live, persisted, and handed to a fresh connection
+    current.user = boss;
+    expect(
+      (
+        await srv.app.inject({
+          method: 'PUT',
+          url: '/api/desk/ticker',
+          payload: { text: 'Systems degraded' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    await vi.waitFor(() =>
+      expect(agentDesk.last('ticker')).toMatchObject({ text: 'Systems degraded' }),
+    );
+    const late = await desk(port, agent, current);
+    await vi.waitFor(() => expect(late.last('ticker')).toMatchObject({ text: 'Systems degraded' }));
+    await Promise.all([bossDesk.close(), agentDesk.close(), late.close()]);
+  });
+
   it('ignores malformed and unknown messages, including ones sent before auth finished', async () => {
     const d = await desk(port, boss, current);
     // sent right after `open`, before the server resolved the session
