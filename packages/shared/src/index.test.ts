@@ -26,6 +26,7 @@ describe('TenantSettings', () => {
       dispositionRequired: false,
       holdReminderSec: 60,
       autoAnswer: false,
+      monitorNotify: true,
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
     });

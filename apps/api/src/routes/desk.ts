@@ -35,7 +35,9 @@ type P = { Params: { id: string } };
 
 /** Body of the supervisor's force-state route: an agent state request, or log the agent out. */
 const ForceStateBody = z.union([AgentStateRequest, z.object({ state: z.literal('logged_out') })]);
-const JoinBody = z.object({ mode: z.enum(['listen', 'takeover']) });
+const JoinBody = z.object({
+  mode: z.enum(['listen', 'whisper', 'barge', 'takeover', 'intercept']),
+});
 const NoteBody = z.object({ text: z.string().min(1).max(2000) });
 const TagsBody = z.object({ tags: z.array(z.string().min(1).max(40)).max(20) });
 const TransferBody = z.object({
@@ -96,6 +98,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         dispositions: tenant?.settings.dispositions ?? [],
         dispositionRequired: tenant?.settings.dispositionRequired ?? false,
         holdReminderSec: tenant?.settings.holdReminderSec ?? 0,
+        monitorNotify: tenant?.settings.monitorNotify ?? true,
         autoAnswer: tenant?.settings.autoAnswer ?? false,
         queues: (await listQueues(db, request.ctx.tenantId)).map((q) => ({
           id: q.id,
@@ -288,7 +291,7 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     {
       preHandler: supervise,
       config: doc(
-        'Listen in silently or take the call over; returns the LiveKit token',
+        'Monitor (listen / whisper / barge) or take the call (takeover / intercept)',
         'calls:supervise',
         { body: JoinBody, response: TokenResponse, errors: ['404 not_found', '409 call_over'] },
       ),

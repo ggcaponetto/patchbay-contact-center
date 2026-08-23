@@ -71,11 +71,11 @@ Each phase adds contracts to `packages/shared`, routes to the API (all public, p
 - **RBAC + API keys**: permissions per route (`contact:transfer`, `agent:force-state`, …), roles as permission sets, API keys for integrations with the same permission model.
 - **OpenAPI** generated from the zod contracts; webhooks for `contact.*` and `agent.*` events.
 
-### 2. Agent call control — in progress
+### 2. Agent call control — ✅ done
 
 Answer/reject, auto-answer + zip tone, hold/retrieve with music and hold timer, mute, consult (multi-party), swap, complete as transfer / conference / drop, blind and attended transfer to agent / queue / supervisor, recording control, notes/tags/categorization, dispositions (single and multi-level, mandatory/optional), ACW (timed, extendable, auto-exit), caller/call info, speed dials and colleague presence, RONA.
 
-### 3. Supervisor
+### 3. Supervisor — in progress
 
 Monitoring (on demand, next call, by agent, by skill, random/percentage), whisper, barge, intercept, agent-initiated supervisor conference, monitoring notification settings, force state / end wrap-up, reskilling, threshold alerts (queue length, longest wait, service level, abandon rate, long call/hold/ACW), dashboards and wallboards (team, queue, skill, site), messaging (IM, broadcast, ticker).
 

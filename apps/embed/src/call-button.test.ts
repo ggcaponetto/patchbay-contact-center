@@ -192,6 +192,13 @@ describe('<cc-call-button>', () => {
       kind: 'video',
       attach: () => document.createElement('video'),
     });
+    // ... and a whispering supervisor is never audible to the customer.
+    room.emit(
+      lk.RoomEvent.TrackSubscribed,
+      { kind: 'audio', attach: () => document.createElement('audio') },
+      undefined,
+      { attributes: { role: 'supervisor', monitor: 'whisper' } },
+    );
     expect([...ui(el2).audio().children]).toEqual([audioEl]);
 
     // Mute / unmute.

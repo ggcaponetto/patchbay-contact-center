@@ -7,6 +7,7 @@
 import {
   Alert,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -84,6 +85,12 @@ export function Desk({ desk, me }: Props) {
     enabled: active !== null,
   });
   const heldAt = activeDetail.data?.heldAt ?? null;
+  // Monitoring notification: a supervisor is on the call (listen / whisper / barge).
+  const monitored =
+    (settings.data?.monitorNotify ?? true) &&
+    (activeDetail.data?.participants ?? []).some(
+      (p) => p.kind === 'supervisor' && p.leftAt === null,
+    );
   const consultants = (activeDetail.data?.participants ?? [])
     .filter((p) => p.kind === 'human' && p.leftAt === null && p.userId !== me.user.id)
     .map((p) => ({
@@ -161,6 +168,14 @@ export function Desk({ desk, me }: Props) {
           onLeave={() => void leave()}
           extras={
             <>
+              {monitored ? (
+                <Chip
+                  size="small"
+                  color="warning"
+                  label="A supervisor is on this call"
+                  sx={{ mb: 1 }}
+                />
+              ) : null}
               <TransferConsult
                 callId={active.callId}
                 myUserId={me.user.id}

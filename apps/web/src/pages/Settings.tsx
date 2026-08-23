@@ -179,6 +179,15 @@ function RoutingCard() {
             />
           }
         />
+        <FormControlLabel
+          label="Tell agents when a supervisor is monitoring their call"
+          control={
+            <Checkbox
+              checked={draft.monitorNotify}
+              onChange={(e) => setDraft({ ...draft, monitorNotify: e.target.checked })}
+            />
+          }
+        />
         <TextField
           label="Not-ready reason codes (comma separated)"
           value={reasonsText}

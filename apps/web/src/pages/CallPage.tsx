@@ -1,6 +1,7 @@
 /**
  * `#/calls/<id>`: one call in detail. Agents see the transcript, AI summary and event
- * log; supervisors can additionally listen in or take over while the call is live.
+ * log; supervisors can additionally monitor (listen / whisper / barge) or take the
+ * call (take over / intercept) while it is live.
  */
 import { Button, Chip, Grid, Paper, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +10,27 @@ import { CallPanel, type JoinInfo, Transcript } from '../components/CallPanel.ts
 import { type CallDetail, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { statusColor, statusLabel } from '../lib/store.ts';
+
+/** Supervisor ways onto a live call; see `Flow.join` on the API for the semantics. */
+type JoinMode = 'listen' | 'whisper' | 'barge' | 'takeover' | 'intercept';
+
+/** Button labels, in display order. */
+const MODE_LABELS: Record<JoinMode, string> = {
+  listen: 'Listen in',
+  whisper: 'Whisper',
+  barge: 'Barge in',
+  takeover: 'Take over',
+  intercept: 'Intercept',
+};
+
+/** Panel title while joined in each mode. */
+const MODE_TITLES: Record<JoinMode, string> = {
+  listen: 'Listening in',
+  whisper: 'Whispering to the agent',
+  barge: 'Barged into this call',
+  takeover: 'You took over this call',
+  intercept: 'You intercepted this call',
+};
 
 /** Props of {@link CallPage}: the call id from the route and the supervisor flag from the membership. */
 type Props = { id: string; desk: ReturnType<typeof useDeskSocket>; supervisor: boolean };
@@ -32,21 +54,19 @@ export function CallPage({ id, desk, supervisor }: Props) {
     queryKey: ['call', id, state.callsVersion],
     queryFn: () => api<CallDetail>(`/desk/calls/${id}`),
   });
-  const [joined, setJoined] = useState<{ mode: 'listen' | 'takeover'; join: JoinInfo } | null>(
-    null,
-  );
+  const [joined, setJoined] = useState<{ mode: JoinMode; join: JoinInfo } | null>(null);
   useEffect(() => send({ type: 'subscribe', callId: id }), [id, send]);
 
   // Prefer the status pushed over the socket; the fetched row may be a few ms behind.
   const status = state.callStatus[id] ?? detail.data?.status;
   const live = status !== undefined && status !== 'ended';
-  const join = async (mode: 'listen' | 'takeover') => {
+  const join = async (mode: JoinMode) => {
     const res = await post<{ token: string; url: string }>(`/desk/calls/${id}/join`, { mode });
-    setJoined({ mode, join: { ...res, publish: mode === 'takeover' } });
+    setJoined({ mode, join: { ...res, publish: mode !== 'listen' } });
   };
   const leave = useCallback(async () => {
     if (!joined) return;
-    const role = joined.mode === 'listen' ? 'supervisor' : 'human';
+    const role = joined.mode === 'takeover' || joined.mode === 'intercept' ? 'human' : 'supervisor';
     setJoined(null);
     await post(`/desk/calls/${id}/leave`, { role }).catch(() => undefined);
   }, [id, joined]);
@@ -93,22 +113,23 @@ ${s.text}`;
           <Chip key={t} size="small" label={t} />
         ))}
         <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
-          {supervisor && live && !joined && (
-            <>
-              <Button variant="outlined" onClick={() => void join('listen')}>
-                Listen in
-              </Button>
-              <Button variant="contained" onClick={() => void join('takeover')}>
-                Take over
-              </Button>
-            </>
-          )}
+          {supervisor && live && !joined
+            ? (Object.keys(MODE_TITLES) as JoinMode[]).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={mode === 'takeover' ? 'contained' : 'outlined'}
+                  onClick={() => void join(mode)}
+                >
+                  {MODE_LABELS[mode]}
+                </Button>
+              ))
+            : null}
         </Stack>
       </Stack>
       {joined ? (
         <CallPanel
           join={joined.join}
-          title={joined.mode === 'listen' ? 'Listening in' : 'You took over this call'}
+          title={MODE_TITLES[joined.mode]}
           transcript={transcript}
           onLeave={() => void leave()}
         />
