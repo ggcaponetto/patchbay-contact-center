@@ -79,11 +79,11 @@ Answer/reject, auto-answer + zip tone, hold/retrieve with music and hold timer, 
 
 Monitoring (on demand, next call, by agent, by skill, random/percentage), whisper, barge, intercept, agent-initiated supervisor conference, monitoring notification settings, force state / end wrap-up, reskilling, threshold alerts (queue length, longest wait, service level, abandon rate, long call/hold/ACW), dashboards and wallboards (team, queue, skill, site), messaging (IM, broadcast, ticker).
 
-### 4. Routing — in progress
+### 4. Routing — ✅ done (virtual queuing / courtesy and scheduled callbacks arrive with SIP or web push; ring-all needs multi-ring offers)
 
 Skills with proficiency (primary/secondary), selection algorithms (longest idle, least occupied, most/least skilled, round-robin, linear, ring all), queue/contact priority with aging, last-agent/preferred/sticky routing, time-of-day/day-of-week/holiday/business-hours routing with emergency and closed modes, language routing, music and messages on hold per queue, virtual queuing / courtesy callback, scheduled callback. Geographic/area-code routing arrives with SIP.
 
-### 5. MCP server
+### 5. MCP server — ✅ done
 
 A thin MCP server over the public API (tools = routes, permissions = API key), embeddable in a CRM or an LLM in both directions, so the "act on stored conversations" goal and the live operations share one surface.
 

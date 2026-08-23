@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- MCP server (Phase 5, `apps/mcp`): tools = routes. It fetches `/api/openapi.json`
+  from the running API and exposes every permission-gated operation as an MCP tool over
+  stdio, authenticated with an API key (`MCP_API_KEY`) whose permissions bound what the
+  tools may do — the "act on stored conversations" surface and live operations in one.
 - Business hours (Phase 4): a tenant is always open, follows a weekly schedule with
   holidays in its timezone, or is forced open / closed / emergency by a supervisor;
   while closed `POST /api/public/calls` refuses with the configured message and the
