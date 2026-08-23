@@ -116,6 +116,7 @@ walkthrough, env var reference and troubleshooting are in
 | `apps/media`      | Media worker: server-side audio (music on hold) over the Postgres bus                          |
 | `apps/web`        | Vite + React 19 + MUI desk for agents and supervisors                                          |
 | `apps/embed`      | `<cc-call-button>` web component, built to a single `call-button.js`                           |
+| `apps/mcp`        | MCP server: every API operation as a tool for LLM clients, keyed by an API key                 |
 | `packages/shared` | zod contracts shared by every app (settings, statuses, WebSocket protocol)                     |
 | `tests/`          | Playwright end-to-end (`e2e/`) and Artillery load (`load/`) suites                             |
 | `docs/`           | Hand-written guides (`guide/`) and the generated API reference (`api/`)                        |
