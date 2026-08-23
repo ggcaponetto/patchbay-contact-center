@@ -183,7 +183,7 @@ with the API (or proxy `/api`) for cookies; the embed script is served by the AP
 
 ## Project status
 
-Working end to end against LiveKit Cloud, all five roadmap phases shipped (v0.2.0):
+Working end to end against LiveKit Cloud, all five roadmap phases shipped (v0.2.0) and, in v0.3.0, configurable sounds with a desk ringtone, a rebuilt settings page, per-tab dev users and a trilingual UI (en/de/it) with the call button rebuilt in React:
 embedded call → AI → escalation → human in the same room, full agent call control (hold
 with music, transfers and consultations, recording via Egress, dispositions and wrap-up),
 supervisor tools (whisper / barge / intercept, messaging and ticker, wallboard with
