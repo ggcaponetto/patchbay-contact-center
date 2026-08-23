@@ -14,7 +14,7 @@
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
  */
-import { ApiKeyRequest, MembershipRole, TenantSettings } from '@cc/shared';
+import { ApiKeyRequest, MembershipRole, QueueConfig, TenantSettings, UserSkill } from '@cc/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
@@ -32,7 +32,10 @@ import {
   listInvites,
   listMembers,
   listQueues,
+  setQueueConfig,
   setQueueMembers,
+  setSkills,
+  skillsOf,
   updateSettings,
 } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
@@ -50,6 +53,8 @@ const TenantBody = z.object({ name: z.string().min(1).max(80) });
 const InviteBody = z.object({ email: z.email(), role: MembershipRole });
 const QueueBody = z.object({ key: z.string().min(1).max(40), name: z.string().min(1).max(80) });
 const QueueMembersBody = z.object({ userIds: z.array(z.string()) });
+/** Body of `PUT /members/:userId/skills`. */
+const SkillsBody = z.object({ skills: z.array(UserSkill).max(50) });
 const EmbedKeyBody = z.object({
   label: z.string().min(1).max(80),
   allowedOrigins: z.array(z.url()).default([]),
@@ -155,6 +160,46 @@ export const adminRoutes: FastifyPluginAsync<AdminOpts> = async (
       const body = parseBody(QueueBody, request.body, reply);
       if (!body) return undefined;
       return createQueue(db, request.ctx.tenantId, body.key, body.name);
+    },
+  );
+
+  /** Stores the queue's routing configuration: algorithm, required skills, language. */
+  app.put<{ Params: { id: string } }>(
+    '/queues/:id/config',
+    {
+      preHandler: write,
+      config: doc('Set the routing configuration of a queue', 'tenant:write', {
+        body: QueueConfig,
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(QueueConfig, request.body, reply);
+      if (!body) return undefined;
+      const ok = await setQueueConfig(db, request.ctx.tenantId, request.params.id, body);
+      return ok ? { ok: true } : reply.code(404).send({ error: 'not_found' });
+    },
+  );
+
+  /** Skills of one member, for the Settings screen. */
+  app.get<{ Params: { userId: string } }>(
+    '/members/:userId/skills',
+    { preHandler: read, config: doc('Skills of a member with proficiency', 'tenant:read') },
+    async (request) => skillsOf(db, request.ctx.tenantId, request.params.userId),
+  );
+
+  /** Replaces a member's skills (reskilling on the fly; applies to the next ring). */
+  app.put<{ Params: { userId: string } }>(
+    '/members/:userId/skills',
+    {
+      preHandler: write,
+      config: doc('Replace the skills of a member', 'tenant:write', { body: SkillsBody }),
+    },
+    async (request, reply) => {
+      const body = parseBody(SkillsBody, request.body, reply);
+      if (!body) return undefined;
+      await setSkills(db, request.ctx.tenantId, request.params.userId, body.skills);
+      return { ok: true };
     },
   );
 

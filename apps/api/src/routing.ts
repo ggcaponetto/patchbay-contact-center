@@ -28,11 +28,18 @@
  * @see apps/api/src/README.md
  * @packageDocumentation
  */
-import { type AgentPresence, type AgentState, RONA_REASON, type ServerMessage } from '@cc/shared';
+import {
+  type AgentPresence,
+  type AgentState,
+  RONA_REASON,
+  type RoutingAlgorithm,
+  type ServerMessage,
+  type SkillRequirement,
+} from '@cc/shared';
 import { and, eq, lt, lte, sql } from 'drizzle-orm';
 import type { Bus } from './bus.ts';
 import type { Db } from './db/client.ts';
-import { agentPresence, ringOffer } from './db/schema.ts';
+import { agentPresence, ringOffer, userSkill } from './db/schema.ts';
 
 /** One `agent_presence` row. */
 export type Presence = typeof agentPresence.$inferSelect;
@@ -147,10 +154,16 @@ export class Routing {
       .where(and(eq(agentPresence.state, 'acw'), lte(agentPresence.acwUntil, now)))
       .returning();
     for (const a of wrapped) await this.publishPresence(a.tenantId);
+    // Highest effective priority first: the configured priority ages by one per
+    // waiting minute, so old low-priority calls eventually outrank fresh urgent ones.
     const expired = await this.db
       .select({ callId: ringOffer.callId })
       .from(ringOffer)
-      .where(lte(ringOffer.ringUntil, now));
+      .where(lte(ringOffer.ringUntil, now))
+      .orderBy(
+        sql`(${ringOffer.priority} + floor(extract(epoch from (now() - ${ringOffer.createdAt})) / 60)) desc`,
+        ringOffer.createdAt,
+      );
     for (const { callId } of expired) await this.advance(callId, true);
   }
 
@@ -272,6 +285,14 @@ export class Routing {
     fallback?: Record<string, unknown>;
     /** Blind transfer: whoever accepts also takes the customer off hold. */
     retrieveOnAccept?: boolean;
+    /** Selection algorithm of the queue; defaults to `longest_idle`. */
+    algorithm?: RoutingAlgorithm;
+    /** Skill requirements candidates must meet. */
+    skills?: SkillRequirement[];
+    /** Ring this agent first if they are ready (sticky / last-agent routing). */
+    preferredUserId?: string;
+    /** Priority (higher first); ages by +1 per waiting minute under contention. */
+    priority?: number;
   }): Promise<void> {
     const inserted = await this.db
       .insert(ringOffer)
@@ -286,6 +307,10 @@ export class Routing {
         ringMs: input.ringSec ? input.ringSec * 1000 : this.offerTimeoutMs,
         fallback: input.fallback ?? null,
         retrieveOnAccept: input.retrieveOnAccept ?? false,
+        algorithm: input.algorithm ?? 'longest_idle',
+        skills: input.skills ?? [],
+        preferredUserId: input.preferredUserId ?? null,
+        priority: input.priority ?? 0,
       })
       .onConflictDoNothing()
       .returning({ callId: ringOffer.callId });
@@ -338,6 +363,10 @@ export class Routing {
     const a = await this.presenceOf(userId);
     if (!a) return;
     await this.enter(userId, 'busy', null, callId);
+    await this.db
+      .update(agentPresence)
+      .set({ handled: a.handled + 1 })
+      .where(eq(agentPresence.userId, userId));
     await this.publishPresence(a.tenantId);
   }
 
@@ -446,6 +475,11 @@ export class Routing {
         .update(ringOffer)
         .set({ tried, currentUserId: next.userId, ringUntil: new Date(this.now() + ringFor) })
         .where(eq(ringOffer.callId, callId));
+      // Round-robin bookkeeping: remember when this agent was last offered a call.
+      await tx
+        .update(agentPresence)
+        .set({ lastOfferedAt: new Date(this.now()) })
+        .where(eq(agentPresence.userId, next.userId));
       return { o, cancelled, next, ringFor };
     });
     if (!step) return;
@@ -474,15 +508,25 @@ export class Routing {
     });
   }
 
-  /** Earliest-connected ready queue member not yet tried and not ringing elsewhere. */
+  /**
+   * Picks the next agent to ring: ready queue members not yet tried and not ringing
+   * elsewhere, filtered by the offer's skill requirements, the preferred (sticky)
+   * agent first, then ordered by the queue's `RoutingAlgorithm`.
+   */
   private async candidate(
     tx: Pick<Db, 'select'>,
     o: Offer,
     tried: string[],
   ): Promise<{ userId: string } | undefined> {
     if (o.members.length === 0) return undefined;
-    const [row] = await tx
-      .select({ userId: agentPresence.userId })
+    const rows = await tx
+      .select({
+        userId: agentPresence.userId,
+        since: agentPresence.since,
+        seq: agentPresence.seq,
+        handled: agentPresence.handled,
+        lastOfferedAt: agentPresence.lastOfferedAt,
+      })
       .from(agentPresence)
       .where(
         and(
@@ -492,9 +536,55 @@ export class Routing {
           sql`${agentPresence.userId} <> all(${pgArray(tried)}::text[])`,
           sql`not exists (select 1 from ${ringOffer} where ${ringOffer.currentUserId} = ${agentPresence.userId} and ${ringOffer.callId} <> ${o.callId})`,
         ),
-      )
-      .orderBy(agentPresence.seq)
-      .limit(1);
-    return row;
+      );
+    if (rows.length === 0) return undefined;
+    type Row = (typeof rows)[number];
+    // Skill filtering and scoring, only when the offer needs it.
+    const skilled = o.algorithm === 'most_skilled' || o.algorithm === 'least_skilled';
+    const score = new Map<string, number>();
+    let pool = rows;
+    if (o.skills.length > 0 || skilled) {
+      const held = await tx
+        .select()
+        .from(userSkill)
+        .where(
+          and(
+            eq(userSkill.tenantId, o.tenantId),
+            sql`${userSkill.userId} = any(${pgArray(rows.map((r) => r.userId))}::text[])`,
+          ),
+        );
+      const skillsOf = (userId: string) =>
+        new Map(held.filter((h) => h.userId === userId).map((h) => [h.skill, h.proficiency]));
+      pool = rows.filter((r) => {
+        const mine = skillsOf(r.userId);
+        const ok = o.skills.every((req) => (mine.get(req.skill) ?? 0) >= req.min);
+        if (ok) {
+          // Score over the required skills, or over everything the agent holds when
+          // the queue has no requirements but still routes by skill.
+          const over = o.skills.length > 0 ? o.skills.map((req) => req.skill) : [...mine.keys()];
+          score.set(
+            r.userId,
+            over.reduce((sum, skill) => sum + (mine.get(skill) ?? 0), 0),
+          );
+        }
+        return ok;
+      });
+    }
+    if (pool.length === 0) return undefined;
+    const preferred = pool.find((r) => r.userId === o.preferredUserId);
+    if (preferred) return { userId: preferred.userId };
+    const orderings: Record<string, (a: Row, b: Row) => number> = {
+      longest_idle: (a, b) => a.since.getTime() - b.since.getTime() || a.seq - b.seq,
+      least_occupied: (a, b) => a.handled - b.handled || a.seq - b.seq,
+      round_robin: (a, b) =>
+        (a.lastOfferedAt?.getTime() ?? 0) - (b.lastOfferedAt?.getTime() ?? 0) || a.seq - b.seq,
+      most_skilled: (a, b) =>
+        (score.get(b.userId) ?? 0) - (score.get(a.userId) ?? 0) || a.seq - b.seq,
+      least_skilled: (a, b) =>
+        (score.get(a.userId) ?? 0) - (score.get(b.userId) ?? 0) || a.seq - b.seq,
+      linear: (a, b) => a.seq - b.seq,
+    };
+    pool.sort(orderings[o.algorithm] ?? orderings['longest_idle']!);
+    return { userId: pool[0]!.userId };
   }
 }

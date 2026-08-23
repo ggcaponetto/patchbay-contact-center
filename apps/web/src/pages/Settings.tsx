@@ -24,6 +24,7 @@ import {
   type Invite,
   type Member,
   type Queue,
+  type Skill,
   type Tenant,
   api,
   del,
@@ -293,10 +294,16 @@ function TeamCard() {
       </Typography>
       <Stack spacing={1} sx={{ mb: 2 }}>
         {(members.data ?? []).map((m) => (
-          <Stack key={m.userId} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Stack
+            key={m.userId}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
             <Typography>{m.name}</Typography>
             <Typography color="text.secondary">{m.email}</Typography>
             <Chip size="small" label={m.role} />
+            <MemberSkills member={m} />
           </Stack>
         ))}
         {(invites.data ?? [])
@@ -338,6 +345,129 @@ function TeamCard() {
  * `POST /api/admin/queues { key, name }` (key = name for now) and
  * `PUT /api/admin/queues/:id/members { userIds }` on every checkbox change.
  */
+/** Parses `billing=3, lang:de=2` into skill/level pairs (levels clamp to 1-5). */
+function parseSkills(text: string): { skill: string; level: number }[] {
+  return text
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const eq = part.lastIndexOf('=');
+      const skill = (eq === -1 ? part : part.slice(0, eq)).trim();
+      const level = Math.min(5, Math.max(1, Number(eq === -1 ? 1 : part.slice(eq + 1)) || 1));
+      return { skill, level };
+    })
+    .filter((p) => p.skill.length > 0);
+}
+
+/**
+ * Routing configuration of one queue: selection algorithm, required skills
+ * (`skill=minimum` pairs) and language routing. `PUT /api/admin/queues/:id/config`.
+ */
+function QueueRouting({ queue, onSaved }: { queue: Queue; onSaved: () => void }) {
+  const cfg = (queue.config ?? {}) as {
+    algorithm?: string;
+    requiredSkills?: { skill: string; min: number }[];
+    languageRouting?: boolean;
+  };
+  const [algorithm, setAlgorithm] = useState(cfg.algorithm ?? 'longest_idle');
+  const [skills, setSkills] = useState(
+    (cfg.requiredSkills ?? []).map((r) => `${r.skill}=${r.min}`).join(', '),
+  );
+  const [language, setLanguage] = useState(cfg.languageRouting ?? false);
+  const save = useMutation({
+    mutationFn: () =>
+      put(`/admin/queues/${queue.id}/config`, {
+        algorithm,
+        requiredSkills: parseSkills(skills).map((p) => ({ skill: p.skill, min: p.level })),
+        languageRouting: language,
+      }),
+    onSuccess: onSaved,
+  });
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+      <TextField
+        select
+        size="small"
+        label="Ring order"
+        value={algorithm}
+        onChange={(e) => setAlgorithm(e.target.value)}
+        sx={{ minWidth: 170 }}
+      >
+        {Object.entries(ALGORITHM_LABELS).map(([value, label]) => (
+          <MenuItem key={value} value={value}>
+            {label}
+          </MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        size="small"
+        label={`Required skills for ${queue.name} (skill=min, ...)`}
+        value={skills}
+        onChange={(e) => setSkills(e.target.value)}
+        sx={{ flex: 1, minWidth: 220 }}
+      />
+      <FormControlLabel
+        label="Match caller language"
+        control={
+          <Checkbox
+            size="small"
+            checked={language}
+            onChange={(e) => setLanguage(e.target.checked)}
+          />
+        }
+      />
+      <Button size="small" onClick={() => save.mutate()}>
+        Save routing
+      </Button>
+    </Stack>
+  );
+}
+
+/** Labels of the queue selection algorithms, in menu order. */
+const ALGORITHM_LABELS: Record<string, string> = {
+  longest_idle: 'Longest idle',
+  least_occupied: 'Least occupied',
+  round_robin: 'Round robin',
+  most_skilled: 'Most skilled',
+  least_skilled: 'Least skilled',
+  linear: 'Fixed order',
+};
+
+/**
+ * Skills of one member as an editable `skill=level` list.
+ * `GET` / `PUT /api/admin/members/:userId/skills`.
+ */
+function MemberSkills({ member }: { member: Member }) {
+  const skills = useQuery({
+    queryKey: ['skills', member.userId],
+    queryFn: () => api<Skill[]>(`/admin/members/${member.userId}/skills`),
+  });
+  const [text, setText] = useState<string | null>(null);
+  const value = text ?? (skills.data ?? []).map((s) => `${s.skill}=${s.proficiency}`).join(', ');
+  const save = useMutation({
+    mutationFn: () =>
+      put(`/admin/members/${member.userId}/skills`, {
+        skills: parseSkills(value).map((p) => ({ skill: p.skill, proficiency: p.level })),
+      }),
+    onSuccess: () => void skills.refetch(),
+  });
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      <TextField
+        size="small"
+        label={`Skills of ${member.name} (skill=level, ...)`}
+        value={value}
+        onChange={(e) => setText(e.target.value)}
+        sx={{ minWidth: 260 }}
+      />
+      <Button size="small" onClick={() => save.mutate()}>
+        Save skills
+      </Button>
+    </Stack>
+  );
+}
+
 function QueuesCard() {
   const qc = useQueryClient();
   const queues = useQuery({ queryKey: ['queues'], queryFn: () => api<Queue[]>('/admin/queues') });
@@ -372,6 +502,7 @@ function QueuesCard() {
               ({q.key})
             </Typography>
           </Typography>
+          <QueueRouting queue={q} onSaved={refresh} />
           <Stack direction="row" sx={{ flexWrap: 'wrap' }}>
             {(members.data ?? []).map((m) => (
               <FormControlLabel

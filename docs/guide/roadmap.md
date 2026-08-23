@@ -75,11 +75,11 @@ Each phase adds contracts to `packages/shared`, routes to the API (all public, p
 
 Answer/reject, auto-answer + zip tone, hold/retrieve with music and hold timer, mute, consult (multi-party), swap, complete as transfer / conference / drop, blind and attended transfer to agent / queue / supervisor, recording control, notes/tags/categorization, dispositions (single and multi-level, mandatory/optional), ACW (timed, extendable, auto-exit), caller/call info, speed dials and colleague presence, RONA.
 
-### 3. Supervisor — in progress
+### 3. Supervisor — ✅ done (monitoring is on demand per call; scheduled/random monitoring is future work)
 
 Monitoring (on demand, next call, by agent, by skill, random/percentage), whisper, barge, intercept, agent-initiated supervisor conference, monitoring notification settings, force state / end wrap-up, reskilling, threshold alerts (queue length, longest wait, service level, abandon rate, long call/hold/ACW), dashboards and wallboards (team, queue, skill, site), messaging (IM, broadcast, ticker).
 
-### 4. Routing
+### 4. Routing — in progress
 
 Skills with proficiency (primary/secondary), selection algorithms (longest idle, least occupied, most/least skilled, round-robin, linear, ring all), queue/contact priority with aging, last-agent/preferred/sticky routing, time-of-day/day-of-week/holiday/business-hours routing with emergency and closed modes, language routing, music and messages on hold per queue, virtual queuing / courtesy callback, scheduled callback. Geographic/area-code routing arrives with SIP.
 

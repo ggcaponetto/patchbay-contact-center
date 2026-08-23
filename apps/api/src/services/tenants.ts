@@ -12,11 +12,25 @@
  * @see apps/api/src/services/README.md
  * @packageDocumentation
  */
-import { TenantSettings, defaultTenantSettings } from '@cc/shared';
+import {
+  type QueueConfig,
+  TenantSettings,
+  type UserSkill,
+  defaultTenantSettings,
+} from '@cc/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.ts';
-import { embedKey, invite, membership, queue, queueMember, tenant, user } from '../db/schema.ts';
+import {
+  embedKey,
+  invite,
+  membership,
+  queue,
+  queueMember,
+  tenant,
+  user,
+  userSkill,
+} from '../db/schema.ts';
 
 /** Role of a user inside one tenant. Same values as `MembershipRole` in `@cc/shared`. */
 export type Role = 'agent' | 'supervisor';
@@ -204,6 +218,49 @@ export async function createQueue(db: Db, tenantId: string, key: string, name: s
  *
  * @returns `false` when the queue does not belong to the tenant.
  */
+/** Stores the routing configuration of a queue (validated `QueueConfig`). */
+export async function setQueueConfig(
+  db: Db,
+  tenantId: string,
+  queueId: string,
+  config: QueueConfig,
+): Promise<boolean> {
+  const rows = await db
+    .update(queue)
+    .set({ config })
+    .where(and(eq(queue.id, queueId), eq(queue.tenantId, tenantId)))
+    .returning({ id: queue.id });
+  return rows.length > 0;
+}
+
+/** Skills a member holds in this tenant. */
+export async function skillsOf(db: Db, tenantId: string, userId: string): Promise<UserSkill[]> {
+  const rows = await db
+    .select({ skill: userSkill.skill, proficiency: userSkill.proficiency })
+    .from(userSkill)
+    .where(and(eq(userSkill.tenantId, tenantId), eq(userSkill.userId, userId)));
+  return rows;
+}
+
+/** Replaces a member's skill set (reskilling applies to the next routing decision). */
+export async function setSkills(
+  db: Db,
+  tenantId: string,
+  userId: string,
+  skills: UserSkill[],
+): Promise<void> {
+  await db
+    .delete(userSkill)
+    .where(and(eq(userSkill.tenantId, tenantId), eq(userSkill.userId, userId)));
+  if (skills.length > 0) {
+    await db
+      .insert(userSkill)
+      .values(
+        skills.map((s) => ({ tenantId, userId, skill: s.skill, proficiency: s.proficiency })),
+      );
+  }
+}
+
 export async function setQueueMembers(
   db: Db,
   tenantId: string,

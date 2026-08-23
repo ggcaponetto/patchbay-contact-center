@@ -181,7 +181,7 @@ export class SettingsPage {
     await this.page.getByRole('option', { name: option }).click();
   }
   async save() {
-    await this.page.getByRole('button', { name: 'Save' }).click();
+    await this.page.getByRole('button', { name: 'Save', exact: true }).click();
   }
 }
 

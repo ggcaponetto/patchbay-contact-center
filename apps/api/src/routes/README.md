@@ -111,23 +111,26 @@ succeeds. `leave` with `role: 'human'` ends the call and puts the agent into wra
 
 ## `admin.ts` (prefix `/api/admin`)
 
-| Method | Path                  | Auth            | Body                                             | Response                                                                | Errors        |
-| ------ | --------------------- | --------------- | ------------------------------------------------ | ----------------------------------------------------------------------- | ------------- |
-| POST   | `/tenants`            | admin email     | `{ name }`                                       | tenant row                                                              | 400, 403      |
-| GET    | `/tenant`             | supervisor      | –                                                | tenant row with parsed settings                                         | 401, 403      |
-| PATCH  | `/tenant/settings`    | supervisor      | partial `TenantSettings`                         | `{ settings }`                                                          | 400, 403      |
-| GET    | `/members`            | supervisor      | –                                                | `[{ userId, name, email, role }]`                                       | 403           |
-| GET    | `/invites`            | supervisor      | –                                                | invite rows                                                             | 403           |
-| POST   | `/invites`            | supervisor      | `{ email, role: 'agent' \| 'supervisor' }`       | invite row                                                              | 400, 403      |
-| GET    | `/queues`             | supervisor      | –                                                | queue rows with `memberIds`                                             | 403           |
-| POST   | `/queues`             | supervisor      | `{ key, name }` (key is slugified)               | queue row                                                               | 400, 403      |
-| PUT    | `/queues/:id/members` | supervisor      | `{ userIds: string[] }`                          | `{ ok: true }`                                                          | 400, 403, 404 |
-| GET    | `/embed-keys`         | supervisor      | –                                                | embed key rows                                                          | 403           |
-| POST   | `/embed-keys`         | supervisor      | `{ label, allowedOrigins? = [] }` (full origins) | embed key row (`publicKey`)                                             | 400, 403      |
-| GET    | `/api-keys`           | tenant:read     | –                                                | `[{ id, name, prefix, permissions, createdAt, lastUsedAt, revokedAt }]` | 403           |
-| POST   | `/api-keys`           | api-keys:manage | `{ name, permissions: Permission[] }`            | key row + `secret` (shown once)                                         | 400, 403      |
-| DELETE | `/api-keys/:id`       | api-keys:manage | –                                                | `{ ok: true }`                                                          | 404           |
-| DELETE | `/embed-keys/:id`     | supervisor      | –                                                | `{ ok: true }`                                                          | 403, 404      |
+| Method | Path                      | Auth            | Body                                                       | Response                                                                | Errors        |
+| ------ | ------------------------- | --------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- | ------------- |
+| POST   | `/tenants`                | admin email     | `{ name }`                                                 | tenant row                                                              | 400, 403      |
+| GET    | `/tenant`                 | supervisor      | –                                                          | tenant row with parsed settings                                         | 401, 403      |
+| PATCH  | `/tenant/settings`        | supervisor      | partial `TenantSettings`                                   | `{ settings }`                                                          | 400, 403      |
+| GET    | `/members`                | supervisor      | –                                                          | `[{ userId, name, email, role }]`                                       | 403           |
+| GET    | `/invites`                | supervisor      | –                                                          | invite rows                                                             | 403           |
+| POST   | `/invites`                | supervisor      | `{ email, role: 'agent' \| 'supervisor' }`                 | invite row                                                              | 400, 403      |
+| GET    | `/queues`                 | supervisor      | –                                                          | queue rows with `memberIds`                                             | 403           |
+| POST   | `/queues`                 | supervisor      | `{ key, name }` (key is slugified)                         | queue row                                                               | 400, 403      |
+| PUT    | `/queues/:id/members`     | supervisor      | `{ userIds: string[] }`                                    | `{ ok: true }`                                                          | 400, 403, 404 |
+| PUT    | `/queues/:id/config`      | tenant:write    | `QueueConfig` (algorithm, requiredSkills, languageRouting) | `{ ok: true }`                                                          | 400, 404      |
+| GET    | `/members/:userId/skills` | tenant:read     | —                                                          | `[{ skill, proficiency }]`                                              | —             |
+| PUT    | `/members/:userId/skills` | tenant:write    | `{ skills: [{ skill, proficiency }] }`                     | `{ ok: true }`                                                          | 400           |
+| GET    | `/embed-keys`             | supervisor      | –                                                          | embed key rows                                                          | 403           |
+| POST   | `/embed-keys`             | supervisor      | `{ label, allowedOrigins? = [] }` (full origins)           | embed key row (`publicKey`)                                             | 400, 403      |
+| GET    | `/api-keys`               | tenant:read     | –                                                          | `[{ id, name, prefix, permissions, createdAt, lastUsedAt, revokedAt }]` | 403           |
+| POST   | `/api-keys`               | api-keys:manage | `{ name, permissions: Permission[] }`                      | key row + `secret` (shown once)                                         | 400, 403      |
+| DELETE | `/api-keys/:id`           | api-keys:manage | –                                                          | `{ ok: true }`                                                          | 404           |
+| DELETE | `/embed-keys/:id`         | supervisor      | –                                                          | `{ ok: true }`                                                          | 403, 404      |
 
 ## Top-level routes (in `server.ts` / `auth.ts`)
 

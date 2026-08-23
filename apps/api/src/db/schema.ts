@@ -166,8 +166,28 @@ export const queue = pgTable(
       .references(() => tenant.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     name: text('name').notNull(),
+    /** Routing configuration (`QueueConfig` in `@cc/shared`): algorithm, skills, language. */
+    config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
   },
   (t) => [uniqueIndex('queue_tenant_key_uidx').on(t.tenantId, t.key)],
+);
+
+/** Skills a user holds within a tenant, with proficiency 1–5 (skills-based routing). */
+export const userSkill = pgTable(
+  'user_skill',
+  {
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenant.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** Skill key, e.g. `billing` or `lang:de`. */
+    skill: text('skill').notNull(),
+    /** 1–5, 5 = expert. */
+    proficiency: integer('proficiency').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.userId, t.skill] })],
 );
 
 /** Which users ring for which queue (composite primary key). */
@@ -339,8 +359,12 @@ export const agentPresence = pgTable(
     acwUntil: timestamp('acw_until', { withTimezone: true }),
     instanceId: text('instance_id').notNull(),
     lastSeen: timestamp('last_seen', { withTimezone: true }).notNull(),
-    /** Connection order; the earliest-connected ready agent is rung first. */
+    /** Connection order; the `linear` algorithm rings in this order. */
     seq: serial('seq').notNull(),
+    /** Calls handled since connecting (`least_occupied` ordering). */
+    handled: integer('handled').default(0).notNull(),
+    /** When this agent was last offered a call (`round_robin` ordering). */
+    lastOfferedAt: timestamp('last_offered_at', { withTimezone: true }),
   },
   (t) => [index('agent_presence_tenant_idx').on(t.tenantId)],
 );
@@ -368,5 +392,13 @@ export const ringOffer = pgTable('ring_offer', {
   fallback: jsonb('fallback').$type<Record<string, unknown>>(),
   /** Blind transfer: take the customer off hold as soon as someone accepts. */
   retrieveOnAccept: boolean('retrieve_on_accept').default(false).notNull(),
+  /** Selection algorithm of the queue (`RoutingAlgorithm`), frozen at offer time. */
+  algorithm: text('algorithm').default('longest_idle').notNull(),
+  /** Skill requirements a candidate must meet (`SkillRequirement[]`). */
+  skills: jsonb('skills').$type<{ skill: string; min: number }[]>().default([]).notNull(),
+  /** Ring this agent first if ready (sticky / last-agent routing). */
+  preferredUserId: text('preferred_user_id'),
+  /** Call priority (higher first) plus aging when agents are contended. */
+  priority: integer('priority').default(0).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

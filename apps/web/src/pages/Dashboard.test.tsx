@@ -10,7 +10,8 @@ import { Dashboard } from './Dashboard.tsx';
 
 const api = vi.hoisted(() => vi.fn());
 const post = vi.hoisted(() => vi.fn());
-vi.mock('../lib/api.ts', () => ({ api, post }));
+const put = vi.hoisted(() => vi.fn());
+vi.mock('../lib/api.ts', () => ({ api, post, put }));
 
 const fakeDesk = (state: Partial<DeskState>): ReturnType<typeof useDeskSocket> => ({
   state: { ...initialState, ...state },
@@ -64,6 +65,46 @@ describe('Dashboard', () => {
     location.hash = '';
   });
   afterEach(cleanup);
+
+  it('messages an agent, broadcasts, sets the ticker and shows stats alerts', async () => {
+    api.mockImplementation((path: string) =>
+      path === '/desk/stats'
+        ? Promise.resolve({ alerts: ['3 calls waiting (limit 2)'] })
+        : Promise.resolve([]),
+    );
+    post.mockResolvedValue({});
+    put.mockResolvedValue({});
+    const agent = {
+      userId: 'u1',
+      name: 'Ann',
+      state: 'ready' as const,
+      reason: null,
+      since: '2026-01-01T00:00:00Z',
+      callId: null,
+      acwUntil: null,
+    };
+    renderPage(fakeDesk({ agents: [agent], ticker: 'old news' }));
+    expect(await screen.findByText('3 calls waiting (limit 2)')).toBeDefined();
+
+    // direct message from the agent row menu, sent with Enter
+    await userEvent.click(screen.getByRole('button', { name: 'actions for Ann' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Message…' }));
+    await userEvent.type(screen.getByLabelText('Message Ann'), 'hi there{Enter}');
+    expect(post).toHaveBeenCalledWith('/desk/messages', { text: 'hi there', toUserId: 'u1' });
+
+    // broadcast to every desk
+    await userEvent.type(screen.getByLabelText('Broadcast to every desk'), 'all hands');
+    await userEvent.click(screen.getByRole('button', { name: 'Broadcast' }));
+    expect(post).toHaveBeenLastCalledWith('/desk/messages', { text: 'all hands' });
+
+    // the ticker field prefills from the live state and saves trimmed
+    const ticker = screen.getByLabelText('Ticker banner (empty clears it)') as HTMLInputElement;
+    expect(ticker.value).toBe('old news');
+    await userEvent.clear(ticker);
+    await userEvent.type(ticker, ' maintenance ');
+    await userEvent.click(screen.getByRole('button', { name: 'Set ticker' }));
+    expect(put).toHaveBeenCalledWith('/desk/ticker', { text: 'maintenance' });
+  });
 
   it('shows empty states', async () => {
     api.mockResolvedValue([]);

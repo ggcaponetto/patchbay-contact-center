@@ -105,7 +105,17 @@ export type CallDetail = CallSummary & {
 /** `GET /api/admin/tenant`. */
 export type Tenant = { id: string; name: string; slug: string; settings: TenantSettings };
 /** `GET /api/admin/queues`; `memberIds` are the agents rung for this queue. */
-export type Queue = { id: string; key: string; name: string; memberIds: string[] };
+export type Queue = {
+  id: string;
+  key: string;
+  name: string;
+  memberIds: string[];
+  /** Routing configuration (`QueueConfig` in `@cc/shared`), `{}` for the defaults. */
+  config: Record<string, unknown>;
+};
+
+/** One skill with proficiency 1-5, `GET /api/admin/members/:userId/skills`. */
+export type Skill = { skill: string; proficiency: number };
 /** `GET /api/admin/members`. */
 export type Member = { userId: string; name: string; email: string; role: 'agent' | 'supervisor' };
 /** `GET /api/admin/invites`; `acceptedAt` is null while the invite is pending. */
