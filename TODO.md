@@ -13,7 +13,7 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 - [x] Browser E2E with Playwright (`npm run test:e2e`, optional CI job `e2e`): desk smoke + real call through the embedded button against LiveKit Cloud.
 - [x] Load tests with Artillery (`npm run test:load`).
-- [ ] Extend the Playwright handoff spec to the human side: a second browser context as the agent accepts the ring and joins the room.
+- [x] Extend the Playwright handoff spec to the human side: two-actor specs cover accept/ring, transfers, consultations, whisper and intercept.
 
 ## Deployment
 
@@ -22,9 +22,9 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 ## Product / architecture
 
-- [ ] Build out the contact center per [docs/guide/roadmap.md](docs/guide/roadmap.md): Foundations → call control → supervisor → routing → MCP; omnichannel after.
+- [x] Build out the contact center per [docs/guide/roadmap.md](docs/guide/roadmap.md): Foundations → call control → supervisor → routing → MCP — all five phases shipped in v0.2.0; omnichannel, SIP, callbacks and ring-all remain (see the roadmap's Later section).
 
-- [ ] MCP server over the stored conversations (`list_calls`, `get_transcript`, `get_events`, `add_note`, ...) so an LLM can decide follow-up actions. The `call`, `transcript_segment` and `call_event` tables are already shaped for this.
+- [x] MCP server over the stored conversations and live operations: `apps/mcp` exposes every permission-gated API operation as a tool (v0.2.0).
 - [ ] The AI summary only covers the AI segment of a call (`session.history`); generate it from the full stored transcript instead, after the call ends.
 - [ ] `listen` handoff mode keeps the AI muted but never re-engages it; add a "hand back to AI" action for agents.
 - [ ] Agent-side ring timeout uses the tenant's `offerTimeoutSec`; there is no overall cap on how long the AI waits for a human during escalation beyond exhausting the queue.

@@ -181,11 +181,14 @@ with the API (or proxy `/api`) for cookies; the embed script is served by the AP
 
 ## Project status
 
-Proof of concept, working end to end against LiveKit Cloud: embedded call → AI → escalation →
-human takes over in the same room → transcript, events and summary in Postgres. Verified by
-unit, integration and Playwright e2e suites. The path from here to a full contact center
-(call control, supervisor tools, skills-based routing, API-first + MCP) and why it fits the
-line budget is in the [Roadmap](docs/guide/roadmap.md); open items in [TODO.md](TODO.md).
+Working end to end against LiveKit Cloud, all five roadmap phases shipped (v0.2.0):
+embedded call → AI → escalation → human in the same room, full agent call control (hold
+with music, transfers and consultations, recording via Egress, dispositions and wrap-up),
+supervisor tools (whisper / barge / intercept, messaging and ticker, wallboard with
+threshold alerts), skills-based routing with selection algorithms and business hours, and
+an MCP server exposing every API operation as a tool. Verified by unit, integration and
+Playwright e2e suites. What is deliberately later (SIP/PSTN, omnichannel, callbacks,
+ring-all) is in the [Roadmap](docs/guide/roadmap.md); open items in [TODO.md](TODO.md).
 
 ## Contributing
 
