@@ -207,6 +207,7 @@ export const statusColor: Record<CallStatus, 'default' | 'info' | 'warning' | 's
 export type Route =
   | { page: 'desk' }
   | { page: 'dashboard' }
+  | { page: 'wallboard' }
   | { page: 'history' }
   | { page: 'settings' }
   | { page: 'call'; id: string };
@@ -221,6 +222,8 @@ export function parseRoute(hash: string): Route {
   switch (parts[0]) {
     case 'dashboard':
       return { page: 'dashboard' };
+    case 'wallboard':
+      return { page: 'wallboard' };
     case 'history':
       return { page: 'history' };
     case 'settings':

@@ -32,6 +32,7 @@ import { Dashboard } from './pages/Dashboard.tsx';
 import { Desk } from './pages/Desk.tsx';
 import { History } from './pages/History.tsx';
 import { Settings } from './pages/Settings.tsx';
+import { Wallboard } from './pages/Wallboard.tsx';
 
 /**
  * Session gate. Renders a spinner while the session is loading, `SignIn` when there is
@@ -140,6 +141,7 @@ function Shell() {
           <Tabs value={tab} onChange={(_e, v: string) => (location.hash = `#/${v}`)}>
             <Tab value="desk" label="Desk" />
             {supervisor && <Tab value="dashboard" label="Dashboard" />}
+            {supervisor && <Tab value="wallboard" label="Wallboard" />}
             <Tab value="history" label="History" />
             {supervisor && <Tab value="settings" label="Settings" />}
           </Tabs>
@@ -188,6 +190,7 @@ function Shell() {
         <MessageCenter state={desk.state} />
         {route.page === 'desk' && <Desk desk={desk} me={me.data!} />}
         {route.page === 'dashboard' && supervisor && <Dashboard desk={desk} />}
+        {route.page === 'wallboard' && supervisor && <Wallboard />}
         {route.page === 'history' && <History desk={desk} />}
         {route.page === 'call' && <CallPage id={route.id} desk={desk} supervisor={supervisor} />}
         {route.page === 'settings' && supervisor && <Settings />}

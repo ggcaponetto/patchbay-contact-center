@@ -28,6 +28,7 @@ describe('TenantSettings', () => {
       autoAnswer: false,
       monitorNotify: true,
       ticker: '',
+      alerts: { maxWaiting: 0, maxWaitSec: 0, maxCallSec: 0 },
       notReadyReasons: ['Break', 'Lunch', 'Meeting', 'Training'],
       aiAgent: { instructions: '', greeting: 'Greet the caller and ask how you can help.' },
     });

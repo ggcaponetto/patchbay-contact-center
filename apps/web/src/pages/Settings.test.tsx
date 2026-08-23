@@ -84,6 +84,7 @@ describe('Settings', () => {
         autoAnswer: false,
         monitorNotify: true,
         ticker: '',
+        alerts: { maxWaiting: 0, maxWaitSec: 0, maxCallSec: 0 },
         dispositions: [],
         dispositionRequired: false,
         notReadyReasons: ['Break', 'Coffee'],

@@ -24,6 +24,7 @@ import type { Flow } from '../flow.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
 import { addEvent, callDetail, listCalls, setDisposition, setTags } from '../services/calls.ts';
+import { tenantStats } from '../services/stats.ts';
 import { getTenant, listQueues, updateSettings } from '../services/tenants.ts';
 import type { DeskSockets } from '../ws.ts';
 import { parseBody } from './util.ts';
@@ -376,6 +377,24 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
       if (!detail.heldAt) return reply.code(409).send({ error: 'not_held' });
       await flow.unhold(detail.id);
       return { ok: true };
+    },
+  );
+
+  /**
+   * Live statistics + threshold alerts for the dashboard and the wallboard: waiting and
+   * active calls with their oldest ages, agents by state, today's totals, and the
+   * breached thresholds from `TenantSettings.alerts` as ready-to-show strings.
+   */
+  app.get(
+    '/stats',
+    {
+      preHandler: read,
+      config: doc('Live tenant statistics and threshold alerts', 'calls:read'),
+    },
+    async (request) => {
+      const tenant = await getTenant(db, request.ctx.tenantId);
+      const agents = await flow.routing.snapshot(request.ctx.tenantId);
+      return tenantStats(db, request.ctx.tenantId, agents, tenant!.settings);
     },
   );
 

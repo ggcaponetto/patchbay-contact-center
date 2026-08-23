@@ -5,6 +5,7 @@
  */
 import type { AgentPresence } from '@cc/shared';
 import {
+  Alert,
   Button,
   Chip,
   Grid,
@@ -20,7 +21,7 @@ import {
 import { Stack, TextField } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { type CallSummary, api, post, put } from '../lib/api.ts';
+import { type CallSummary, type TenantStats, api, post, put } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
 import {
@@ -161,9 +162,19 @@ export function Dashboard({ desk }: Props) {
     queryFn: () => api<CallSummary[]>('/desk/calls'),
   });
   const live = (calls.data ?? []).filter((c) => c.status !== 'ended');
+  const stats = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api<TenantStats>('/desk/stats'),
+    refetchInterval: 5000,
+  });
 
   return (
     <Grid container spacing={2}>
+      {(stats.data?.alerts ?? []).map((a) => (
+        <Grid key={a} size={12}>
+          <Alert severity="error">{a}</Alert>
+        </Grid>
+      ))}
       <Grid size={{ xs: 12, md: 7 }}>
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
