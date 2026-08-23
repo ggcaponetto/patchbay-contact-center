@@ -60,6 +60,8 @@ export type CallSummary = {
   heldAt: string | null;
   /** Wrap-up code picked by the handling agent, or `null`. */
   dispositionCode: string | null;
+  /** Recording state machine: `off` → `on` ⇄ `paused` → `off`. */
+  recordingState: 'off' | 'on' | 'paused';
   /** Free-form categorization tags. */
   tags: string[];
   /** How the contact came in (`voice` for now). */

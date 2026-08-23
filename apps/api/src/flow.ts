@@ -38,6 +38,7 @@ import {
   markParticipantLeft,
   setCallStatus,
   setHeld,
+  setRecording,
 } from './services/calls.ts';
 import { getTenant } from './services/tenants.ts';
 
@@ -379,6 +380,42 @@ export class Flow {
   }
 
   /**
+   * Drives the call-recording state machine: `off` → `on` (start) ⇄ `paused`
+   * (pause / resume) → `off` (stop). Every `start` / `resume` begins a fresh Egress
+   * segment and every `pause` / `stop` ends one, so a PCI pause is simply a gap between
+   * stored files. Each step is journaled as a `recording.<action>` event.
+   */
+  async recording(
+    callId: string,
+    action: 'start' | 'pause' | 'resume' | 'stop',
+    by: { id: string },
+  ): Promise<'not_live' | 'invalid_state' | 'recording_unavailable' | null> {
+    const call = await getCall(this.db, callId);
+    if (!call || call.status === 'ended') return 'not_live';
+    const allowed: Record<typeof action, string[]> = {
+      start: ['off'],
+      pause: ['on'],
+      resume: ['paused'],
+      stop: ['on', 'paused'],
+    };
+    if (!allowed[action].includes(call.recordingState)) return 'invalid_state';
+    let egressId: string | null = null;
+    if (action === 'start' || action === 'resume') {
+      egressId = await this.livekit.startRecording(call.roomName);
+      if (egressId === null) return 'recording_unavailable';
+    }
+    if (call.recordingEgressId) await this.livekit.stopRecording(call.recordingEgressId);
+    const state = action === 'pause' ? 'paused' : egressId === null ? 'off' : 'on';
+    await setRecording(this.db, callId, state, egressId);
+    await addEvent(this.db, callId, `recording.${action}`, {
+      userId: by.id,
+      ...(egressId === null ? {} : { egressId }),
+    });
+    this.hub.emit('call.updated', { tenantId: call.tenantId, callId, status: call.status });
+    return null;
+  }
+
+  /**
    * Frees whoever is on the call in the router: they enter after-call work for the
    * tenant's `acwSec` (straight to `ready` when it is `0`).
    */
@@ -398,6 +435,12 @@ export class Flow {
   async end(callId: string): Promise<void> {
     const call = await getCall(this.db, callId);
     if (!call || call.status === 'ended') return;
+    // A still-running recording segment ends with the call.
+    if (call.recordingEgressId) {
+      await this.livekit.stopRecording(call.recordingEgressId);
+      await setRecording(this.db, callId, 'off', null);
+      await addEvent(this.db, callId, 'recording.stop', { auto: true });
+    }
     await this.livekit.deleteRoom(call.roomName);
     await this.status(callId, 'ended');
     await this.release(callId);

@@ -184,6 +184,67 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
     expect((await post('/hold')).json()).toEqual({ error: 'not_live' });
   });
 
+  it('records with pause / resume as PCI-safe segments and stops with the call', async () => {
+    const { callId } = await startCall();
+    const rec = (action: string) =>
+      srv.as(boss).inject({
+        method: 'POST',
+        url: `/api/desk/calls/${callId}/recording`,
+        payload: { action },
+      });
+    srv.lk.egressStarted.length = 0;
+    srv.lk.egressStopped.length = 0;
+
+    // only `start` is valid while off
+    expect((await rec('pause')).json()).toEqual({ error: 'invalid_state' });
+    expect((await rec('start')).json()).toEqual({ ok: true });
+    expect((await rec('start')).json()).toEqual({ error: 'invalid_state' });
+    expect(
+      (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json().recordingState,
+    ).toBe('on');
+    // pause closes the first segment, resume opens a second one
+    expect((await rec('pause')).json()).toEqual({ ok: true });
+    expect((await rec('resume')).json()).toEqual({ ok: true });
+    expect((await rec('stop')).json()).toEqual({ ok: true });
+    expect(srv.lk.egressStarted).toHaveLength(2);
+    expect(srv.lk.egressStopped).toEqual(['eg-1', 'eg-2']);
+    const detail = (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json();
+    expect(detail.recordingState).toBe('off');
+    expect(detail.events.map((e: { type: string }) => e.type)).toEqual(
+      expect.arrayContaining([
+        'recording.start',
+        'recording.pause',
+        'recording.resume',
+        'recording.stop',
+      ]),
+    );
+
+    // a segment still running when the call ends is stopped automatically
+    expect((await rec('start')).json()).toEqual({ ok: true });
+    await srv.flow.end(callId);
+    expect(srv.lk.egressStopped).toHaveLength(3);
+    expect((await rec('start')).json()).toEqual({ error: 'not_live' });
+    expect((await rec('nonsense')).statusCode).toBe(400);
+  });
+
+  it('answers recording_unavailable when no recording backend is configured', async () => {
+    const { callId } = await startCall();
+    const plain = srv.flow.livekit as { startRecording(room: string): Promise<string | null> };
+    const original = plain.startRecording;
+    plain.startRecording = async () => null;
+    const res = await srv.as(boss).inject({
+      method: 'POST',
+      url: `/api/desk/calls/${callId}/recording`,
+      payload: { action: 'start' },
+    });
+    plain.startRecording = original;
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'recording_unavailable' });
+    expect(
+      (await srv.as(boss).inject({ url: `/api/desk/calls/${callId}` })).json().recordingState,
+    ).toBe('off');
+  });
+
   it('blind-transfers with hold music until the target accepts', async () => {
     const { createInvite, bootstrapUser, updateSettings } = await import('../services/tenants.ts');
     const me = await srv.as(boss).inject({ url: '/api/me' });

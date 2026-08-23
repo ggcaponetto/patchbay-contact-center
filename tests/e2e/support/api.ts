@@ -31,6 +31,7 @@ export type CallRow = {
   heldAt: string | null;
   dispositionCode: string | null;
   tags: string[];
+  recordingState: 'off' | 'on' | 'paused';
 };
 
 /** A call with its children as returned by `GET /api/desk/calls/:id`. */

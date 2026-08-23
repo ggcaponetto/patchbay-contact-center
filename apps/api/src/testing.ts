@@ -80,11 +80,22 @@ export async function createUser(
  *   `dispatched` and `deleted` (room names). Tokens are `token-for-<identity>`.
  */
 export function fakeLiveKit() {
-  const calls: { tokens: unknown[]; dispatched: string[]; deleted: string[]; removed: string[] } = {
+  const calls: {
+    tokens: unknown[];
+    dispatched: string[];
+    deleted: string[];
+    removed: string[];
+    /** Rooms a recording segment was started in; ids are `eg-<n>`. */
+    egressStarted: string[];
+    /** Egress ids that were stopped, in order. */
+    egressStopped: string[];
+  } = {
     tokens: [],
     dispatched: [],
     deleted: [],
     removed: [],
+    egressStarted: [],
+    egressStopped: [],
   };
   const livekit: LiveKit = {
     url: 'wss://fake.livekit.cloud',
@@ -100,6 +111,13 @@ export function fakeLiveKit() {
     },
     async removeParticipant(room, identity) {
       calls.removed.push(`${room}:${identity}`);
+    },
+    async startRecording(room) {
+      calls.egressStarted.push(room);
+      return `eg-${calls.egressStarted.length}`;
+    },
+    async stopRecording(egressId) {
+      calls.egressStopped.push(egressId);
     },
   };
   return { livekit, calls };

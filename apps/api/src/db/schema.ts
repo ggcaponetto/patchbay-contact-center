@@ -250,6 +250,13 @@ export const call = pgTable(
     heldAt: timestamp('held_at', { withTimezone: true }),
     /** Wrap-up (disposition) code the handling agent picked; see `TenantSettings.dispositions`. */
     dispositionCode: text('disposition_code'),
+    /** Recording state machine: `off` → `on` ⇄ `paused` → `off` (pause = PCI-safe gap). */
+    recordingState: text('recording_state')
+      .$type<'off' | 'on' | 'paused'>()
+      .default('off')
+      .notNull(),
+    /** LiveKit egress id of the running recording segment, `null` while not recording. */
+    recordingEgressId: text('recording_egress_id'),
     /** Free-form tags agents attach during or after the call. */
     tags: jsonb('tags').$type<string[]>().default([]).notNull(),
     customerMeta: jsonb('customer_meta').$type<Record<string, unknown>>().default({}).notNull(),

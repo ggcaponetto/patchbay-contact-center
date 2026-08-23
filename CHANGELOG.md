@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Call recording (Phase 2): start / pause / resume / stop from the in-call panel, backed
+  by audio-only LiveKit Egress to any S3-compatible store (`RECORDING_S3_*` env vars;
+  `RECORDING_STUB=true` exercises the flow without Egress in dev and e2e). A PCI pause is
+  a gap between stored segments; every step is journaled as a `recording.*` call event
+  and a running segment stops automatically when the call ends.
 - Transfers and consultations (Phase 2): blind transfer to a queue or colleague
   (customer parked with music until the target accepts), consultation into the same room
   (customer held; swap = hold/retrieve), completed as hand-over, conference, or drop

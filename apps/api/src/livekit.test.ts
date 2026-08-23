@@ -14,10 +14,18 @@ const payload = (jwt: string) =>
   };
 
 describe('createLiveKit', () => {
-  const calls: { deleted: string[]; dispatched: unknown[]; ctor: unknown[] } = {
+  const calls: {
+    deleted: string[];
+    dispatched: unknown[];
+    ctor: unknown[];
+    egress: unknown[];
+    stopped: string[];
+  } = {
     deleted: [],
     dispatched: [],
     ctor: [],
+    egress: [],
+    stopped: [],
   };
   const fakeClients = (httpUrl: string, apiKey: string, apiSecret: string): LiveKitClients => {
     calls.ctor.push([httpUrl, apiKey, apiSecret]);
@@ -34,6 +42,17 @@ describe('createLiveKit', () => {
           return { room, agentName } as never;
         },
       },
+      egress: {
+        async startRoomCompositeEgress(room, output, opts) {
+          calls.egress.push([room, output, opts]);
+          return { egressId: 'eg-real-1' } as never;
+        },
+        async stopEgress(egressId) {
+          calls.stopped.push(egressId);
+          if (egressId === 'gone') throw new Error('already stopped');
+          return {} as never;
+        },
+      },
     };
   };
 
@@ -44,6 +63,8 @@ describe('createLiveKit', () => {
     calls.deleted.length = 0;
     calls.dispatched.length = 0;
     calls.ctor.length = 0;
+    calls.egress.length = 0;
+    calls.stopped.length = 0;
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -116,5 +137,37 @@ describe('createLiveKit', () => {
     await lk.deleteRoom('room-a');
     await expect(lk.deleteRoom('gone')).resolves.toBeUndefined();
     expect(calls.deleted).toEqual(['room-a', 'gone']);
+  });
+
+  it('recording is unavailable without RECORDING_S3_* and no stub', async () => {
+    const lk = createLiveKit(fakeClients);
+    expect(await lk.startRecording('room-a')).toBeNull();
+    expect(calls.egress).toEqual([]);
+  });
+
+  it('starts an audio-only S3 egress when configured and swallows stop errors', async () => {
+    vi.stubEnv('RECORDING_S3_BUCKET', 'recordings');
+    vi.stubEnv('RECORDING_S3_REGION', 'eu-central-1');
+    vi.stubEnv('RECORDING_S3_KEY', 'k');
+    vi.stubEnv('RECORDING_S3_SECRET', 's');
+    const lk = createLiveKit(fakeClients);
+    expect(await lk.startRecording('room-a')).toBe('eg-real-1');
+    const [room, output, opts] = calls.egress[0] as [string, { file: unknown }, unknown];
+    expect(room).toBe('room-a');
+    expect(output.file).toBeDefined();
+    expect(opts).toEqual({ audioOnly: true });
+    await lk.stopRecording('eg-real-1');
+    await expect(lk.stopRecording('gone')).resolves.toBeUndefined();
+    expect(calls.stopped).toEqual(['eg-real-1', 'gone']);
+  });
+
+  it('RECORDING_STUB hands out fake ids and never talks to Egress', async () => {
+    vi.stubEnv('RECORDING_STUB', 'true');
+    const lk = createLiveKit(fakeClients);
+    const id = await lk.startRecording('room-a');
+    expect(id).toMatch(/^stub-egress:room-a:/);
+    await lk.stopRecording(id!);
+    expect(calls.egress).toEqual([]);
+    expect(calls.stopped).toEqual([]);
   });
 });

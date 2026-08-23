@@ -375,6 +375,36 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
     },
   );
 
+  /** Body of `POST /calls/:id/recording`. */
+  const RecordingBody = z.object({
+    action: z.enum(['start', 'pause', 'resume', 'stop']),
+  });
+
+  /**
+   * Controls call recording via LiveKit Egress: `start` → `on`, `pause` / `resume`
+   * toggle a PCI-safe gap between segments, `stop` → `off`. Needs `RECORDING_S3_*`
+   * (or `RECORDING_STUB=true` in dev) on the API, otherwise 409 `recording_unavailable`.
+   */
+  app.post<P>(
+    '/calls/:id/recording',
+    {
+      preHandler: answer,
+      config: doc('Control call recording (start / pause / resume / stop)', 'calls:answer', {
+        body: RecordingBody,
+        errors: ['404 not_found', '409 not_live / invalid_state / recording_unavailable'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(RecordingBody, request.body, reply);
+      if (!body) return undefined;
+      const detail = await withCall(request.params.id, request.ctx.tenantId, reply);
+      if (!detail) return undefined;
+      const err = await flow.recording(detail.id, body.action, request.ctx.user);
+      if (err) return reply.code(409).send({ error: err });
+      return { ok: true };
+    },
+  );
+
   /**
    * Blind (cold) transfer to a queue or a single user. The caller's desk closes its
    * panel locally afterwards — the server already marked them gone.

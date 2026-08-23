@@ -183,6 +183,19 @@ export async function setTags(db: Db, id: string, tags: string[]) {
   await db.update(call).set({ tags }).where(eq(call.id, id));
 }
 
+/** Persists the recording state of a call together with the active egress id. */
+export async function setRecording(
+  db: Db,
+  id: string,
+  state: 'off' | 'on' | 'paused',
+  egressId: string | null,
+) {
+  await db
+    .update(call)
+    .set({ recordingState: state, recordingEgressId: egressId })
+    .where(eq(call.id, id));
+}
+
 /**
  * Full detail of one call: participants, transcript and events in order.
  * Tenant-scoped: returns `undefined` when the call belongs to another tenant.

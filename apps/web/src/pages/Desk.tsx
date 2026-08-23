@@ -19,6 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
+import { RecordingControls } from '../components/RecordingControls.tsx';
 import { StateBar } from '../components/StateBar.tsx';
 import { TransferConsult } from '../components/TransferConsult.tsx';
 import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/api.ts';
@@ -165,6 +166,11 @@ export function Desk({ desk, me }: Props) {
                 myUserId={me.user.id}
                 consultants={consultants}
                 onLeft={() => setActive(null)}
+                onError={setError}
+              />
+              <RecordingControls
+                callId={active.callId}
+                state={activeDetail.data?.recordingState ?? 'off'}
                 onError={setError}
               />
               <CallNotes callId={active.callId} onError={setError} />

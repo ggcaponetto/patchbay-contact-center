@@ -59,6 +59,8 @@ const env = {
   DEV_DEMO_TEAM: 'false',
   ADMIN_EMAILS: E2E_USER,
   INTERNAL_API_SECRET: INTERNAL_SECRET,
+  // Recording controls work everywhere without S3: no Egress is actually started.
+  RECORDING_STUB: 'true',
 };
 
 const chromium = {
