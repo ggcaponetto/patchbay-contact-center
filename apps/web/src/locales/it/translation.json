@@ -1,0 +1,205 @@
+{
+  "app": {
+    "title": "Patchbay Contact Center",
+    "brand": "Patchbay",
+    "signInHint": "Accedi con il tuo account Google per raggiungere la postazione operatore.",
+    "signInWithGoogle": "Accedi con Google",
+    "signOut": "Esci",
+    "signInAgain": "Accedi di nuovo",
+    "language": "Lingua",
+    "tenant": "Contact center",
+    "tabs": {
+      "desk": "Postazione",
+      "dashboard": "Dashboard",
+      "wallboard": "Wallboard",
+      "history": "Cronologia",
+      "settings": "Impostazioni"
+    },
+    "notMember": "<b>{{email}}</b> non fa parte di alcun contact center. Chiedi un invito a un supervisore.",
+    "loggedOutBy": "{{name}} ti ha disconnesso dalla postazione.",
+    "connecting": "Connessione alla postazione in corso…"
+  },
+  "common": {
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "send": "Invia",
+    "back": "← Indietro",
+    "loading": "Caricamento…",
+    "connected": "Connesso",
+    "connecting": "Connessione in corso…"
+  },
+  "states": {
+    "ready": "Pronto",
+    "not_ready": "Non disponibile",
+    "busy": "In chiamata",
+    "acw": "Post-chiamata"
+  },
+  "statuses": {
+    "ringing": "Squilla",
+    "ai": "Con l'AI",
+    "waiting_human": "In attesa di un operatore",
+    "human": "Con l'operatore",
+    "ended": "Terminata"
+  },
+  "desk": {
+    "customerCall": "Chiamata cliente",
+    "supervisorOnCall": "Un supervisore è in questa chiamata",
+    "waitingForCalls": "In attesa di chiamate. Tieni aperta questa scheda per ricevere le chiamate.",
+    "setReady": "Mettiti su Pronto per ricevere chiamate.",
+    "incomingCall": "Chiamata in arrivo · {{queue}}",
+    "priority": "priorità {{priority}}",
+    "reason": "Motivo:",
+    "soFar": "Finora:",
+    "secondsToAnswer": "{{seconds}}s per rispondere",
+    "decline": "Rifiuta",
+    "accept": "Accetta",
+    "couldNotAccept": "Impossibile accettare: {{error}}",
+    "colleague": "collega"
+  },
+  "stateBar": {
+    "greeting": "Ciao {{name}}, sei",
+    "ready": "Pronto",
+    "notReady": "Non disponibile",
+    "wrapUpLeft": "Post-chiamata: {{seconds}}s rimanenti",
+    "disposition": "Esito",
+    "extend": "Prolunga",
+    "done": "Fatto"
+  },
+  "callPanel": {
+    "retrieve": "Riprendi ({{time}})",
+    "hold": "Attesa",
+    "mute": "Silenzia",
+    "unmute": "Riattiva audio",
+    "hangUp": "Riaggancia",
+    "stopListening": "Interrompi ascolto",
+    "onHoldFor_one": "Il cliente è in attesa da {{count}} secondo.",
+    "onHoldFor_other": "Il cliente è in attesa da {{count}} secondi.",
+    "noTranscript": "Nessuna trascrizione per ora."
+  },
+  "recording": {
+    "rec": "REC",
+    "recPaused": "REC in pausa",
+    "record": "Registra",
+    "pause": "Metti in pausa la registrazione",
+    "resume": "Riprendi la registrazione",
+    "stop": "Interrompi la registrazione"
+  },
+  "transfer": {
+    "transfer": "Trasferisci",
+    "consult": "Consulta",
+    "handOver": "Passa a {{name}}",
+    "conference": "Conferenza",
+    "drop": "Scollega {{name}}",
+    "queue": "Coda: {{name}}",
+    "nobodyReady": "Nessuno è pronto"
+  },
+  "notes": {
+    "note": "Nota",
+    "addNote": "Aggiungi nota",
+    "tags": "Tag (separati da virgola)",
+    "saveTags": "Salva tag"
+  },
+  "messages": {
+    "toEveryone": "{{name}} (a tutti): ",
+    "from": "{{name}}: "
+  },
+  "dashboard": {
+    "actionsFor": "azioni per {{name}}",
+    "endWrapUp": "Termina post-chiamata",
+    "forceReady": "Imposta su Pronto",
+    "forceNotReady": "Imposta su Non disponibile",
+    "logOut": "Disconnetti",
+    "message": "Messaggio…",
+    "messageTo": "Messaggio a {{name}}",
+    "teamMessaging": "Messaggi al team",
+    "broadcastLabel": "Messaggio a tutte le postazioni",
+    "broadcast": "Invia a tutti",
+    "tickerLabel": "Banner ticker (vuoto per rimuoverlo)",
+    "setTicker": "Imposta ticker",
+    "liveCalls": "Chiamate in corso ({{count}})",
+    "noCalls": "Nessuna chiamata in corso.",
+    "agentsOnline": "Operatori online ({{count}})",
+    "nobodyOnline": "Nessuno è online."
+  },
+  "history": {
+    "title": "Chiamate",
+    "started": "Inizio",
+    "queue": "Coda",
+    "status": "Stato",
+    "duration": "Durata",
+    "disposition": "Esito",
+    "summary": "Riepilogo"
+  },
+  "call": {
+    "title": "Chiamata {{id}}",
+    "modes": {
+      "listen": "Ascolta",
+      "whisper": "Suggerisci",
+      "barge": "Intervieni",
+      "takeover": "Prendi in carico",
+      "intercept": "Intercetta"
+    },
+    "titles": {
+      "listen": "In ascolto",
+      "whisper": "Stai suggerendo all'operatore",
+      "barge": "Sei intervenuto in questa chiamata",
+      "takeover": "Hai preso in carico questa chiamata",
+      "intercept": "Hai intercettato questa chiamata"
+    },
+    "transcript": "Trascrizione",
+    "aiSummary": "Riepilogo AI:",
+    "events": "Eventi"
+  },
+  "wallboard": {
+    "waiting": "In attesa",
+    "longestWait": "Attesa più lunga (s)",
+    "activeCalls": "Chiamate attive",
+    "longestCall": "Chiamata più lunga (s)",
+    "agentsReady": "Operatori pronti",
+    "onCalls": "In chiamata",
+    "wrapUp": "Post-chiamata",
+    "notReady": "Non disponibili",
+    "callsToday": "Chiamate oggi",
+    "answeredByHuman": "Gestite da un operatore",
+    "avgHandleTime": "Tempo medio di gestione (s)"
+  },
+  "devUser": {
+    "signedInAs": "Connesso come {{name}}",
+    "openInNewTab": "Apri in una nuova scheda",
+    "openInNewTabAs": "Apri in una nuova scheda come {{name}}",
+    "backTo": "Torna a {{name}}",
+    "defaultUser": "l'utente predefinito",
+    "otherEmail": "Altra email…",
+    "prompt": "Accedi come (email)"
+  },
+  "errors": {
+    "generic": "Qualcosa è andato storto",
+    "already_held": "Il cliente è già in attesa",
+    "call_over": "La chiamata è già terminata",
+    "closed": "Il contact center è chiuso in questo momento",
+    "disposition_required": "Scegli prima un esito",
+    "empty_target": "Scegli una destinazione per il trasferimento",
+    "forbidden": "Non sei autorizzato a farlo",
+    "invalid_body": "La richiesta non è valida",
+    "invalid_email": "L'indirizzo email non è valido",
+    "invalid_state": "Questo cambio di stato non è possibile in questo momento",
+    "last_queue": "L'ultima coda non può essere eliminata",
+    "no_consultant": "Non c'è alcun consulente in questa chiamata",
+    "no_tenant": "Nessun contact center selezionato",
+    "not_found": "Non trovato",
+    "not_held": "Il cliente non è in attesa",
+    "not_in_acw": "Non sei in post-chiamata",
+    "not_live": "La chiamata non è più attiva",
+    "not_ringing_you": "Questa chiamata non sta più squillando per te",
+    "not_wav": "Il file non è un file WAV",
+    "offline": "Sei offline sulla postazione",
+    "on_call": "Non possibile durante una chiamata",
+    "origin_not_allowed": "Questo sito non è autorizzato a usare questa chiave",
+    "recording_unavailable": "La registrazione non è disponibile",
+    "too_large": "Il file è troppo grande",
+    "unauthenticated": "Accedi di nuovo",
+    "unknown_code": "Esito sconosciuto",
+    "unknown_embed_key_or_queue": "Chiave del pulsante o coda sconosciuta",
+    "unsupported_type": "Questo tipo di file non è supportato"
+  }
+}

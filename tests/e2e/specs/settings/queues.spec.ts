@@ -2,7 +2,7 @@
  * Queues: a supervisor creates one (the key is slugified), assigns members, and a call
  * started with that queue rings only its members.
  */
-import { DeskPage, SettingsPage, admin, expect, test } from '../../support/fixtures.ts';
+import { DeskPage, SettingsPage, admin, desk, expect, test } from '../../support/fixtures.ts';
 
 test(
   'a new queue gets a slug key and rings only its members',
@@ -41,5 +41,39 @@ test(
     await expect(otherDesk.dialog).toHaveCount(0);
     await vipDesk.accept();
     expect(await outcome).toEqual({ outcome: 'accepted', agentName: vip.name });
+  },
+);
+
+test(
+  'deleting a queue removes it when unused and archives it when calls went through it',
+  { tag: ['@core', '@settings', '@E2E-57'] },
+  async ({ page, supervisor, unique, tenant, call }) => {
+    const a = admin(supervisor.request);
+    const fresh = `Fresh ${unique('Q')}`;
+    const used = `Used ${unique('Q')}`;
+    await a.createQueue(fresh);
+    const usedQueue = await a.createQueue(used);
+    const { callId } = await call(tenant.key, { queue: usedQueue.key });
+
+    const settings = new SettingsPage(page);
+    await settings.goto('queues');
+    await settings.deleteQueue(fresh);
+    await expect(settings.toast).toContainText(`Queue ${fresh} deleted`);
+    await expect(page.getByText(fresh, { exact: true })).toHaveCount(0);
+
+    await settings.deleteQueue(used);
+    await expect(settings.toast).toContainText('archived');
+    await expect(page.getByText(used, { exact: true })).toHaveCount(0);
+    expect((await a.queues()).some((q) => q.id === usedQueue.id)).toBe(false);
+    // the call keeps its queue in history, and a new queue may reuse the key
+    await page.goto('/#/history');
+    await expect(page.getByRole('cell', { name: usedQueue.key }).first()).toBeVisible();
+    expect((await desk(supervisor.request).call(callId)).queueKey).toBe(usedQueue.key);
+    const again = await a.createQueue(used);
+    expect(again.key).toBe(usedQueue.key);
+    // the embed refuses the archived queue key only while nothing active carries it
+    await a.deleteQueue(again.id);
+    const refused = await call(tenant.key, { queue: usedQueue.key }).catch((e: Error) => e);
+    expect(refused).toBeInstanceOf(Error);
   },
 );

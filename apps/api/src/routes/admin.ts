@@ -7,26 +7,43 @@
  *   create a tenant besides the first-login bootstrap.
  * - Everything else needs the `tenant:read` (GET) or `tenant:write` permission in the
  *   tenant selected by `x-tenant-id`: settings, members, invites, queues and queue
- *   membership, embed keys; API keys need `api-keys:manage`.
+ *   membership, embed keys, uploaded sound files (media assets); API keys need
+ *   `api-keys:manage`.
  *
  * Handlers are thin: validate with zod, call `services/tenants.ts`, return the row.
  *
  * @see apps/api/src/routes/README.md
  * @packageDocumentation
  */
-import { ApiKeyRequest, MembershipRole, QueueConfig, TenantSettings, UserSkill } from '@cc/shared';
+import {
+  ApiKeyRequest,
+  MediaAsset,
+  MembershipRole,
+  QueueConfig,
+  TenantSettings,
+  UserSkill,
+} from '@cc/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/client.ts';
 import type { Access, RouteDoc } from '../openapi.ts';
 import type { Guards } from '../server.ts';
-import { createApiKey, listApiKeys, revokeApiKey } from '../services/apiKeys.ts';
+import { createApiKey, deleteApiKey, listApiKeys, revokeApiKey } from '../services/apiKeys.ts';
+import {
+  ALLOWED_MIME,
+  MAX_ASSET_BYTES,
+  createMediaAsset,
+  deleteMediaAsset,
+  isWav,
+  listMediaAssets,
+} from '../services/mediaAssets.ts';
 import {
   createEmbedKey,
   createInvite,
   createQueue,
   createTenant,
   deleteEmbedKey,
+  deleteQueue,
   getTenant,
   listEmbedKeys,
   listInvites,
@@ -59,6 +76,15 @@ const EmbedKeyBody = z.object({
   label: z.string().min(1).max(80),
   allowedOrigins: z.array(z.url()).default([]),
 });
+/** Body of `POST /media-assets`: the file as base64 (JSON keeps the API and MCP uniform). */
+const MediaAssetBody = z.object({
+  name: z.string().min(1).max(80),
+  mimeType: z.string().regex(/^audio\/[a-z0-9.+-]+$/i),
+  /** Base64 of the file bytes; at most `MAX_ASSET_BYTES` once decoded. */
+  data: z.string().min(1),
+});
+/** Request body limit of the upload route: 5 MiB of audio is ~6.7 MiB of base64 + JSON. */
+const UPLOAD_BODY_LIMIT = 8 * 1024 * 1024;
 const doc = (
   summary: string,
   access: Access,
@@ -221,6 +247,23 @@ export const adminRoutes: FastifyPluginAsync<AdminOpts> = async (
     },
   );
 
+  /** Removes an unused queue, archives one with call history; never the last one. */
+  app.delete<{ Params: { id: string } }>(
+    '/queues/:id',
+    {
+      preHandler: write,
+      config: doc('Delete a queue (archived when it has call history)', 'tenant:write', {
+        errors: ['404 not_found', '409 last_queue'],
+      }),
+    },
+    async (request, reply) => {
+      const result = await deleteQueue(db, request.ctx.tenantId, request.params.id);
+      if (result === 'not_found') return reply.code(404).send({ error: 'not_found' });
+      if (result === 'last_queue') return reply.code(409).send({ error: 'last_queue' });
+      return { ok: true, archived: result.archived };
+    },
+  );
+
   app.get(
     '/embed-keys',
     { preHandler: read, config: doc('Embed keys of the tenant', 'tenant:read') },
@@ -253,6 +296,64 @@ export const adminRoutes: FastifyPluginAsync<AdminOpts> = async (
     },
   );
 
+  /** Uploaded sounds: listing is cheap (no bytes), files are served by `/api/public/media/:id`. */
+  app.get(
+    '/media-assets',
+    {
+      preHandler: read,
+      config: doc('Uploaded sound files of the tenant (never the bytes)', 'tenant:read', {
+        response: z.array(MediaAsset),
+      }),
+    },
+    async (request) => listMediaAssets(db, request.ctx.tenantId),
+  );
+
+  /**
+   * Upload a sound. The body is JSON with the bytes in base64; audio types only, 5 MiB
+   * max, and anything declared as WAV must really be RIFF/WAVE (the media worker decodes
+   * WAV itself).
+   */
+  app.post(
+    '/media-assets',
+    {
+      preHandler: write,
+      bodyLimit: UPLOAD_BODY_LIMIT,
+      config: doc('Upload a sound file (base64, audio/*, 5 MiB max)', 'tenant:write', {
+        body: MediaAssetBody,
+        response: MediaAsset,
+        errors: ['400 invalid_body / unsupported_type / not_wav', '413 too_large'],
+      }),
+    },
+    async (request, reply) => {
+      const body = parseBody(MediaAssetBody, request.body, reply);
+      if (!body) return undefined;
+      const mimeType = body.mimeType.toLowerCase();
+      if (!ALLOWED_MIME.includes(mimeType)) {
+        return reply.code(400).send({ error: 'unsupported_type', allowed: ALLOWED_MIME });
+      }
+      const data = Buffer.from(body.data, 'base64');
+      if (data.length > MAX_ASSET_BYTES) {
+        return reply.code(413).send({ error: 'too_large', maxBytes: MAX_ASSET_BYTES });
+      }
+      if (/^audio\/(x-)?wav/.test(mimeType) && !isWav(data)) {
+        return reply.code(400).send({ error: 'not_wav' });
+      }
+      return createMediaAsset(db, request.ctx.tenantId, { name: body.name, mimeType, data });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/media-assets/:id',
+    {
+      preHandler: write,
+      config: doc('Delete an uploaded sound file', 'tenant:write', { errors: ['404 not_found'] }),
+    },
+    async (request, reply) => {
+      const ok = await deleteMediaAsset(db, request.ctx.tenantId, request.params.id);
+      return ok ? { ok: true } : reply.code(404).send({ error: 'not_found' });
+    },
+  );
+
   /** API keys: listing needs `tenant:read`, creating and revoking `api-keys:manage`. */
   const keys = authorize('api-keys:manage');
   app.get(
@@ -275,14 +376,28 @@ export const adminRoutes: FastifyPluginAsync<AdminOpts> = async (
       return createApiKey(db, request.ctx.tenantId, body.name, body.permissions);
     },
   );
+  /** Revoking keeps the row (audit trail, shown as "revoked"); deleting removes it. */
+  app.post<{ Params: { id: string } }>(
+    '/api-keys/:id/revoke',
+    {
+      preHandler: keys,
+      config: doc('Revoke an API key (kept, marked revoked)', 'api-keys:manage', {
+        errors: ['404 not_found'],
+      }),
+    },
+    async (request, reply) => {
+      const ok = await revokeApiKey(db, request.ctx.tenantId, request.params.id);
+      return ok ? { ok: true } : reply.code(404).send({ error: 'not_found' });
+    },
+  );
   app.delete<{ Params: { id: string } }>(
     '/api-keys/:id',
     {
       preHandler: keys,
-      config: doc('Revoke an API key', 'api-keys:manage', { errors: ['404 not_found'] }),
+      config: doc('Delete an API key for good', 'api-keys:manage', { errors: ['404 not_found'] }),
     },
     async (request, reply) => {
-      const ok = await revokeApiKey(db, request.ctx.tenantId, request.params.id);
+      const ok = await deleteApiKey(db, request.ctx.tenantId, request.params.id);
       return ok ? { ok: true } : reply.code(404).send({ error: 'not_found' });
     },
   );

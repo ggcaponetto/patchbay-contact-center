@@ -25,6 +25,8 @@ export default defineConfig({
           // agent evals in `npm test`; 5 s was enough alone but flaky in the full run.
           testTimeout: 15_000,
           exclude: [...IGNORE, ...INTEGRATION],
+          // The desk's English i18n instance, so components render without a provider.
+          setupFiles: ['./tests/setup/i18n.ts'],
           // Browser-side code (web, embed) declares `// @vitest-environment jsdom` per file.
           environment: 'node',
         },

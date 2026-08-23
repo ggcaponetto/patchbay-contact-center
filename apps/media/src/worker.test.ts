@@ -38,20 +38,26 @@ describe('createWorker', () => {
     return room;
   });
   const log = vi.fn();
-  const startCmd = (callId = 'c1') =>
+  const fileLoop = new Int16Array(960).fill(1234);
+  const resolveLoop = vi.fn(async (music: string | undefined, style: 'calm' | 'bright') =>
+    music ? fileLoop : renderLoop(style),
+  );
+  const deps = { connect, log, resolveLoop };
+  const startCmd = (callId = 'c1', extra: Record<string, unknown> = {}) =>
     JSON.stringify({
       kind: 'media',
-      command: { action: 'moh.start', callId, roomName: 'r', token: 't', url: 'wss://x' },
+      command: { action: 'moh.start', callId, roomName: 'r', token: 't', url: 'wss://x', ...extra },
     });
 
   beforeEach(() => {
     rooms.length = 0;
     connect.mockClear();
     log.mockClear();
+    resolveLoop.mockClear();
   });
 
   it('starts one session per call, ignores duplicates and stops on command', async () => {
-    const worker = createWorker({ connect, log });
+    const worker = createWorker(deps);
     await worker.handle('not json');
     await worker.handle(JSON.stringify({ kind: 'send' }));
     await worker.handle(JSON.stringify({ kind: 'media', command: { action: 'nope' } }));
@@ -62,6 +68,8 @@ describe('createWorker', () => {
     await worker.handle(startCmd()); // duplicate: same call keeps one session
     expect(connect).toHaveBeenCalledTimes(1);
     expect(rooms[0]!.publish).toHaveBeenCalledWith(expect.any(Int16Array), SAMPLE_RATE, 480);
+    expect(resolveLoop).toHaveBeenCalledWith(undefined, 'calm');
+    expect(log).toHaveBeenCalledWith('moh started for c1 in r (calm)');
     expect(worker.size()).toBe(1);
 
     await worker.handle(
@@ -75,6 +83,33 @@ describe('createWorker', () => {
     );
   });
 
+  it('plays the configured file, resolved before joining, and names it in the log', async () => {
+    const worker = createWorker(deps);
+    await worker.handle(startCmd('c1', { style: 'bright', music: '/api/public/media/m1' }));
+    expect(resolveLoop).toHaveBeenCalledWith('/api/public/media/m1', 'bright');
+    expect(resolveLoop.mock.invocationCallOrder[0]).toBeLessThan(
+      connect.mock.invocationCallOrder[0]!,
+    );
+    expect(rooms[0]!.publish).toHaveBeenCalledWith(fileLoop, SAMPLE_RATE, 480);
+    expect(log).toHaveBeenCalledWith('moh started for c1 in r (/api/public/media/m1)');
+    expect(worker.size()).toBe(1);
+    await worker.close();
+  });
+
+  it('honours a stop that arrives while the loop is still resolving', async () => {
+    let release: () => void = () => undefined;
+    resolveLoop.mockImplementationOnce(() => new Promise((r) => (release = () => r(fileLoop))));
+    const worker = createWorker(deps);
+    const starting = worker.handle(startCmd('c1', { music: 'https://x/slow.wav' }));
+    await worker.handle(
+      JSON.stringify({ kind: 'media', command: { action: 'moh.stop', callId: 'c1' } }),
+    );
+    release();
+    await starting;
+    expect(connect).not.toHaveBeenCalled();
+    expect(worker.size()).toBe(0);
+  });
+
   it('honours a stop that arrives while the room is still connecting', async () => {
     let release: () => void = () => undefined;
     const slowRoom = {
@@ -85,8 +120,9 @@ describe('createWorker', () => {
     connect.mockImplementationOnce(
       () => new Promise((r) => (release = () => r(slowRoom as never))),
     );
-    const worker = createWorker({ connect, log });
+    const worker = createWorker(deps);
     const starting = worker.handle(startCmd('c1'));
+    while (connect.mock.calls.length === 0) await Promise.resolve(); // loop resolved, join in flight
     await worker.handle(
       JSON.stringify({ kind: 'media', command: { action: 'moh.stop', callId: 'c1' } }),
     );
@@ -98,7 +134,7 @@ describe('createWorker', () => {
   });
 
   it('cleans up when the room closes under it, logs failures, closes all on shutdown', async () => {
-    const worker = createWorker({ connect, log });
+    const worker = createWorker(deps);
     await worker.handle(startCmd('c1'));
     rooms[0]!.closed();
     await Promise.resolve();

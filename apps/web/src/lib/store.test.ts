@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   type DeskState,
+  dispositionLabel,
   formatDuration,
   formatSince,
   initialState,
@@ -9,6 +10,8 @@ import {
   parseRoute,
   reduce,
   secondsLeft,
+  stateKey,
+  statusKey,
 } from './store.ts';
 
 const agent = (
@@ -126,12 +129,29 @@ describe('desk store', () => {
     expect(formatSince('2026-01-01T00:00:00Z', Date.parse('2026-01-01T00:02:03Z'))).toBe('2:03');
   });
 
+  it('resolves wrap-up code labels, grouped or not, falling back to the code', () => {
+    const dispositions = [
+      { code: 'resolved', label: 'Resolved' },
+      { code: 'billing/refund', label: 'Refund' },
+    ];
+    expect(dispositionLabel('resolved', dispositions)).toBe('Resolved');
+    expect(dispositionLabel('billing/refund', dispositions)).toBe('billing · Refund');
+    expect(dispositionLabel('gone', dispositions)).toBe('gone');
+    expect(dispositionLabel('resolved', undefined)).toBe('resolved');
+  });
+
+  it('maps states and statuses to translation keys', () => {
+    expect(stateKey('not_ready')).toBe('states.not_ready');
+    expect(statusKey('waiting_human')).toBe('statuses.waiting_human');
+  });
+
   it('parses hash routes', () => {
     expect(parseRoute('')).toEqual({ page: 'desk' });
     expect(parseRoute('#/desk')).toEqual({ page: 'desk' });
     expect(parseRoute('#/dashboard')).toEqual({ page: 'dashboard' });
     expect(parseRoute('#/history')).toEqual({ page: 'history' });
     expect(parseRoute('#/settings')).toEqual({ page: 'settings' });
+    expect(parseRoute('#/settings/queues')).toEqual({ page: 'settings', tab: 'queues' });
     expect(parseRoute('#/calls/abc')).toEqual({ page: 'call', id: 'abc' });
     expect(parseRoute('#/calls/')).toEqual({ page: 'history' });
     expect(parseRoute('#/nope')).toEqual({ page: 'desk' });

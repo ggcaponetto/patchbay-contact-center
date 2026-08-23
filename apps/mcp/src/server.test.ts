@@ -27,13 +27,38 @@ const spec: Spec = {
         },
       },
     },
+    '/api/admin/media-assets': {
+      post: {
+        summary: 'Upload a sound file (base64, audio/*, 5 MiB max)',
+        'x-permission': 'tenant:write',
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  mimeType: { type: 'string' },
+                  data: { type: 'string' },
+                },
+                required: ['name', 'mimeType', 'data'],
+              },
+            },
+          },
+        },
+      },
+    },
   },
 };
 
 describe('buildTools', () => {
   it('creates one tool per permission-gated operation with a flat input schema', () => {
     const tools = buildTools(spec);
-    expect(tools.map((t) => t.name)).toEqual(['get_desk_calls', 'post_desk_calls_id_recording']);
+    expect(tools.map((t) => t.name)).toEqual([
+      'get_desk_calls',
+      'post_desk_calls_id_recording',
+      'post_admin_media-assets',
+    ]);
     const recording = tools[1]!;
     expect(recording.description).toContain('Control call recording');
     expect(recording.description).toContain('needs calls:answer');
@@ -46,6 +71,11 @@ describe('buildTools', () => {
       required: ['action', 'id'],
     });
     expect(recording.params).toEqual(['id']);
+    // a body-only operation (the sound upload): no path params, base64 `data` is a string
+    const upload = tools[2]!;
+    expect(upload.params).toEqual([]);
+    expect(upload.inputSchema.required).toEqual(['name', 'mimeType', 'data']);
+    expect(upload.inputSchema.properties).toMatchObject({ data: { type: 'string' } });
   });
 });
 

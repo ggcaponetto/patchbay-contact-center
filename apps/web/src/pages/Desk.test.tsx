@@ -13,6 +13,9 @@ const api = vi.hoisted(() =>
   vi.fn(async () => ({ customerMeta: {}, language: null, priority: 0 })),
 );
 vi.mock('../lib/api.ts', () => ({ post, api }));
+// Sounds are tested in lib/sounds.test.ts; here only the wiring matters.
+const ring = vi.hoisted(() => vi.fn());
+vi.mock('../lib/sounds.ts', () => ({ useRingtone: ring, zipTone: vi.fn() }));
 // The state bar has its own tests (StateBar.test.tsx); here it only needs to render.
 vi.mock('../components/StateBar.tsx', () => ({
   StateBar: ({ me }: { me?: { state: string } }) => <span>state:{me?.state ?? 'offline'}</span>,
@@ -126,6 +129,9 @@ describe('Desk', () => {
       </QueryClientProvider>,
     );
     expect(screen.getByText(/Incoming call · support/)).toBeTruthy();
+    // the offer rings (with the tenant's ringtone once the settings are known)
+    expect(ring).toHaveBeenLastCalledWith(true, undefined);
+    expect(screen.getByRole('dialog').getAttribute('data-ringing')).toBe('true');
     expect(screen.getByText('refund')).toBeTruthy();
     expect(screen.getByText('angry')).toBeTruthy();
     expect(screen.getByText(/\d+s to answer/)).toBeTruthy();

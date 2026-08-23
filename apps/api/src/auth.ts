@@ -7,7 +7,8 @@
  *
  * - {@link registerAuth}: mounts the real Better Auth handler on `/api/auth/*` (sign-in,
  *   callback, session, sign-out) and resolves sessions from the cookie it sets.
- * - {@link devAuth}: no Google, no cookies; every request is the configured dev user.
+ * - {@link devAuth}: no Google; every request is the configured dev user unless it names
+ *   another one (`x-dev-user` header or `cc_dev_user` cookie).
  *
  * Tests bypass both and hand `buildServer` their own resolver.
  *
@@ -123,6 +124,23 @@ export function registerAuth(app: FastifyInstance, auth: Auth): GetSession {
 /** Name of the cookie that lets a request pick another dev user (see `devAuth`). */
 const DEV_USER_COOKIE = 'cc_dev_user';
 
+/**
+ * Request header that lets a request pick another dev user (see `devAuth`). The web desk
+ * sends it on every request (and as `?as=` on the websocket upgrade) so each browser tab
+ * can be a different person; it wins over the cookie. Meaningless under Better Auth.
+ */
+export const DEV_USER_HEADER = 'x-dev-user';
+
+/** The shape a dev user email must have; anything else is ignored (header) or rejected (switch). */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+$/;
+
+/** Normalizes a candidate email; `undefined` unless it looks like one. */
+function devEmail(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const email = value.trim().toLowerCase();
+  return EMAIL_RE.test(email) ? email : undefined;
+}
+
 /** Reads one cookie out of a raw `cookie` header without a cookie library. */
 function cookieValue(headers: Record<string, unknown>, name: string): string | undefined {
   const raw = headers.cookie;
@@ -139,15 +157,22 @@ function cookieValue(headers: Record<string, unknown>, name: string): string | u
  * bootstrapped on first use), and the web client's session probe is answered
  * locally. Never enabled in production.
  *
- * A request may pick a different dev user with the `cc_dev_user=<email>` cookie
- * (`DEV_USER_COOKIE`); that user is created and bootstrapped on first use too, which
- * is how the end-to-end suite plays several agents and supervisors (and exercises invites)
- * in one browser. The cookie rides on HTTP and websocket upgrades alike.
+ * A request may pick a different dev user, in this order of precedence:
  *
- * The desk switches person through `GET /api/auth/dev-users` (everyone in the database)
- * and `POST /api/auth/dev-switch { email }` (sets the cookie); `POST /api/auth/sign-out`
- * clears it, i.e. goes back to the default user. With `demoTeam`, the default user's
- * first contact center is seeded with a demo supervisor and agents (`services/demo.ts`).
+ * 1. the `x-dev-user: <email>` header ({@link DEV_USER_HEADER}) — what the web desk sends,
+ *    one identity per browser tab (kept in `sessionStorage`); the websocket upgrade
+ *    carries it as `?as=<email>` (`ws.ts` folds it into the headers). A malformed value is
+ *    ignored, never an error;
+ * 2. the `cc_dev_user=<email>` cookie (`DEV_USER_COOKIE`) — one identity per browser
+ *    context, which is how the end-to-end suite plays several agents and supervisors;
+ * 3. the default `email`.
+ *
+ * Whoever is picked is created and bootstrapped on first use (pending invites become
+ * memberships). The desk lists people through `GET /api/auth/dev-users` (everyone in the
+ * database); `POST /api/auth/dev-switch { email }` still sets the cookie for clients that
+ * prefer it, and `POST /api/auth/sign-out` clears the cookie, i.e. goes back to the
+ * default user. With `demoTeam`, the default user's first contact center is seeded with a
+ * demo supervisor and agents (`services/demo.ts`).
  *
  * Why it is safe only in development: anyone who can reach the port can be any user.
  * `boot.ts` only passes `DEV_USER_EMAIL` when `NODE_ENV !== 'production'`. The
@@ -156,10 +181,10 @@ function cookieValue(headers: Record<string, unknown>, name: string): string | u
  *
  * @param app - Fastify instance to mount the stub auth routes on.
  * @param db - Used to find or create the user rows.
- * @param email - The user a request without the cookie runs as.
+ * @param email - The user a request without header or cookie runs as.
  * @param adminEmails - Forwarded to `bootstrapUser` so dev users can get their own tenant.
  * @param demoTeam - Seed the demo team into the default user's tenant (default `false`).
- * @returns A {@link GetSession} resolving the default or cookie-selected dev user.
+ * @returns A {@link GetSession} resolving the header-, cookie-selected or default dev user.
  */
 export async function devAuth(
   app: FastifyInstance,
@@ -200,7 +225,11 @@ export async function devAuth(
     }
   }
   const getSession: GetSession = (headers) =>
-    resolve(cookieValue(headers, DEV_USER_COOKIE)?.trim().toLowerCase() || email);
+    resolve(
+      devEmail(headers[DEV_USER_HEADER]) ??
+        devEmail(cookieValue(headers, DEV_USER_COOKIE)) ??
+        email,
+    );
   const cookie = (value: string, maxAge?: number) =>
     `${DEV_USER_COOKIE}=${encodeURIComponent(value)}; Path=/; SameSite=Lax` +
     (maxAge === undefined ? '' : `; Max-Age=${maxAge}`);
@@ -223,16 +252,14 @@ export async function devAuth(
       .orderBy(schema.user.email),
   }));
   app.post<{ Body: { email?: string } }>('/api/auth/dev-switch', async (request, reply) => {
-    const wanted = String(request.body?.email ?? '')
-      .trim()
-      .toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+$/.test(wanted)) return reply.code(400).send({ error: 'invalid_email' });
+    const wanted = devEmail(request.body?.email);
+    if (!wanted) return reply.code(400).send({ error: 'invalid_email' });
     const user = await resolve(wanted);
     reply.header('set-cookie', cookie(wanted));
     return user;
   });
   app.log.warn(
-    `DEV_USER_EMAIL set: every request runs as ${email} (or the ${DEV_USER_COOKIE} cookie)`,
+    `DEV_USER_EMAIL set: every request runs as ${email} (or the ${DEV_USER_HEADER} header / ${DEV_USER_COOKIE} cookie)`,
   );
   return getSession;
 }

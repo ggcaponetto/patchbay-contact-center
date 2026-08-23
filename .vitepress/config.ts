@@ -36,6 +36,7 @@ const guide = [
 /** Co-located architecture READMEs, one per folder that has something to explain. */
 const apps = [
   { text: 'Shared contracts', link: '/packages/shared/' },
+  { text: 'i18n runtime', link: '/packages/i18n/' },
   {
     text: 'API',
     link: '/apps/api/',

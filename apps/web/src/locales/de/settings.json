@@ -1,0 +1,205 @@
+{
+  "tabs": {
+    "routing": "Routing & KI",
+    "hours": "Geschäftszeiten",
+    "team": "Team & Fähigkeiten",
+    "queues": "Warteschlangen",
+    "sounds": "Töne",
+    "embed": "Anruf-Button",
+    "apiKeys": "API-Schlüssel"
+  },
+  "common": {
+    "add": "Hinzufügen",
+    "delete": "Löschen",
+    "save": "Speichern"
+  },
+  "routing": {
+    "title": "Routing & KI",
+    "sections": {
+      "routing": "Routing",
+      "alerts": "Dashboard-Warnungen",
+      "agents": "Agenten",
+      "wrapUp": "Nachbearbeitung",
+      "aiAgent": "KI-Agent"
+    },
+    "mode": {
+      "label": "Wer antwortet zuerst",
+      "aiFirst": "KI antwortet, eskaliert an Menschen",
+      "humanFirst": "Zuerst Menschen anrufen, KI als Ausweichlösung"
+    },
+    "handoff": {
+      "label": "Wenn ein Mensch übernimmt, wird die KI",
+      "leave": "das Gespräch verlassen (transkribiert weiter)",
+      "listen": "stummgeschaltet weiter zuhören"
+    },
+    "offerTimeout": "Jeden Agenten anrufen für (s)",
+    "humanFirstTimeout": "Zeitlimit Mensch zuerst (s)",
+    "holdReminder": "Halteerinnerung (s, 0 = aus)",
+    "alerts": {
+      "maxWaiting": "Warnung: wartende Anrufe (0 = aus)",
+      "maxWaitSec": "Warnung: längste Wartezeit (s, 0 = aus)",
+      "maxCallSec": "Warnung: längster Anruf (s, 0 = aus)"
+    },
+    "autoAnswer": "Angebote automatisch mit Signalton annehmen",
+    "monitorNotify": "Agenten informieren, wenn ein Supervisor ihren Anruf mithört",
+    "notReadyReasons": "Gründe für „Nicht bereit“",
+    "notReadyPlaceholder": "Pause, Meeting…",
+    "acw": "Nachbearbeitungszeit (s, 0 = aus)",
+    "dispositionRequired": "Ergebniscode vor Abschluss der Nachbearbeitung erforderlich",
+    "greeting": "Begrüßungsanweisung der KI",
+    "instructions": "Unternehmensanweisungen für die KI",
+    "instructionsPlaceholder": "Öffnungszeiten, Produkte, was die KI darf und was nicht…",
+    "saved": "Routing-Einstellungen gespeichert"
+  },
+  "hours": {
+    "title": "Geschäftszeiten",
+    "mode": "Modus",
+    "modes": {
+      "off": "Immer geöffnet",
+      "auto": "Nach Zeitplan",
+      "open": "Zwangsweise geöffnet",
+      "closed": "Zwangsweise geschlossen",
+      "emergency": "Notfall"
+    },
+    "timezone": "Zeitzone (IANA)",
+    "windows": "Wöchentliche Zeitfenster (eines pro Zeile: mon 09:00-17:00)",
+    "holidays": "Feiertage (ein Datum pro Zeile: 2026-12-25)",
+    "closedMessage": "Nachricht bei Geschlossen",
+    "emergencyMessage": "Notfallnachricht",
+    "save": "Zeiten speichern",
+    "saved": "Geschäftszeiten gespeichert"
+  },
+  "codes": {
+    "title": "Nachbearbeitungscodes",
+    "hint": "Agenten wählen nach jedem Anruf einen davon. Ein <code>/</code> im Code gruppiert (<code>billing/refund</code>).",
+    "label": "Bezeichnung",
+    "code": "Code",
+    "remove": "Code {{label}} entfernen",
+    "add": "+ Code hinzufügen",
+    "addExamples": "Beispiele hinzufügen",
+    "examples": {
+      "resolved": "Gelöst",
+      "ticket": "Ticket erstellt",
+      "docs": "Dokumentation aktualisiert",
+      "escalated": "Eskaliert",
+      "callback": "Rückruf vereinbart"
+    }
+  },
+  "skills": {
+    "chip": "{{skill}} · {{levelWord}} {{level}}",
+    "levelWord": "Stufe",
+    "minWord": "min.",
+    "levelLabel": "Stufe",
+    "minLabel": "Min.",
+    "placeholder": "billing, lang:de…"
+  },
+  "team": {
+    "title": "Team",
+    "roles": {
+      "agent": "Agent",
+      "supervisor": "Supervisor"
+    },
+    "invitedAs": "eingeladen als {{role}}",
+    "inviteLabel": "Per Google-E-Mail einladen",
+    "invite": "Einladen",
+    "invited": "{{email}} eingeladen",
+    "addSkill": "Fähigkeit zu {{name}} hinzufügen",
+    "saveSkills": "Fähigkeiten von {{name}} speichern",
+    "skillsSaved": "Fähigkeiten von {{name}} gespeichert"
+  },
+  "queues": {
+    "title": "Warteschlangen",
+    "algorithms": {
+      "longest_idle": "Am längsten frei",
+      "least_occupied": "Am wenigsten ausgelastet",
+      "round_robin": "Reihum",
+      "most_skilled": "Am besten qualifiziert",
+      "least_skilled": "Am wenigsten qualifiziert",
+      "linear": "Feste Reihenfolge"
+    },
+    "ringOrder": "Anrufreihenfolge",
+    "matchLanguage": "Sprache des Anrufers abgleichen",
+    "mohStyle": "Stil der Wartemusik",
+    "moh": {
+      "calm": "Ruhig",
+      "bright": "Lebhaft"
+    },
+    "holdMusicUrl": "URL der Wartemusik für {{name}} (WAV, optional)",
+    "holdMusicPlaceholder": "Verwendet die Wartemusik des Mandanten, wenn leer",
+    "requiredSkills": "Erforderliche Fähigkeiten für {{name}}",
+    "saveRouting": "Routing von {{name}} speichern",
+    "routingSaved": "Routing von {{name}} gespeichert",
+    "added": "Warteschlange {{name}} hinzugefügt",
+    "archived": "Warteschlange {{name}} archiviert (sie hat Anrufverlauf)",
+    "deleted": "Warteschlange {{name}} gelöscht",
+    "deleteAria": "Warteschlange {{name}} löschen",
+    "deleteTitle": "Warteschlange {{name}} löschen?",
+    "deleteMessage": "Die Warteschlange verschwindet aus dem Routing und aus den Einbettungs-Snippets. Wurden darin jemals Anrufe angenommen, wird sie archiviert, damit der Verlauf den Namen behält.",
+    "members": "Mitglieder",
+    "newQueue": "Neue Warteschlange"
+  },
+  "sounds": {
+    "title": "Töne",
+    "labels": {
+      "holdMusic": "Wartemusik",
+      "ringtone": "Klingelton",
+      "ringback": "Freizeichen"
+    },
+    "names": {
+      "holdMusic": "Wartemusik",
+      "ringtone": "Klingelton",
+      "ringback": "Freizeichen"
+    },
+    "hints": {
+      "holdMusic": "Nur WAV; wird dem Kunden in der Warteschleife vorgespielt. Leer = eingebaute Melodie.",
+      "ringtone": "Wird am Desk abgespielt, während ein Anruf klingelt. Leer = eingebautes Klingeln.",
+      "ringback": "Wird dem Kunden vorgespielt, während er auf eine Person wartet. Leer = Stille."
+    },
+    "url": "URL {{label}}",
+    "urlPlaceholder": "https://… oder Datei hochladen",
+    "upload": "Hochladen",
+    "uploadAria": "{{sound}} hochladen",
+    "play": "Abspielen",
+    "stop": "Stopp",
+    "clear": "Leeren",
+    "save": "Töne speichern",
+    "saved": "Töne gespeichert",
+    "uploaded": "{{name}} hochgeladen",
+    "fileDeleted": "Datei gelöscht",
+    "cannotPlay": "Diese Datei kann nicht abgespielt werden",
+    "uploadedFiles": "Hochgeladene Dateien",
+    "useAs": "Als {{sound}} verwenden",
+    "deleteAria": "Datei {{name}} löschen",
+    "deleteTitle": "{{name}} löschen?",
+    "deleteMessage": "Töne, die noch auf diese Datei verweisen, fallen auf den eingebauten Ton zurück."
+  },
+  "embed": {
+    "title": "Anruf-Button für Ihre Website",
+    "anyOrigin": "beliebige Herkunft",
+    "deleteAria": "{{label}} löschen",
+    "deleteTitle": "Schlüssel {{label}} löschen?",
+    "deleteMessage": "Websites, die diesen Schlüssel verwenden, können nicht mehr anrufen.",
+    "snippet": "Einbettungs-Snippet",
+    "label": "Bezeichnung",
+    "origins": "Erlaubte Herkünfte (optional)",
+    "originsPlaceholder": "https://www.example.com",
+    "create": "Schlüssel erstellen",
+    "created": "Schlüssel {{label}} erstellt",
+    "deleted": "Schlüssel gelöscht"
+  },
+  "apiKeys": {
+    "title": "API-Schlüssel",
+    "copyNow": "Kopieren Sie den Schlüssel jetzt, er wird nicht noch einmal angezeigt:",
+    "newKey": "Neuer API-Schlüssel",
+    "revoked": "widerrufen",
+    "revokeAria": "{{name}} widerrufen",
+    "revoke": "Widerrufen",
+    "deleteAria": "{{name}} löschen",
+    "deleteTitle": "Schlüssel {{name}} löschen?",
+    "deleteMessage": "Der Schlüssel funktioniert sofort nicht mehr und hinterlässt keine Spuren.",
+    "name": "Schlüsselname",
+    "create": "API-Schlüssel erstellen",
+    "keyRevoked": "Schlüssel widerrufen",
+    "keyDeleted": "Schlüssel gelöscht"
+  }
+}

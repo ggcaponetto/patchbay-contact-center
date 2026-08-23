@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { type ReactNode, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLiveRoom, useNow } from '../lib/hooks.ts';
 
 /**
@@ -54,6 +55,7 @@ type Props = {
  * No API calls of its own; the parent owns accept/join/leave.
  */
 export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Props) {
+  const { t } = useTranslation();
   const room = useLiveRoom(join);
   const now = useNow();
   const heldFor = hold?.heldAt ? Math.floor((now - Date.parse(hold.heldAt)) / 1000) : 0;
@@ -88,23 +90,25 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
         <Chip
           size="small"
           color={room.connected ? 'success' : 'default'}
-          label={room.connected ? 'Connected' : 'Connecting…'}
+          label={room.connected ? t('common.connected') : t('common.connecting')}
         />
         <Box sx={{ flex: 1 }} />
         {join.publish && hold && (
           <Button variant="outlined" color={held ? 'warning' : 'primary'} onClick={hold.onToggle}>
             {held
-              ? `Retrieve (${Math.floor(heldFor / 60)}:${String(heldFor % 60).padStart(2, '0')})`
-              : 'Hold'}
+              ? t('callPanel.retrieve', {
+                  time: `${Math.floor(heldFor / 60)}:${String(heldFor % 60).padStart(2, '0')}`,
+                })
+              : t('callPanel.hold')}
           </Button>
         )}
         {join.publish && (
           <Button variant="outlined" onClick={() => void room.toggleMute()} disabled={held}>
-            {room.muted ? 'Unmute' : 'Mute'}
+            {room.muted ? t('callPanel.unmute') : t('callPanel.mute')}
           </Button>
         )}
         <Button variant="contained" color="error" onClick={onLeave}>
-          {join.publish ? 'Hang up' : 'Stop listening'}
+          {join.publish ? t('callPanel.hangUp') : t('callPanel.stopListening')}
         </Button>
       </Stack>
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
@@ -114,7 +118,7 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
       </Stack>
       {held && hold && hold.reminderAfterSec > 0 && heldFor >= hold.reminderAfterSec && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          The customer has been on hold for {heldFor} seconds.
+          {t('callPanel.onHoldFor', { count: heldFor })}
         </Alert>
       )}
       {extras}
@@ -129,11 +133,12 @@ export function CallPanel({ join, title, transcript, onLeave, extras, hold }: Pr
  * placeholder when empty. Index keys are fine: segments are append-only.
  */
 export function Transcript({ segments }: { segments: TranscriptSegmentInput[] }) {
+  const { t } = useTranslation();
   return (
     <List dense sx={{ maxHeight: 360, overflow: 'auto', bgcolor: 'action.hover', borderRadius: 1 }}>
       {segments.length === 0 && (
         <ListItem>
-          <ListItemText secondary="No transcript yet." />
+          <ListItemText secondary={t('callPanel.noTranscript')} />
         </ListItem>
       )}
       {segments.map((s, i) => (

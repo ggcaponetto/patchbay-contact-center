@@ -169,7 +169,9 @@ customer token's room configuration and only rings humans later via `escalate`.
 
 ### Connection lifecycle
 
-1. Client opens `ws(s)://<api>/api/ws?tenantId=<id>` with the session cookie.
+1. Client opens `ws(s)://<api>/api/ws?tenantId=<id>` with the session cookie. Under the
+   dev bypass the desk adds `&as=<email>` (browsers cannot set upgrade headers); the
+   server folds it into the headers as `x-dev-user` before resolving the session.
 2. The server resolves the session and membership. Failure → close code `4401`.
 3. The connection is added to `DeskSockets` and presence starts as `not_ready`.
 4. Messages are parsed with `ClientMessage` (zod); anything else is dropped silently.
@@ -223,9 +225,13 @@ pushes into `inbox.early` until `inbox.handle` exists, then replays the buffer i
   no membership get their own tenant.
 - **Dev bypass** `devAuth`: with `DEV_USER_EMAIL` set (and `NODE_ENV !== 'production'`),
   the user row is created and bootstrapped once and every request, HTTP or websocket, is
-  that user; `/api/auth/get-session` and `/api/auth/sign-out` are stubbed so the web
-  client works unchanged. It is safe only in development because the resolver ignores
-  headers entirely: whoever reaches the port is that user.
+  that user unless it names another one: the `x-dev-user: <email>` header
+  (`DEV_USER_HEADER`, sent by the desk so each browser tab is its own person; `?as=` on
+  the websocket) wins over the `cc_dev_user` cookie (`POST /api/auth/dev-switch`, used by
+  the e2e actors), which wins over the default. Malformed values are ignored. Every user
+  picked this way is created and bootstrapped on first use. `/api/auth/get-session` and
+  `/api/auth/sign-out` are stubbed so the web client works unchanged. It is safe only in
+  development: whoever reaches the port can be any user.
 
 ## `livekit.ts`
 

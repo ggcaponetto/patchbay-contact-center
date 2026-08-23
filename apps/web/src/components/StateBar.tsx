@@ -20,8 +20,9 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type DeskSettings, api, post } from '../lib/api.ts';
-import { formatSince, stateColor, stateLabel } from '../lib/store.ts';
+import { formatSince, stateColor, stateKey } from '../lib/store.ts';
 
 /** Props of {@link StateBar}. */
 type Props = {
@@ -37,6 +38,7 @@ type Props = {
 
 /** See the module comment. */
 export function StateBar({ name, me, now, onError }: Props) {
+  const { t } = useTranslation();
   const [reasonAnchor, setReasonAnchor] = useState<HTMLElement | null>(null);
   const [disposition, setDisposition] = useState('');
   const settings = useQuery({
@@ -58,13 +60,13 @@ export function StateBar({ name, me, now, onError }: Props) {
   return (
     <Stack spacing={1}>
       <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap' }} spacing={2}>
-        <Typography>Hi {name}, you are</Typography>
+        <Typography>{t('stateBar.greeting', { name })}</Typography>
         <Chip
           color={state ? stateColor[state] : 'default'}
           label={
             state
-              ? `${stateLabel[state]}${me?.reason ? ` · ${me.reason}` : ''} · ${formatSince(me!.since, now)}`
-              : 'Connecting…'
+              ? `${t(stateKey(state))}${me?.reason ? ` · ${me.reason}` : ''} · ${formatSince(me!.since, now)}`
+              : t('common.connecting')
           }
         />
         <ButtonGroup size="small" disabled={!me || onCall}>
@@ -73,14 +75,14 @@ export function StateBar({ name, me, now, onError }: Props) {
             color="success"
             onClick={() => void setState('ready')}
           >
-            Ready
+            {t('stateBar.ready')}
           </Button>
           <Button
             variant={state === 'not_ready' ? 'contained' : 'outlined'}
             color="warning"
             onClick={(e) => setReasonAnchor(e.currentTarget)}
           >
-            Not ready
+            {t('stateBar.notReady')}
           </Button>
         </ButtonGroup>
         <Menu
@@ -104,13 +106,15 @@ export function StateBar({ name, me, now, onError }: Props) {
       {state === 'acw' && me?.acwUntil && (
         <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap' }} spacing={2}>
           <Typography color="text.secondary">
-            Wrap-up: {Math.max(0, Math.ceil((Date.parse(me.acwUntil) - now) / 1000))}s left
+            {t('stateBar.wrapUpLeft', {
+              seconds: Math.max(0, Math.ceil((Date.parse(me.acwUntil) - now) / 1000)),
+            })}
           </Typography>
           {me.callId && (settings.data?.dispositions?.length ?? 0) > 0 && (
             <TextField
               select
               size="small"
-              label="Disposition"
+              label={t('stateBar.disposition')}
               value={disposition}
               onChange={(e) => {
                 setDisposition(e.target.value);
@@ -128,14 +132,14 @@ export function StateBar({ name, me, now, onError }: Props) {
             </TextField>
           )}
           <Button size="small" onClick={() => void run(() => post('/desk/acw/extend'))}>
-            Extend
+            {t('stateBar.extend')}
           </Button>
           <Button
             size="small"
             variant="contained"
             onClick={() => void run(() => post('/desk/acw/done'))}
           >
-            Done
+            {t('stateBar.done')}
           </Button>
         </Stack>
       )}

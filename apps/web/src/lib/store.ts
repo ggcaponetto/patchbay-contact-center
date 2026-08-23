@@ -7,8 +7,8 @@
  * (in `hooks.ts`) can simply call `dispatch({ type: 'server', message })` for every
  * frame it receives.
  *
- * The file also hosts the small pure helpers that pages share: offer countdown, status
- * labels/colors, duration formatting and the hash-route parser (there is no router
+ * The file also hosts the small pure helpers that pages share: offer countdown, state and
+ * status translation keys/colors, duration formatting and the hash-route parser (there is no router
  * library in this app).
  */
 import type {
@@ -162,13 +162,8 @@ function applyServer(state: DeskState, m: ServerMessage): DeskState {
 export const myPresence = (state: DeskState, userId: string): AgentPresence | undefined =>
   state.agents.find((a) => a.userId === userId);
 
-/** Human-readable label for each agent state (chips, toggles). */
-export const stateLabel: Record<AgentState, string> = {
-  ready: 'Ready',
-  not_ready: 'Not ready',
-  busy: 'On a call',
-  acw: 'Wrap-up',
-};
+/** Translation key of an agent state's label (`t(stateKey(state))`, chips and toggles). */
+export const stateKey = (state: AgentState): `states.${AgentState}` => `states.${state}`;
 
 /** MUI `Chip` color for each agent state. */
 export const stateColor: Record<AgentState, 'default' | 'info' | 'warning' | 'success'> = {
@@ -185,14 +180,8 @@ export const formatSince = (since: string, now: number): string => formatDuratio
 export const secondsLeft = (offer: Offer, now: number): number =>
   Math.max(0, Math.ceil((Date.parse(offer.expiresAt) - now) / 1000));
 
-/** Human-readable label for each call status (chip text). */
-export const statusLabel: Record<CallStatus, string> = {
-  ringing: 'Ringing',
-  ai: 'With AI',
-  waiting_human: 'Waiting for agent',
-  human: 'With agent',
-  ended: 'Ended',
-};
+/** Translation key of a call status's label (`t(statusKey(status))`, chip text). */
+export const statusKey = (status: CallStatus): `statuses.${CallStatus}` => `statuses.${status}`;
 
 /** MUI `Chip` color for each call status. */
 export const statusColor: Record<CallStatus, 'default' | 'info' | 'warning' | 'success'> = {
@@ -209,7 +198,8 @@ export type Route =
   | { page: 'dashboard' }
   | { page: 'wallboard' }
   | { page: 'history' }
-  | { page: 'settings' }
+  /** `tab` is the settings section (`#/settings/queues`), `undefined` for the first. */
+  | { page: 'settings'; tab?: string }
   | { page: 'call'; id: string };
 
 /**
@@ -227,12 +217,25 @@ export function parseRoute(hash: string): Route {
     case 'history':
       return { page: 'history' };
     case 'settings':
-      return { page: 'settings' };
+      return parts[1] ? { page: 'settings', tab: parts[1] } : { page: 'settings' };
     case 'calls':
       return parts[1] ? { page: 'call', id: parts[1] } : { page: 'history' };
     default:
       return { page: 'desk' };
   }
+}
+
+/**
+ * Label of a wrap-up code as configured in the tenant's dispositions (`billing/refund`
+ * shows as `billing · Refund`), or the raw code when unknown / settings not loaded.
+ */
+export function dispositionLabel(
+  code: string,
+  dispositions: { code: string; label: string }[] | undefined,
+): string {
+  const d = dispositions?.find((x) => x.code === code);
+  if (!d) return code;
+  return code.includes('/') ? `${code.split('/')[0]} · ${d.label}` : d.label;
 }
 
 /**

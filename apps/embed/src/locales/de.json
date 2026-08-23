@@ -1,0 +1,16 @@
+{
+  "callUs": "Rufen Sie uns an",
+  "mute": "Stummschalten",
+  "unmute": "Ton an",
+  "hangUp": "Auflegen",
+  "connecting": "Verbinde…",
+  "pleaseHold": "Bitte warten, Sie werden verbunden…",
+  "inCall": "{{with}} · {{duration}}",
+  "ended": "Anruf beendet. Danke für Ihren Anruf!",
+  "couldNotStart": "Anruf konnte nicht gestartet werden: {{message}}",
+  "missingKey": "das Attribut key fehlt (erstellen Sie einen Schlüssel in den Einstellungen)",
+  "peers": {
+    "ai": "KI-Assistent",
+    "agent": "Mitarbeiter {{name}}"
+  }
+}

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '../db/client.ts';
 import { buildServer } from '../server.ts';
+import { createCall, getCall } from '../services/calls.ts';
 import {
   bootstrapUser,
   createInvite,
@@ -202,18 +203,25 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
     const list = await as(boss).inject({ url: '/api/admin/api-keys' });
     expect(list.json()).toMatchObject([{ id, name: 'crm', prefix, revokedAt: null }]);
     expect(list.json()[0].lastUsedAt).not.toBeNull();
-    expect(
-      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).json(),
-    ).toEqual({ ok: true });
-    expect(
-      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).statusCode,
-    ).toBe(404);
+    const revokeUrl = `/api/admin/api-keys/${id}/revoke`;
+    expect((await as(boss).inject({ method: 'POST', url: revokeUrl })).json()).toEqual({
+      ok: true,
+    });
+    expect((await as(boss).inject({ method: 'POST', url: revokeUrl })).statusCode).toBe(404);
     expect((await as(null).inject({ url: '/api/desk/calls', headers: bearer })).statusCode).toBe(
       401,
     );
     expect(
       (await as(boss).inject({ url: '/api/admin/api-keys' })).json()[0].revokedAt,
     ).not.toBeNull();
+    // deleting removes the row (works on revoked keys too); a second delete is a 404
+    expect(
+      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).json(),
+    ).toEqual({ ok: true });
+    expect(
+      (await as(boss).inject({ method: 'DELETE', url: `/api/admin/api-keys/${id}` })).statusCode,
+    ).toBe(404);
+    expect((await as(boss).inject({ url: '/api/admin/api-keys' })).json()).toEqual([]);
     // keys are tenant-scoped: another tenant's supervisor cannot revoke them
     const other = await createUser(db, 'other@example.com');
     await createTenant(db, 'O', other.id);
@@ -226,6 +234,10 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
     ).json();
     expect(
       (await as(other).inject({ method: 'DELETE', url: `/api/admin/api-keys/${theirs.id}` }))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      (await as(other).inject({ method: 'POST', url: `/api/admin/api-keys/${theirs.id}/revoke` }))
         .statusCode,
     ).toBe(404);
     expect(
@@ -381,6 +393,61 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
       (await as(boss).inject({ url: `/api/admin/members/${boss.id}/skills`, headers: hdr })).json(),
     ).toEqual([]);
 
+    // deleting: a queue with call history is archived (hidden, history intact), an unused
+    // one is removed, the last one is refused, and an archived key can be reused
+    await createCall(db, {
+      id: 'c-archive',
+      tenantId: t.id,
+      queueId: sales.id,
+      roomName: 'r',
+      customerMeta: {},
+    });
+    const archived = await as(boss).inject({
+      method: 'DELETE',
+      url: `/api/admin/queues/${sales.id}`,
+      headers: hdr,
+    });
+    expect(archived.json()).toEqual({ ok: true, archived: true });
+    queues = (await as(boss).inject({ url: '/api/admin/queues', headers: hdr })).json();
+    expect(queues.map((q: { key: string }) => q.key)).toEqual(['support']);
+    expect((await getCall(db, 'c-archive'))?.queueId).toBe(sales.id);
+    expect(
+      (
+        await as(boss).inject({
+          method: 'DELETE',
+          url: `/api/admin/queues/${sales.id}`,
+          headers: hdr,
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await as(boss).inject({
+          method: 'DELETE',
+          url: `/api/admin/queues/${queues[0].id}`,
+          headers: hdr,
+        })
+      ).json(),
+    ).toEqual({ error: 'last_queue' });
+    const sales2 = (
+      await as(boss).inject({
+        method: 'POST',
+        url: '/api/admin/queues',
+        headers: hdr,
+        payload: { key: 'sales', name: 'Sales again' },
+      })
+    ).json();
+    expect(sales2.key).toBe('sales');
+    expect(
+      (
+        await as(boss).inject({
+          method: 'DELETE',
+          url: `/api/admin/queues/${sales2.id}`,
+          headers: hdr,
+        })
+      ).json(),
+    ).toEqual({ ok: true, archived: false });
+
     const members = (await as(boss).inject({ url: '/api/admin/members', headers: hdr })).json();
     expect(members).toHaveLength(1);
     const invites = (await as(boss).inject({ url: '/api/admin/invites', headers: hdr })).json();
@@ -398,9 +465,11 @@ describe.skipIf(!hasDb)('tenants & admin routes', () => {
     expect(
       (await as(boss).inject({ url: '/api/admin/embed-keys', headers: hdr })).json(),
     ).toHaveLength(1);
-    expect((await resolveEmbedKey(db, key.publicKey, 'sales'))?.tenant.id).toBe(t.id);
+    expect((await resolveEmbedKey(db, key.publicKey, 'support'))?.tenant.id).toBe(t.id);
+    // the archived `sales` queue is not reachable from the embed either
+    expect(await resolveEmbedKey(db, key.publicKey, 'sales')).toBeUndefined();
     expect(await resolveEmbedKey(db, key.publicKey, 'nope')).toBeUndefined();
-    expect(await resolveEmbedKey(db, 'pk_nope', 'sales')).toBeUndefined();
+    expect(await resolveEmbedKey(db, 'pk_nope', 'support')).toBeUndefined();
     const del = await as(boss).inject({
       method: 'DELETE',
       url: `/api/admin/embed-keys/${key.id}`,

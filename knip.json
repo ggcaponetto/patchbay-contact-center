@@ -8,11 +8,15 @@
         "playwright.config.ts",
         "tests/e2e/*.ts",
         "tests/e2e/specs/**/*.spec.ts",
+        "tests/setup/*.ts",
         "tests/load/*.mjs"
       ],
       "project": ["build/*.mjs", "*.ts", ".vitepress/*.ts", "tests/**/*.{ts,mjs}"]
     },
     "packages/shared": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/i18n": {
       "project": ["src/**/*.ts"]
     },
     "apps/agent": {
@@ -26,7 +30,7 @@
       "project": ["src/**/*.{ts,tsx}"]
     },
     "apps/embed": {
-      "project": ["src/**/*.ts"]
+      "project": ["src/**/*.{ts,tsx}"]
     },
     "apps/media": {
       "entry": ["src/index.ts"],

@@ -4,13 +4,14 @@
 
 The repo is an npm-workspaces monorepo (`packages/*`, `apps/*`). Node 24 runs the TypeScript sources directly with type stripping, so there is no build step for the API and the agent; imports use explicit `.ts` extensions and `tsc` only type-checks.
 
-| Path              | Package      | What it is                                                                                                                                                                             |
-| ----------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared` | `@cc/shared` | zod schemas and inferred types shared by every app: `TenantSettings`, `CallStatus`, `ParticipantKind`, `DispatchMetadata`, websocket `ServerMessage` / `ClientMessage`, `roomNameFor`. |
-| `apps/api`        | `@cc/api`    | Fastify 5 API: Better Auth (Google), Drizzle + Postgres, LiveKit tokens and agent dispatch, Postgres-backed routing, `/api/ws` desk websocket, serves the built embed script.          |
-| `apps/agent`      | `@cc/agent`  | LiveKit Agents worker registered as `cc-agent`. Voice pipeline on LiveKit Inference, `escalateToHuman` / `endCall` tools, post-handoff transcriber, LLM summary.                       |
-| `apps/web`        | `@cc/web`    | Vite + React 19 + MUI desk for agents and supervisors (Desk, Dashboard, History, Settings, call page). Hash routing, TanStack Query, one websocket per tenant.                         |
-| `apps/embed`      | `@cc/embed`  | `<cc-call-button>` web component built as a single IIFE `call-button.js`. Pure state reducer in `state.ts`, LiveKit client in `call-button.ts`.                                        |
+| Path              | Package      | What it is                                                                                                                                                                                                 |
+| ----------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` | `@cc/shared` | zod schemas and inferred types shared by every app: `TenantSettings`, `CallStatus`, `ParticipantKind`, `DispatchMetadata`, websocket `ServerMessage` / `ClientMessage`, `roomNameFor`.                     |
+| `packages/i18n`   | `@cc/i18n`   | The i18n runtime of the two UIs: supported languages (en, de, it), BCP 47 normalization, the desk's `cc_lng` cookie and the i18next instance factory; translations live next to each app in `src/locales`. |
+| `apps/api`        | `@cc/api`    | Fastify 5 API: Better Auth (Google), Drizzle + Postgres, LiveKit tokens and agent dispatch, Postgres-backed routing, `/api/ws` desk websocket, serves the built embed script.                              |
+| `apps/agent`      | `@cc/agent`  | LiveKit Agents worker registered as `cc-agent`. Voice pipeline on LiveKit Inference, `escalateToHuman` / `endCall` tools, post-handoff transcriber, LLM summary.                                           |
+| `apps/web`        | `@cc/web`    | Vite + React 19 + MUI desk for agents and supervisors (Desk, Dashboard, History, Settings, call page). Hash routing, TanStack Query, one websocket per tenant.                                             |
+| `apps/embed`      | `@cc/embed`  | `<cc-call-button>` web component built as a single IIFE `call-button.js`. Pure state reducer in `state.ts`, LiveKit client in `call-button.ts`.                                                            |
 
 Supporting folders: `tests/` (Playwright e2e, Artillery load), `build/` (the LOC gate), `docs/` (this site plus the generated API reference), `apps/api/drizzle` (SQL migrations).
 

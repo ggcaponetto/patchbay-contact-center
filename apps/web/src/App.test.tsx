@@ -94,7 +94,9 @@ describe('App', () => {
     mocks.api.mockResolvedValue(me([]));
     renderApp();
     expect(screen.getByRole('progressbar')).toBeTruthy();
-    expect(await screen.findByText(/ann@x is not a member/)).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'ann@x is not a member of any contact center',
+    );
     expect(mocks.useDeskSocket).toHaveBeenLastCalledWith(undefined);
     await userEvent.click(screen.getByText('Sign out'));
     expect(mocks.signOut).toHaveBeenCalled();
@@ -111,7 +113,8 @@ describe('App', () => {
     expect(mocks.useDeskSocket).toHaveBeenLastCalledWith('t1');
     expect(screen.queryByRole('tab', { name: 'Dashboard' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Settings' })).toBeNull();
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Contact center' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeTruthy();
     await userEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(location.hash).toBe('#/history');
     await userEvent.click(screen.getByText('Sign out'));
@@ -157,7 +160,7 @@ describe('App', () => {
     // The call page lives under the History tab.
     expect(screen.getByRole('tab', { name: 'History' }).getAttribute('aria-selected')).toBe('true');
 
-    await userEvent.click(screen.getByRole('combobox'));
+    await userEvent.click(screen.getByRole('combobox', { name: 'Contact center' }));
     await userEvent.click(within(screen.getByRole('listbox')).getByText('Orbit'));
     await waitFor(() => expect(mocks.setTenant).toHaveBeenLastCalledWith('t2'));
     expect(mocks.useDeskSocket).toHaveBeenLastCalledWith('t2');

@@ -14,6 +14,7 @@ import type { AgentPresence } from '@cc/shared';
 import { Button, Menu, MenuItem, Stack } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type DeskSettings, api, post } from '../lib/api.ts';
 
 /** Props of {@link TransferConsult}. */
@@ -31,6 +32,7 @@ type Props = {
 
 /** See the module comment. */
 export function TransferConsult({ callId, myUserId, consultants, onLeft, onError }: Props) {
+  const { t } = useTranslation();
   const [menu, setMenu] = useState<{ kind: 'transfer' | 'consult'; anchor: HTMLElement } | null>(
     null,
   );
@@ -70,14 +72,14 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
             variant="outlined"
             onClick={(e) => setMenu({ kind: 'transfer', anchor: e.currentTarget })}
           >
-            Transfer
+            {t('transfer.transfer')}
           </Button>
           <Button
             size="small"
             variant="outlined"
             onClick={(e) => setMenu({ kind: 'consult', anchor: e.currentTarget })}
           >
-            Consult
+            {t('transfer.consult')}
           </Button>
         </>
       )}
@@ -93,7 +95,7 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
               )
             }
           >
-            Hand over to {consultants[0]!.name}
+            {t('transfer.handOver', { name: consultants[0]!.name })}
           </Button>
           <Button
             size="small"
@@ -102,7 +104,7 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
               void run(() => post(`/desk/calls/${callId}/consult/complete`, { mode: 'conference' }))
             }
           >
-            Conference
+            {t('transfer.conference')}
           </Button>
           <Button
             size="small"
@@ -112,7 +114,7 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
               void run(() => post(`/desk/calls/${callId}/consult/complete`, { mode: 'drop' }))
             }
           >
-            Drop {consultants[0]!.name}
+            {t('transfer.drop', { name: consultants[0]!.name })}
           </Button>
         </>
       )}
@@ -131,7 +133,7 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
                 )
               }
             >
-              Queue: {q.name}
+              {t('transfer.queue', { name: q.name })}
             </MenuItem>
           ))}
         {colleagues.map((a) => (
@@ -153,7 +155,7 @@ export function TransferConsult({ callId, myUserId, consultants, onLeft, onError
           </MenuItem>
         ))}
         {colleagues.length === 0 && (menu?.kind === 'consult' || !settings.data?.queues.length) && (
-          <MenuItem disabled>Nobody is ready</MenuItem>
+          <MenuItem disabled>{t('transfer.nobodyReady')}</MenuItem>
         )}
       </Menu>
     </Stack>

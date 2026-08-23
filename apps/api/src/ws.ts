@@ -29,7 +29,7 @@ import websocket from '@fastify/websocket';
 import type { FastifyInstance } from 'fastify';
 import type { EventEmitter } from 'node:events';
 import type { WebSocket } from 'ws';
-import type { GetSession } from './auth.ts';
+import { DEV_USER_HEADER, type GetSession } from './auth.ts';
 import type { Bus } from './bus.ts';
 import type { Db } from './db/client.ts';
 import type { Flow } from './flow.ts';
@@ -173,8 +173,15 @@ export async function registerWs(app: FastifyInstance, deps: WsDeps): Promise<vo
       inbox.handle ? inbox.handle(String(raw)) : inbox.early.push(String(raw)),
     );
 
-    const user = await getSession(request.headers);
-    const tenantId = (request.query as { tenantId?: string }).tenantId;
+    // Browsers cannot set headers on a websocket upgrade, so the desk passes its dev
+    // identity as `?as=`; folded into the headers it is just the `x-dev-user` header
+    // (honored by `devAuth`, meaningless under Better Auth).
+    const { tenantId, as } = request.query as { tenantId?: string; as?: string };
+    const user = await getSession(
+      typeof as === 'string' && as !== ''
+        ? { ...request.headers, [DEV_USER_HEADER]: as }
+        : request.headers,
+    );
     const membership = user
       ? (await membershipsOf(db, user.id)).find((m) => !tenantId || m.tenantId === tenantId)
       : undefined;

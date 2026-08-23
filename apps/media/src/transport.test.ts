@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTransport } from './transport.ts';
 
 const lk = vi.hoisted(() => {
-  const captured: unknown[] = [];
+  const captured: { data: Int16Array; sampleRate: number; channels: number; n: number }[] = [];
+  // Frames are released one by one so the test controls the pump's pace.
+  let release: ((err?: Error) => void)[] = [];
   class FakeRoom {
     static instances: FakeRoom[] = [];
     handlers = new Map<string, () => void>();
@@ -19,15 +21,33 @@ const lk = vi.hoisted(() => {
   }
   return {
     captured,
+    releaseNext: () => release.shift()?.(),
+    reset: () => {
+      captured.length = 0;
+      release = [];
+    },
     FakeRoom,
+    closed: vi.fn(async () => undefined),
     AudioSource: class {
-      captureFrame = (f: unknown) => {
+      captureFrame = (f: (typeof captured)[number]) => {
         captured.push(f);
-        return Promise.resolve();
+        return new Promise<void>((resolve, reject) =>
+          release.push((err) => (err ? reject(err) : resolve())),
+        );
+      };
+      close = () => {
+        // Like the SDK, closing fails whatever capture is still pending.
+        for (const r of release.splice(0)) r(new Error('closed'));
+        return lk.closed();
       };
     },
     AudioFrame: class {
-      constructor(public data: Int16Array) {}
+      constructor(
+        public data: Int16Array,
+        public sampleRate: number,
+        public channels: number,
+        public n: number,
+      ) {}
     },
     Room: FakeRoom,
     LocalAudioTrack: { createAudioTrack: vi.fn(() => ({ kind: 'audio' })) },
@@ -38,14 +58,16 @@ const lk = vi.hoisted(() => {
 });
 vi.mock('@livekit/rtc-node', () => lk);
 
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
 describe('createTransport', () => {
   beforeEach(() => {
     lk.FakeRoom.instances.length = 0;
-    lk.captured.length = 0;
-    vi.useFakeTimers();
+    lk.reset();
+    lk.closed.mockClear();
   });
 
-  it('joins, publishes looping frames, reports the close and disconnects', async () => {
+  it('joins, pushes zero-offset frames that walk and wrap the loop, and stops on disconnect', async () => {
     const connect = createTransport();
     const session = await connect('wss://x', 'tok');
     const room = lk.FakeRoom.instances[0]!;
@@ -54,27 +76,55 @@ describe('createTransport', () => {
       dynacast: false,
     });
 
-    const samples = new Int16Array(480 * 3); // three frames worth of loop
-    await session.publish(samples, 48_000, 480);
+    // A loop of 2.5 frames so the third frame straddles the wrap.
+    const samples = Int16Array.from({ length: 10 }, (_, i) => i + 1);
+    await session.publish(samples, 48_000, 4);
     expect(room.localParticipant.publishTrack).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(50);
-    expect(lk.captured.length).toBe(5); // one frame per 10 ms tick
+    await tick();
+    expect(lk.captured.length).toBe(1); // blocked on the first captureFrame (SDK paces)
+    lk.releaseNext();
+    await tick();
+    lk.releaseNext();
+    await tick();
+    expect(lk.captured.length).toBe(3);
+    const frames = lk.captured.map((f) => [...f.data]);
+    expect(frames).toEqual([
+      [1, 2, 3, 4],
+      [5, 6, 7, 8],
+      [9, 10, 1, 2],
+    ]);
+    for (const f of lk.captured) {
+      expect(f.data.byteOffset).toBe(0); // the SDK ignores byteOffset, so copies are a must
+      expect(f.data.buffer.byteLength).toBe(8);
+      expect([f.sampleRate, f.channels, f.n]).toEqual([48_000, 1, 4]);
+    }
 
     const closed = vi.fn();
     session.onClosed(closed);
     room.handlers.get('disconnected')!();
     expect(closed).toHaveBeenCalledTimes(1);
 
-    await session.disconnect();
+    await session.disconnect(); // the pending capture is failed by close(), the pump ends
+    expect(lk.closed).toHaveBeenCalledTimes(1);
     expect(room.disconnect).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(50);
-    expect(lk.captured.length).toBe(5); // the frame timer stopped
-    vi.useRealTimers();
+    await tick();
+    expect(lk.captured.length).toBe(3); // nothing pushed after disconnect
   });
 
   it('disconnects cleanly when nothing was ever published', async () => {
     const session = await createTransport()('wss://x', 'tok');
     await session.disconnect();
+    expect(lk.FakeRoom.instances[0]!.disconnect).toHaveBeenCalledTimes(1);
+    expect(lk.closed).not.toHaveBeenCalled();
+  });
+
+  it('still leaves the room when closing the source fails', async () => {
+    const session = await createTransport()('wss://x', 'tok');
+    await session.publish(new Int16Array(8), 48_000, 4);
+    await tick();
+    lk.closed.mockRejectedValueOnce(new Error('closed'));
+    await session.disconnect();
+    expect(lk.captured.length).toBe(1);
     expect(lk.FakeRoom.instances[0]!.disconnect).toHaveBeenCalledTimes(1);
   });
 });

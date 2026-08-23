@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, del, patch, post, put, setTenant } from './api.ts';
+import { api, del, fetchAsDevUser, patch, post, put, setTenant } from './api.ts';
 
 const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -13,6 +13,33 @@ describe('api', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     setTenant('');
+    sessionStorage.clear();
+  });
+
+  it("sends the tab's dev user as x-dev-user, and nothing when there is none", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => json({}));
+    vi.stubGlobal('fetch', fetchMock);
+    await api('/me');
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty('x-dev-user');
+    sessionStorage.setItem('cc_dev_user', 'alice@patchbay.dev');
+    await api('/me');
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toEqual({ 'x-dev-user': 'alice@patchbay.dev' });
+    // an explicit header wins (the menu asks for the default user with an empty one)
+    await api('/me', { headers: { 'x-dev-user': '' } });
+    expect(fetchMock.mock.calls[2]?.[1]?.headers).toEqual({ 'x-dev-user': '' });
+  });
+
+  it('gives the Better Auth client a fetch that reads the dev user per request', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => json({}));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchAsDevUser('/api/auth/get-session', { headers: { accept: 'application/json' } });
+    let headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('accept')).toBe('application/json');
+    expect(headers.get('x-dev-user')).toBeNull();
+    sessionStorage.setItem('cc_dev_user', 'bob@patchbay.dev');
+    await fetchAsDevUser('/api/auth/get-session');
+    headers = fetchMock.mock.calls[1]?.[1]?.headers as Headers;
+    expect(headers.get('x-dev-user')).toBe('bob@patchbay.dev');
   });
 
   it('prefixes /api, sends the tenant header, parses the body', async () => {

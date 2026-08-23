@@ -73,6 +73,18 @@ describe('useDeskSocket', () => {
     expect(FakeWebSocket.instances).toHaveLength(0);
   });
 
+  it("adds the tab's dev user to the socket URL", () => {
+    sessionStorage.setItem('cc_dev_user', 'alice@patchbay.dev');
+    try {
+      renderHook(() => useDeskSocket('t1'));
+      expect(FakeWebSocket.instances[0]!.url).toBe(
+        `ws://${location.host}/api/ws?tenantId=t1&as=alice%40patchbay.dev`,
+      );
+    } finally {
+      sessionStorage.clear();
+    }
+  });
+
   it('connects, reduces frames, sends, and reconnects after a drop', () => {
     const { result, unmount } = renderHook(() => useDeskSocket('t1'));
     const ws = FakeWebSocket.instances[0]!;

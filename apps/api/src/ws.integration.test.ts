@@ -2,8 +2,17 @@ import type { ServerMessage } from '@cc/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { Db } from './db/client.ts';
+import { buildServer } from './server.ts';
 import { bootstrapUser, createInvite, createTenant } from './services/tenants.ts';
-import { createUser, dbAvailable, freshDb, resetDb, testServer } from './testing.ts';
+import {
+  INTERNAL_SECRET,
+  createUser,
+  dbAvailable,
+  fakeLiveKit,
+  freshDb,
+  resetDb,
+  testServer,
+} from './testing.ts';
 
 const hasDb = await dbAvailable();
 
@@ -237,5 +246,62 @@ describe.skipIf(!hasDb)('desk websocket: sessions, tenants and malformed input',
     current.user = boss;
     const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws?tenantId=other`);
     expect(await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)))).toBe(4401);
+  });
+});
+
+describe.skipIf(!hasDb)('desk websocket: `?as=` picks the dev user', () => {
+  let db: Db;
+  let close: () => Promise<void>;
+  let app: Awaited<ReturnType<typeof buildServer>>['app'];
+  let port: number;
+
+  beforeAll(async () => {
+    ({ db, close } = await freshDb());
+    ({ app } = await buildServer({
+      db,
+      livekit: fakeLiveKit().livekit,
+      devUserEmail: 'dev@example.com',
+      adminEmails: ['dev@example.com'],
+      internalSecret: INTERNAL_SECRET,
+    }));
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    port = (app.server.address() as { port: number }).port;
+  });
+  afterAll(async () => {
+    await app.close();
+    await close();
+  });
+
+  it('connects two sockets as two different people, and without `as` as the default', async () => {
+    const current = { user: null as User | null };
+    const dev = (await app.inject({ url: '/api/me' })).json() as { user: User };
+    for (const email of ['alice@example.com', 'bob@example.com']) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/admin/invites',
+        payload: { email, role: 'agent' },
+      });
+    }
+    const alice = await desk(port, dev.user, current, '?as=alice%40example.com');
+    const bob = await desk(port, dev.user, current, '?as=Bob%40Example.com');
+    const boss = await desk(port, dev.user, current);
+    await vi.waitFor(() => expect(boss.last('presence')).toBeDefined());
+    const ids = new Map(
+      (
+        (await app.inject({ url: '/api/admin/members' })).json() as {
+          userId: string;
+          email: string;
+        }[]
+      ).map((m) => [m.email, m.userId]),
+    );
+    await vi.waitFor(() =>
+      expect(
+        (boss.last('presence') as { agents: { userId: string }[] }).agents
+          .map((a) => a.userId)
+          .sort(),
+      ).toEqual([ids.get('alice@example.com'), ids.get('bob@example.com'), dev.user.id].sort()),
+    );
+    expect(ids.get('alice@example.com')).not.toBe(ids.get('bob@example.com'));
+    await Promise.all([alice.close(), bob.close(), boss.close()]);
   });
 });

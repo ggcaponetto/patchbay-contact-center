@@ -26,6 +26,26 @@ test(
 );
 
 test(
+  'an offer rings audibly until it is answered or declined',
+  { tag: ['@core', '@desk', '@E2E-54'] },
+  async ({ page, tenant, call, ai }) => {
+    const deskPage = new DeskPage(page);
+    await deskPage.goto();
+    await deskPage.setReady();
+    const { callId } = await call(tenant.key);
+    const agent = ai(callId);
+    await agent.join();
+    const outcome = agent.escalate();
+    await deskPage.expectRinging();
+    // the dialog marks itself while the ringtone plays (built-in ring or the tenant's URL)
+    await expect(deskPage.dialog).toHaveAttribute('data-ringing', 'true');
+    await deskPage.decline();
+    await expect(deskPage.dialog).toHaveCount(0);
+    expect((await outcome).outcome).toBe('nobody');
+  },
+);
+
+test(
   'accepting puts the call with the agent and marks them on a call',
   { tag: ['@core', '@desk', '@E2E-09'] },
   async ({ page, supervisor, tenant, call, ai }) => {

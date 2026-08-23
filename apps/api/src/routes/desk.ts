@@ -102,6 +102,8 @@ export const deskRoutes: FastifyPluginAsync<DeskOpts> = async (
         monitorNotify: tenant?.settings.monitorNotify ?? true,
         ticker: tenant?.settings.ticker ?? '',
         autoAnswer: tenant?.settings.autoAnswer ?? false,
+        // Desk ringtone (`SoundUrl`), only when the tenant configured one.
+        ...(tenant?.settings.sounds.ringtone ? { ringtone: tenant.settings.sounds.ringtone } : {}),
         queues: (await listQueues(db, request.ctx.tenantId)).map((q) => ({
           id: q.id,
           key: q.key,

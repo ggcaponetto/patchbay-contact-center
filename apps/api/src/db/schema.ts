@@ -5,8 +5,8 @@
  *
  * - **Better Auth tables** (`user`, `session`, `account`, `verification`): shape dictated
  *   by Better Auth; do not rename columns without regenerating with its CLI.
- * - **Contact center domain**: `tenant` → `membership` / `invite` / `queue` / `embed_key`,
- *   and `call` → `call_participant` / `transcript_segment` / `call_event`.
+ * - **Contact center domain**: `tenant` → `membership` / `invite` / `queue` / `embed_key` /
+ *   `media_asset`, and `call` → `call_participant` / `transcript_segment` / `call_event`.
  *
  * Conventions: ids are `text` UUIDs generated in application code (`randomUUID()`),
  * timestamps default to `now()`, and `jsonb` columns (`tenant.settings`, `customer_meta`,
@@ -22,6 +22,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -168,8 +169,17 @@ export const queue = pgTable(
     name: text('name').notNull(),
     /** Routing configuration (`QueueConfig` in `@cc/shared`): algorithm, skills, language. */
     config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
+    /**
+     * Set when a queue with call history is "deleted": it leaves routing, listings and
+     * embeds, but the calls that went through it keep their link and its name.
+     */
+    archivedAt: timestamp('archived_at'),
   },
-  (t) => [uniqueIndex('queue_tenant_key_uidx').on(t.tenantId, t.key)],
+  (t) => [
+    uniqueIndex('queue_tenant_key_uidx')
+      .on(t.tenantId, t.key)
+      .where(sql`${t.archivedAt} is null`),
+  ],
 );
 
 /** Skills a user holds within a tenant, with proficiency 1–5 (skills-based routing). */
@@ -218,6 +228,32 @@ export const embedKey = pgTable('embed_key', {
     .notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+/** Postgres `bytea`, read and written as a Node `Buffer`. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
+});
+
+/**
+ * Uploaded sound files (hold music, ringtone, ringback) a tenant configures in
+ * `TenantSettings.sounds`. The bytes live in Postgres (`data`, at most a few MiB each)
+ * so no object storage is needed; listings never select `data`.
+ */
+export const mediaAsset = pgTable(
+  'media_asset',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenant.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    data: bytea('data').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('media_asset_tenant_idx').on(t.tenantId)],
+);
 
 /**
  * Machine credentials for the public API (`Authorization: Bearer ak_…`). Only the SHA-256

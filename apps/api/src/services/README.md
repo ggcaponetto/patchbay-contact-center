@@ -51,6 +51,21 @@ slugs and queue keys (`"VIP Sales"` → `vip-sales`).
 | `listQueues` / `createQueue` / `setQueueMembers` / `queuesOfUser` | `setQueueMembers` replaces the whole list; desks read queues at connect time                                     |
 | `listEmbedKeys` / `deleteEmbedKey`                                | Tenant-scoped                                                                                                    |
 
+## `mediaAssets.ts`
+
+Uploaded sound files (hold music, desk ringtone, embed ringback) stored as `bytea` in
+`media_asset`; what a tenant stores in `TenantSettings.sounds` is the public path
+`mediaUrl(id)` = `/api/public/media/<id>`.
+
+| Function                                                   | Notes                                                                                               |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `MAX_ASSET_BYTES` / `ALLOWED_MIME`                         | 5 MiB per file; `audio/wav` (+ `x-wav`, `wave`), `mpeg`, `mp3`, `ogg`, `webm`, `aac`, `mp4`, `flac` |
+| `isWav(bytes)`                                             | `RIFF….WAVE` sniff; the upload route requires it for WAV mime types                                 |
+| `createMediaAsset(db, tenantId, { name, mimeType, data })` | Returns the `MediaAsset` DTO (`url` included, never the bytes)                                      |
+| `listMediaAssets(db, tenantId)`                            | Newest first, never selects `data`                                                                  |
+| `deleteMediaAsset(db, tenantId, id)`                       | Tenant-scoped; `false` when there is no such file                                                   |
+| `readMediaAsset(db, id)`                                   | Bytes + mime type for `GET /api/public/media/:id`; not tenant-scoped (random ids, public sounds)    |
+
 ## `calls.ts`
 
 Writers and readers for `call`, `call_participant`, `transcript_segment` and `call_event`.

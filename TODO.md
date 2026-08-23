@@ -4,10 +4,10 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 ## Setup
 
-- [ ] Create a Google OAuth client (redirect URI `http://localhost:3000/api/auth/callback/google`) and fill `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env.local`. Until then, `DEV_USER_EMAIL` signs every request in as one user.
+- [x] Create a Google OAuth client (redirect URI `http://localhost:3000/api/auth/callback/google`) and fill `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env.local`. Until then, `DEV_USER_EMAIL` signs every request in as one user.
 - [ ] Port 4000 is taken by NoMachine (`nxd.exe`) on the dev machine. `PORT` (API) and `API_PORT` (web proxy) can be set in `.env.local`; decide whether to change the defaults.
 - [ ] Walk through the web desk in a browser (sign-in, availability, ring dialog, in-call panel, dashboard, settings, history). The UI is typechecked, built and unit-tested at the store level only.
-- [ ] Add repo secrets for CI: `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` (agent evals), `CODECOV_TOKEN`, `SONAR_TOKEN`.
+- [x] Add repo secrets for CI: `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` (agent evals), `CODECOV_TOKEN`, `SONAR_TOKEN`.
 
 ## Testing
 
@@ -30,4 +30,6 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 - [ ] Agent-side ring timeout uses the tenant's `offerTimeoutSec`; there is no overall cap on how long the AI waits for a human during escalation beyond exhausting the queue.
 - [ ] Recording consent / audio recordings (LiveKit Egress) if audio, not just transcripts, should be kept.
 - [ ] Human-first mode: while the call is still ringing humans (no AI in the room yet), a customer who hangs up leaves the call in `waiting_human`/`ringing` — nobody reports the end. Use a LiveKit webhook (`room_finished`) or have the API watch the room to mark such calls `ended`.
+- [ ] Hold music in MP3/OGG: only WAV is decoded server-side (no decoder dependency); other formats need ffmpeg or a pure-JS decoder in the media worker.
+- [ ] Hold-music e2e (E2E-53): assert the customer actually hears the uploaded file (needs a recording of the customer side), not just that the media participant joined.
 - [ ] `Flow.join(mode: 'takeover')` and `Flow.escalate` accept any non-ended status, so `human → waiting_human` is technically reachable; guard the transitions explicitly.

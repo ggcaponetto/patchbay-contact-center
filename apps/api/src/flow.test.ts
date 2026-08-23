@@ -19,9 +19,11 @@ const calls = vi.hoisted(() => ({
   addParticipant: vi.fn(async () => undefined),
   markParticipantLeft: vi.fn(async () => undefined),
   setPreferredAgent: vi.fn(async () => undefined),
+  setHeld: vi.fn(async () => undefined),
 }));
 vi.mock('./services/calls.ts', () => calls);
-vi.mock('./services/tenants.ts', () => ({ getTenant: async () => undefined }));
+const tenants = vi.hoisted(() => ({ getTenant: vi.fn(async () => undefined as unknown) }));
+vi.mock('./services/tenants.ts', () => tenants);
 
 /** A `Routing` double that only records `offer` and exposes the callbacks it was given. */
 const routing = vi.hoisted(() => ({
@@ -46,10 +48,12 @@ vi.mock('./routing.ts', () => ({
 }));
 
 /**
- * Direct `db.select()` chains resolve to no rows, except the queue-member lookup
- * (`select({ userId })`), which returns whatever the test pushed into `membersOf`.
+ * Direct `db.select()` chains resolve to whatever the test pushed into `queueRows`
+ * (empty by default: the queue row is gone), except the queue-member lookup
+ * (`select({ userId })`), which returns `membersOf`.
  */
 const membersOf: { userId: string }[] = [];
+const queueRows: { config: Record<string, unknown> }[] = [];
 const chain = (rows: () => unknown[]) => {
   const c: Record<string, unknown> = {};
   for (const m of ['from', 'where']) c[m] = () => c;
@@ -57,7 +61,7 @@ const chain = (rows: () => unknown[]) => {
   return c;
 };
 const db = {
-  select: (fields?: object) => chain(() => (fields ? membersOf : [])),
+  select: (fields?: object) => chain(() => (fields ? membersOf : queueRows)),
 } as unknown as Db;
 
 const call = { id: 'c1', tenantId: 't1', queueId: 'q-gone', roomName: 'room', status: 'ai' };
@@ -70,6 +74,8 @@ describe('Flow (defensive branches)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     membersOf.length = 0;
+    queueRows.length = 0;
+    tenants.getTenant.mockResolvedValue(undefined);
     hub = new EventEmitter();
     lk = fakeLiveKit();
     flow = new Flow(db, lk.livekit, hub, new LocalBus(), 'test');
@@ -112,6 +118,35 @@ describe('Flow (defensive branches)', () => {
       skills: [],
       priority: 0,
     });
+  });
+
+  it('sends the hold-music file with the hold command: queue first, then tenant', async () => {
+    const bus = new LocalBus();
+    const media: unknown[] = [];
+    bus.subscribe((m) => m.kind === 'media' && media.push(m.command));
+    flow = new Flow(db, lk.livekit, hub, bus, 'test');
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    // nothing configured: style only, no `music` key at all
+    await flow.hold('c1');
+    await tick();
+    expect(media[0]).toEqual(expect.objectContaining({ action: 'moh.start', style: 'calm' }));
+    expect(media[0]).not.toHaveProperty('music');
+
+    // tenant-wide hold music
+    tenants.getTenant.mockResolvedValue({
+      settings: { sounds: { holdMusic: 'https://cdn.example.com/tenant.wav' } },
+    });
+    await flow.hold('c1');
+    await tick();
+    expect(media[1]).toMatchObject({ music: 'https://cdn.example.com/tenant.wav' });
+
+    // the queue's own file wins, and its style travels too
+    queueRows.push({ config: { moh: 'bright', holdMusicUrl: '/api/public/media/q1' } });
+    await flow.hold('c1');
+    await tick();
+    expect(media[2]).toMatchObject({ music: '/api/public/media/q1', style: 'bright' });
+    expect(calls.setHeld).toHaveBeenCalledTimes(3);
   });
 
   it('escalates with an empty queue key when the queue row is missing', async () => {

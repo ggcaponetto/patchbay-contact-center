@@ -21,6 +21,7 @@ import {
 import { Stack, TextField } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type CallSummary, type TenantStats, api, post, put } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
@@ -28,9 +29,9 @@ import {
   formatDuration,
   formatSince,
   stateColor,
-  stateLabel,
+  stateKey,
   statusColor,
-  statusLabel,
+  statusKey,
 } from '../lib/store.ts';
 
 /** Props of {@link Dashboard}. */
@@ -38,6 +39,7 @@ type Props = { desk: ReturnType<typeof useDeskSocket> };
 
 /** The "…" menu on an agent row: force state (`POST /agents/:userId/state`) and IM. */
 function ForceState({ agent }: { agent: AgentPresence }) {
+  const { t } = useTranslation();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const force = (body: { state: 'ready' | 'not_ready' | 'logged_out'; reason?: string }) => {
@@ -55,29 +57,29 @@ function ForceState({ agent }: { agent: AgentPresence }) {
     <>
       <Button
         size="small"
-        aria-label={`actions for ${agent.name}`}
+        aria-label={t('dashboard.actionsFor', { name: agent.name })}
         onClick={(e) => setAnchor(e.currentTarget)}
       >
         …
       </Button>
       <Menu open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)}>
         <MenuItem disabled={agent.state === 'busy'} onClick={() => force({ state: 'ready' })}>
-          {agent.state === 'acw' ? 'End wrap-up' : 'Force ready'}
+          {agent.state === 'acw' ? t('dashboard.endWrapUp') : t('dashboard.forceReady')}
         </MenuItem>
         <MenuItem
           disabled={agent.state === 'busy'}
           onClick={() => force({ state: 'not_ready', reason: 'Supervisor' })}
         >
-          Force not ready
+          {t('dashboard.forceNotReady')}
         </MenuItem>
-        <MenuItem onClick={() => force({ state: 'logged_out' })}>Log out</MenuItem>
+        <MenuItem onClick={() => force({ state: 'logged_out' })}>{t('dashboard.logOut')}</MenuItem>
         <MenuItem
           onClick={() => {
             setAnchor(null);
             setMessage('');
           }}
         >
-          Message…
+          {t('dashboard.message')}
         </MenuItem>
       </Menu>
       {message !== null && (
@@ -85,13 +87,13 @@ function ForceState({ agent }: { agent: AgentPresence }) {
           <TextField
             size="small"
             autoFocus
-            label={`Message ${agent.name}`}
+            label={t('dashboard.messageTo', { name: agent.name })}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
           />
           <Button onClick={sendMessage} disabled={!message.trim()}>
-            Send
+            {t('common.send')}
           </Button>
         </Stack>
       )}
@@ -101,6 +103,7 @@ function ForceState({ agent }: { agent: AgentPresence }) {
 
 /** Team messaging: broadcast an instant message and set / clear the ticker banner. */
 function TeamMessaging({ ticker }: { ticker: string }) {
+  const { t } = useTranslation();
   const [broadcast, setBroadcast] = useState('');
   const [tickerText, setTickerText] = useState(ticker);
   const sendBroadcast = () => {
@@ -111,25 +114,25 @@ function TeamMessaging({ ticker }: { ticker: string }) {
   return (
     <Paper sx={{ p: 2, mt: 2 }}>
       <Typography variant="h6" gutterBottom>
-        Team messaging
+        {t('dashboard.teamMessaging')}
       </Typography>
       <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
         <TextField
           size="small"
-          label="Broadcast to every desk"
+          label={t('dashboard.broadcastLabel')}
           value={broadcast}
           onChange={(e) => setBroadcast(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendBroadcast()}
           sx={{ flex: 1 }}
         />
         <Button variant="outlined" onClick={sendBroadcast} disabled={!broadcast.trim()}>
-          Broadcast
+          {t('dashboard.broadcast')}
         </Button>
       </Stack>
       <Stack direction="row" spacing={1}>
         <TextField
           size="small"
-          label="Ticker banner (empty clears it)"
+          label={t('dashboard.tickerLabel')}
           value={tickerText}
           onChange={(e) => setTickerText(e.target.value)}
           sx={{ flex: 1 }}
@@ -140,7 +143,7 @@ function TeamMessaging({ ticker }: { ticker: string }) {
             void put('/desk/ticker', { text: tickerText.trim() }).catch(() => undefined)
           }
         >
-          Set ticker
+          {t('dashboard.setTicker')}
         </Button>
       </Stack>
     </Paper>
@@ -156,6 +159,7 @@ function TeamMessaging({ ticker }: { ticker: string }) {
  * `#/calls/<id>`.
  */
 export function Dashboard({ desk }: Props) {
+  const { t } = useTranslation();
   const now = useNow();
   const calls = useQuery({
     queryKey: ['calls', desk.state.callsVersion],
@@ -178,10 +182,10 @@ export function Dashboard({ desk }: Props) {
       <Grid size={{ xs: 12, md: 7 }}>
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Live calls ({live.length})
+            {t('dashboard.liveCalls', { count: live.length })}
           </Typography>
           <List dense>
-            {live.length === 0 && <ListItemText secondary="No calls in progress." />}
+            {live.length === 0 && <ListItemText secondary={t('dashboard.noCalls')} />}
             {live.map((c) => (
               <ListItem key={c.id} disablePadding>
                 <ListItemButton onClick={() => (location.hash = `#/calls/${c.id}`)}>
@@ -192,7 +196,7 @@ export function Dashboard({ desk }: Props) {
                   <Chip
                     size="small"
                     color={statusColor[c.status]}
-                    label={statusLabel[desk.state.callStatus[c.id] ?? c.status]}
+                    label={t(statusKey(desk.state.callStatus[c.id] ?? c.status))}
                   />
                 </ListItemButton>
               </ListItem>
@@ -203,10 +207,12 @@ export function Dashboard({ desk }: Props) {
       <Grid size={{ xs: 12, md: 5 }}>
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Agents online ({desk.state.agents.length})
+            {t('dashboard.agentsOnline', { count: desk.state.agents.length })}
           </Typography>
           <List dense>
-            {desk.state.agents.length === 0 && <ListItemText secondary="Nobody is online." />}
+            {desk.state.agents.length === 0 && (
+              <ListItemText secondary={t('dashboard.nobodyOnline')} />
+            )}
             {desk.state.agents.map((a) => (
               <ListItem key={a.userId} secondaryAction={<ForceState agent={a} />}>
                 <ListItemText
@@ -216,7 +222,7 @@ export function Dashboard({ desk }: Props) {
                 <Chip
                   size="small"
                   color={stateColor[a.state]}
-                  label={stateLabel[a.state]}
+                  label={t(stateKey(a.state))}
                   sx={{ mr: 5 }}
                 />
               </ListItem>

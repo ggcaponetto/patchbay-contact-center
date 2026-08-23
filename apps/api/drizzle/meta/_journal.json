@@ -64,6 +64,20 @@
       "when": 1787448116224,
       "tag": "0008_skills-routing",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787473457637,
+      "tag": "0009_media_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787474451609,
+      "tag": "0010_queue_archive",
+      "breakpoints": true
     }
   ]
 }

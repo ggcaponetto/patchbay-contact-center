@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CallNotes } from '../components/CallNotes.tsx';
 import { CallPanel, type JoinInfo } from '../components/CallPanel.tsx';
 import { RecordingControls } from '../components/RecordingControls.tsx';
@@ -26,24 +27,8 @@ import { TransferConsult } from '../components/TransferConsult.tsx';
 import { type CallDetail, type DeskSettings, type Me, api, post } from '../lib/api.ts';
 import type { useDeskSocket } from '../lib/hooks.ts';
 import { useNow } from '../lib/hooks.ts';
+import { useRingtone, zipTone } from '../lib/sounds.ts';
 import { myPresence, secondsLeft } from '../lib/store.ts';
-
-/**
- * The zip tone announcing an auto-answered call: a short 880 Hz beep via WebAudio.
- * Silently does nothing where WebAudio is unavailable (tests).
- */
-function zipTone(): void {
-  if (typeof AudioContext === 'undefined') return;
-  const ctx = new AudioContext();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.frequency.value = 880;
-  gain.gain.value = 0.2;
-  osc.connect(gain).connect(ctx.destination);
-  osc.start();
-  osc.stop(ctx.currentTime + 0.25);
-  osc.onended = () => void ctx.close();
-}
 
 /** Props of {@link Desk}. */
 type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
@@ -62,6 +47,7 @@ type Props = { desk: ReturnType<typeof useDeskSocket>; me: Me };
  *   ends the call server-side and puts the agent into wrap-up.
  */
 export function Desk({ desk, me }: Props) {
+  const { t } = useTranslation();
   const { state, dispatch, send } = desk;
   const [active, setActive] = useState<{ callId: string; join: JoinInfo } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +81,7 @@ export function Desk({ desk, me }: Props) {
     .filter((p) => p.kind === 'human' && p.leftAt === null && p.userId !== me.user.id)
     .map((p) => ({
       userId: p.userId,
-      name: state.agents.find((a) => a.userId === p.userId)?.name ?? 'colleague',
+      name: state.agents.find((a) => a.userId === p.userId)?.name ?? t('desk.colleague'),
     }));
 
   /** Hold / retrieve the customer; the server starts and stops the music. */
@@ -122,7 +108,9 @@ export function Desk({ desk, me }: Props) {
       setError(null);
     } catch (err) {
       // 409 `not_ringing_you` / `call_over`: the offer moved on or the caller hung up.
-      setError(`Could not accept: ${err instanceof Error ? err.message : String(err)}`);
+      setError(
+        t('desk.couldNotAccept', { error: err instanceof Error ? err.message : String(err) }),
+      );
       dispatch({ type: 'offer.clear' });
     }
   };
@@ -149,6 +137,9 @@ export function Desk({ desk, me }: Props) {
     const timer = setTimeout(() => void accept(), 600);
     return () => clearTimeout(timer);
   }, [offerId, active, autoAnswer]);
+  // Otherwise the offer rings (built-in ring or the tenant's ringtone) until answered.
+  const ringing = Boolean(offerId) && !active && !autoAnswer;
+  useRingtone(ringing, settings.data?.ringtone);
 
   return (
     <Stack spacing={2}>
@@ -163,7 +154,7 @@ export function Desk({ desk, me }: Props) {
       {active ? (
         <CallPanel
           join={active.join}
-          title="Customer call"
+          title={t('desk.customerCall')}
           transcript={state.transcripts[active.callId] ?? []}
           onLeave={() => void leave()}
           extras={
@@ -172,7 +163,7 @@ export function Desk({ desk, me }: Props) {
                 <Chip
                   size="small"
                   color="warning"
-                  label="A supervisor is on this call"
+                  label={t('desk.supervisorOnCall')}
                   sx={{ mb: 1 }}
                 />
               ) : null}
@@ -199,39 +190,44 @@ export function Desk({ desk, me }: Props) {
         />
       ) : (
         <Typography color="text.secondary">
-          {mine?.state === 'ready'
-            ? 'Waiting for calls. Keep this tab open to get rung.'
-            : 'Set yourself to Ready to receive calls.'}
+          {mine?.state === 'ready' ? t('desk.waitingForCalls') : t('desk.setReady')}
         </Typography>
       )}
-      <Dialog open={state.offer !== null && !active}>
-        <DialogTitle>Incoming call · {state.offer?.queueKey}</DialogTitle>
+      <Dialog
+        open={state.offer !== null && !active}
+        slotProps={{ paper: { 'data-ringing': ringing || undefined } as object }}
+      >
+        <DialogTitle>{t('desk.incomingCall', { queue: state.offer?.queueKey })}</DialogTitle>
         <DialogContent>
           {offered.data && (
             <Typography gutterBottom color="text.secondary">
               {String(offered.data.customerMeta['page'] ?? '')}
               {offered.data.language ? ` · ${offered.data.language}` : ''}
-              {offered.data.priority ? ` · priority ${offered.data.priority}` : ''}
+              {offered.data.priority
+                ? ` · ${t('desk.priority', { priority: offered.data.priority })}`
+                : ''}
             </Typography>
           )}
           {state.offer?.reason && (
             <Typography gutterBottom>
-              <b>Reason:</b> {state.offer.reason}
+              <b>{t('desk.reason')}</b> {state.offer.reason}
             </Typography>
           )}
           {state.offer?.summary && (
             <Typography gutterBottom>
-              <b>So far:</b> {state.offer.summary}
+              <b>{t('desk.soFar')}</b> {state.offer.summary}
             </Typography>
           )}
           <Typography color="text.secondary">
-            {state.offer ? `${secondsLeft(state.offer, now)}s to answer` : ''}
+            {state.offer
+              ? t('desk.secondsToAnswer', { seconds: secondsLeft(state.offer, now) })
+              : ''}
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={decline}>Decline</Button>
+          <Button onClick={decline}>{t('desk.decline')}</Button>
           <Button variant="contained" onClick={() => void accept()}>
-            Accept
+            {t('desk.accept')}
           </Button>
         </DialogActions>
       </Dialog>

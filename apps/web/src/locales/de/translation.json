@@ -1,0 +1,205 @@
+{
+  "app": {
+    "title": "Patchbay Contact Center",
+    "brand": "Patchbay",
+    "signInHint": "Melden Sie sich mit Ihrem Google-Konto an, um zum Agenten-Desk zu gelangen.",
+    "signInWithGoogle": "Mit Google anmelden",
+    "signOut": "Abmelden",
+    "signInAgain": "Erneut anmelden",
+    "language": "Sprache",
+    "tenant": "Contact Center",
+    "tabs": {
+      "desk": "Desk",
+      "dashboard": "Dashboard",
+      "wallboard": "Wallboard",
+      "history": "Verlauf",
+      "settings": "Einstellungen"
+    },
+    "notMember": "<b>{{email}}</b> ist in keinem Contact Center Mitglied. Bitten Sie einen Supervisor um eine Einladung.",
+    "loggedOutBy": "{{name}} hat Sie vom Desk abgemeldet.",
+    "connecting": "Verbindung zum Desk wird hergestellt…"
+  },
+  "common": {
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "send": "Senden",
+    "back": "← Zurück",
+    "loading": "Wird geladen…",
+    "connected": "Verbunden",
+    "connecting": "Verbindung wird hergestellt…"
+  },
+  "states": {
+    "ready": "Bereit",
+    "not_ready": "Nicht bereit",
+    "busy": "Im Gespräch",
+    "acw": "Nachbearbeitung"
+  },
+  "statuses": {
+    "ringing": "Klingelt",
+    "ai": "Mit KI",
+    "waiting_human": "Wartet auf Mitarbeiter",
+    "human": "Mit Mitarbeiter",
+    "ended": "Beendet"
+  },
+  "desk": {
+    "customerCall": "Kundengespräch",
+    "supervisorOnCall": "Ein Supervisor ist in diesem Gespräch",
+    "waitingForCalls": "Warten auf Anrufe. Lassen Sie diesen Tab geöffnet, um angerufen zu werden.",
+    "setReady": "Setzen Sie sich auf Bereit, um Anrufe zu erhalten.",
+    "incomingCall": "Eingehender Anruf · {{queue}}",
+    "priority": "Priorität {{priority}}",
+    "reason": "Grund:",
+    "soFar": "Bisher:",
+    "secondsToAnswer": "{{seconds}}s zum Annehmen",
+    "decline": "Ablehnen",
+    "accept": "Annehmen",
+    "couldNotAccept": "Annehmen nicht möglich: {{error}}",
+    "colleague": "Kollege"
+  },
+  "stateBar": {
+    "greeting": "Hallo {{name}}, Sie sind",
+    "ready": "Bereit",
+    "notReady": "Nicht bereit",
+    "wrapUpLeft": "Nachbearbeitung: noch {{seconds}}s",
+    "disposition": "Nachbearbeitungscode",
+    "extend": "Verlängern",
+    "done": "Fertig"
+  },
+  "callPanel": {
+    "retrieve": "Zurückholen ({{time}})",
+    "hold": "Halten",
+    "mute": "Stummschalten",
+    "unmute": "Stummschaltung aufheben",
+    "hangUp": "Auflegen",
+    "stopListening": "Mithören beenden",
+    "onHoldFor_one": "Der Kunde wartet seit {{count}} Sekunde in der Warteschleife.",
+    "onHoldFor_other": "Der Kunde wartet seit {{count}} Sekunden in der Warteschleife.",
+    "noTranscript": "Noch kein Transkript."
+  },
+  "recording": {
+    "rec": "REC",
+    "recPaused": "REC pausiert",
+    "record": "Aufnehmen",
+    "pause": "Aufnahme pausieren",
+    "resume": "Aufnahme fortsetzen",
+    "stop": "Aufnahme beenden"
+  },
+  "transfer": {
+    "transfer": "Weiterleiten",
+    "consult": "Rücksprache",
+    "handOver": "An {{name}} übergeben",
+    "conference": "Konferenz",
+    "drop": "{{name}} trennen",
+    "queue": "Warteschlange: {{name}}",
+    "nobodyReady": "Niemand ist bereit"
+  },
+  "notes": {
+    "note": "Notiz",
+    "addNote": "Notiz hinzufügen",
+    "tags": "Tags (durch Komma getrennt)",
+    "saveTags": "Tags speichern"
+  },
+  "messages": {
+    "toEveryone": "{{name}} (an alle): ",
+    "from": "{{name}}: "
+  },
+  "dashboard": {
+    "actionsFor": "Aktionen für {{name}}",
+    "endWrapUp": "Nachbearbeitung beenden",
+    "forceReady": "Auf Bereit setzen",
+    "forceNotReady": "Auf Nicht bereit setzen",
+    "logOut": "Abmelden",
+    "message": "Nachricht…",
+    "messageTo": "Nachricht an {{name}}",
+    "teamMessaging": "Team-Nachrichten",
+    "broadcastLabel": "Rundnachricht an alle Desks",
+    "broadcast": "Rundnachricht",
+    "tickerLabel": "Ticker-Banner (leer löscht ihn)",
+    "setTicker": "Ticker setzen",
+    "liveCalls": "Laufende Gespräche ({{count}})",
+    "noCalls": "Keine laufenden Gespräche.",
+    "agentsOnline": "Mitarbeiter online ({{count}})",
+    "nobodyOnline": "Niemand ist online."
+  },
+  "history": {
+    "title": "Anrufe",
+    "started": "Beginn",
+    "queue": "Warteschlange",
+    "status": "Status",
+    "duration": "Dauer",
+    "disposition": "Nachbearbeitungscode",
+    "summary": "Zusammenfassung"
+  },
+  "call": {
+    "title": "Anruf {{id}}",
+    "modes": {
+      "listen": "Mithören",
+      "whisper": "Flüstern",
+      "barge": "Einsteigen",
+      "takeover": "Übernehmen",
+      "intercept": "Abfangen"
+    },
+    "titles": {
+      "listen": "Sie hören mit",
+      "whisper": "Sie flüstern dem Mitarbeiter zu",
+      "barge": "Sie sind in dieses Gespräch eingestiegen",
+      "takeover": "Sie haben dieses Gespräch übernommen",
+      "intercept": "Sie haben dieses Gespräch abgefangen"
+    },
+    "transcript": "Transkript",
+    "aiSummary": "KI-Zusammenfassung:",
+    "events": "Ereignisse"
+  },
+  "wallboard": {
+    "waiting": "Wartend",
+    "longestWait": "Längste Wartezeit (s)",
+    "activeCalls": "Aktive Gespräche",
+    "longestCall": "Längstes Gespräch (s)",
+    "agentsReady": "Mitarbeiter bereit",
+    "onCalls": "Im Gespräch",
+    "wrapUp": "Nachbearbeitung",
+    "notReady": "Nicht bereit",
+    "callsToday": "Anrufe heute",
+    "answeredByHuman": "Von Menschen angenommen",
+    "avgHandleTime": "Ø Bearbeitungszeit (s)"
+  },
+  "devUser": {
+    "signedInAs": "Angemeldet als {{name}}",
+    "openInNewTab": "In neuem Tab öffnen",
+    "openInNewTabAs": "In neuem Tab als {{name}} öffnen",
+    "backTo": "Zurück zu {{name}}",
+    "defaultUser": "Standardbenutzer",
+    "otherEmail": "Andere E-Mail…",
+    "prompt": "Anmelden als (E-Mail)"
+  },
+  "errors": {
+    "generic": "Etwas ist schiefgelaufen",
+    "already_held": "Der Kunde ist bereits in der Warteschleife",
+    "call_over": "Das Gespräch ist bereits beendet",
+    "closed": "Das Contact Center ist derzeit geschlossen",
+    "disposition_required": "Bitte zuerst einen Nachbearbeitungscode wählen",
+    "empty_target": "Bitte ein Weiterleitungsziel wählen",
+    "forbidden": "Dazu sind Sie nicht berechtigt",
+    "invalid_body": "Die Anfrage war ungültig",
+    "invalid_email": "Diese E-Mail-Adresse ist ungültig",
+    "invalid_state": "Dieser Statuswechsel ist derzeit nicht möglich",
+    "last_queue": "Die letzte Warteschlange kann nicht gelöscht werden",
+    "no_consultant": "In diesem Gespräch gibt es keinen Rücksprachepartner",
+    "no_tenant": "Kein Contact Center ausgewählt",
+    "not_found": "Nicht gefunden",
+    "not_held": "Der Kunde ist nicht in der Warteschleife",
+    "not_in_acw": "Sie sind nicht in der Nachbearbeitung",
+    "not_live": "Das Gespräch läuft nicht mehr",
+    "not_ringing_you": "Dieser Anruf klingelt nicht mehr bei Ihnen",
+    "not_wav": "Die Datei ist keine WAV-Datei",
+    "offline": "Sie sind am Desk offline",
+    "on_call": "Während eines Gesprächs nicht möglich",
+    "origin_not_allowed": "Diese Website darf diesen Schlüssel nicht verwenden",
+    "recording_unavailable": "Aufnahme ist nicht verfügbar",
+    "too_large": "Die Datei ist zu groß",
+    "unauthenticated": "Bitte melden Sie sich erneut an",
+    "unknown_code": "Unbekannter Nachbearbeitungscode",
+    "unknown_embed_key_or_queue": "Unbekannter Schlüssel oder unbekannte Warteschlange",
+    "unsupported_type": "Dieser Dateityp wird nicht unterstützt"
+  }
+}
