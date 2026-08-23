@@ -91,7 +91,10 @@ export class CcCallButton extends HTMLElement {
           customerMeta: { page: location.href, userAgent: navigator.userAgent },
         }),
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        throw new Error(body.message ?? body.error ?? res.statusText);
+      }
       const { token, url } = (await res.json()) as { token: string; url: string };
       const room = new Room();
       this.room = room;

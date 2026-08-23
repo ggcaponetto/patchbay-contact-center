@@ -12,6 +12,10 @@ describe('renderLoop', () => {
     expect(max).toBeLessThan(32767 * 0.25);
     // envelope: the very first sample of a note is silent (no click)
     expect(loop[0]).toBe(0);
+    // the bright style is a different, shorter loop (0.5 s per note vs 0.8 s)
+    const bright = renderLoop('bright');
+    expect(bright.length).toBe(SAMPLE_RATE * 0.5 * 10);
+    expect(bright).not.toEqual(loop.subarray(0, bright.length));
   });
 });
 

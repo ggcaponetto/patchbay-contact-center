@@ -94,6 +94,44 @@ export const TenantSettings = z.object({
   monitorNotify: z.boolean().default(true),
   /** Persistent banner shown on every desk of the tenant; empty hides it. */
   ticker: z.string().max(200).default(''),
+  /**
+   * Business hours. `off` = always open; `auto` follows the weekly windows and
+   * holidays in `timezone`; `open` / `closed` / `emergency` are forced by a
+   * supervisor. While closed, `POST /api/public/calls` refuses with the message.
+   */
+  hours: z
+    .object({
+      mode: z.enum(['off', 'auto', 'open', 'closed', 'emergency']).default('off'),
+      /** IANA timezone the weekly windows are evaluated in. */
+      timezone: z.string().max(50).default('UTC'),
+      /** Weekly open windows: day of week (0 = Sunday) and `HH:MM` bounds. */
+      open: z
+        .array(
+          z.object({
+            dow: z.number().int().min(0).max(6),
+            from: z.string().regex(/^\d{2}:\d{2}$/),
+            to: z.string().regex(/^\d{2}:\d{2}$/),
+          }),
+        )
+        .max(50)
+        .default([]),
+      /** Closed dates (`YYYY-MM-DD`) in the tenant's timezone. */
+      holidays: z
+        .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+        .max(100)
+        .default([]),
+      /** Shown to callers while closed (schedule, holiday, or forced `closed`). */
+      closedMessage: z
+        .string()
+        .max(300)
+        .default('We are currently closed. Please call again during business hours.'),
+      /** Shown to callers in `emergency` mode. */
+      emergencyMessage: z
+        .string()
+        .max(300)
+        .default('We are currently unable to take calls. Please try again later.'),
+    })
+    .prefault({}),
   /** Threshold alerts for the dashboard / wallboard; a value of `0` turns one off. */
   alerts: z
     .object({
@@ -162,6 +200,8 @@ export const QueueConfig = z.object({
   requiredSkills: z.array(SkillRequirement).max(20).default([]),
   /** Require the caller's language as a `lang:<tag>` skill when the call carries one. */
   languageRouting: z.boolean().default(false),
+  /** Hold-music style of the queue, see `renderLoop` in the media worker. */
+  moh: z.enum(['calm', 'bright']).default('calm'),
 });
 /** Inferred type of {@link QueueConfig}. */
 export type QueueConfig = z.infer<typeof QueueConfig>;
@@ -380,6 +420,8 @@ export type DispatchMetadata = z.infer<typeof DispatchMetadata>;
 export const MediaCommand = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('moh.start'),
+    /** Hold-music style (per queue); the worker defaults to `calm`. */
+    style: z.enum(['calm', 'bright']).optional(),
     callId: z.string(),
     roomName: z.string(),
     token: z.string(),

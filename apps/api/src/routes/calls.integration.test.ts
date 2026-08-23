@@ -114,6 +114,18 @@ describe.skipIf(!hasDb)('calls: public, internal and desk routes', () => {
     expect(noKey.statusCode).toBe(400);
   });
 
+  it('refuses new calls while the tenant is closed', async () => {
+    const { updateSettings } = await import('../services/tenants.ts');
+    await updateSettings(db, tenantId, {
+      hours: { mode: 'closed', closedMessage: 'Back on Monday.' },
+    });
+    const closed = await startCall({ origin: 'https://shop.example' });
+    expect(closed.statusCode).toBe(403);
+    expect(closed.json()).toEqual({ error: 'closed', message: 'Back on Monday.' });
+    await updateSettings(db, tenantId, { hours: { mode: 'off' } });
+    expect((await startCall({ origin: 'https://shop.example' })).statusCode).toBe(200);
+  });
+
   it('accepts worker updates over the internal API and ends the room', async () => {
     const { callId, roomName } = (await startCall()).json();
     const base = `/api/internal/calls/${callId}`;

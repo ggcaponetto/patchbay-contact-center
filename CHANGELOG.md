@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Business hours (Phase 4): a tenant is always open, follows a weekly schedule with
+  holidays in its timezone, or is forced open / closed / emergency by a supervisor;
+  while closed `POST /api/public/calls` refuses with the configured message and the
+  embedded button shows it to the caller. Hold music is configurable per queue
+  (`QueueConfig.moh`: calm or bright).
 - Skills-based routing and selection algorithms (Phase 4): members hold skills with
   proficiency 1-5 (edited in Settings, reskilling applies to the next ring), queues carry
   a routing configuration — required skills, language routing (`lang:<tag>` from the

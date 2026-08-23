@@ -44,7 +44,7 @@ export type WorkerDeps = {
  */
 export function createWorker(deps: WorkerDeps) {
   const sessions = new Map<string, Session>();
-  const loop = renderLoop();
+  const loops = { calm: renderLoop('calm'), bright: renderLoop('bright') };
 
   const start = async (cmd: Extract<MediaCommand, { action: 'moh.start' }>) => {
     if (sessions.has(cmd.callId)) return;
@@ -66,8 +66,8 @@ export function createWorker(deps: WorkerDeps) {
       return;
     }
     room.onClosed(() => void session.stop());
-    deps.log(`moh started for ${cmd.callId} in ${cmd.roomName}`);
-    await room.publish(loop, SAMPLE_RATE, FRAME_SAMPLES);
+    deps.log(`moh started for ${cmd.callId} in ${cmd.roomName} (${cmd.style ?? 'calm'})`);
+    await room.publish(loops[cmd.style ?? 'calm'], SAMPLE_RATE, FRAME_SAMPLES);
   };
 
   return {

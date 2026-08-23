@@ -86,6 +86,14 @@ describe('Settings', () => {
         autoAnswer: false,
         monitorNotify: true,
         ticker: '',
+        hours: {
+          mode: 'off',
+          timezone: 'UTC',
+          open: [],
+          holidays: [],
+          closedMessage: 'We are currently closed. Please call again during business hours.',
+          emergencyMessage: 'We are currently unable to take calls. Please try again later.',
+        },
         alerts: { maxWaiting: 0, maxWaitSec: 0, maxCallSec: 0 },
         dispositions: [],
         dispositionRequired: false,
@@ -97,7 +105,7 @@ describe('Settings', () => {
     mocks.patch.mockRejectedValueOnce(new Error('invalid_settings'));
     await userEvent.click(screen.getByText('Save'));
     expect(await screen.findByText('Error: invalid_settings')).toBeTruthy();
-  });
+  }, 40_000); // the settings page grew card by card; instrumented typing is slow
 
   it('lists the team and sends invites', async () => {
     renderSettings();
@@ -121,7 +129,44 @@ describe('Settings', () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Invite by Google email/)).toHaveProperty('value', ''),
     );
-  });
+  }, 40_000);
+
+  it('edits and saves the business hours', async () => {
+    renderSettings();
+    await screen.findByText('Business hours');
+    await select('Mode', 'Follow the schedule');
+    const tz = screen.getByLabelText('Timezone (IANA)');
+    await userEvent.clear(tz);
+    await userEvent.type(tz, 'Europe/Zurich');
+    // malformed lines are dropped, day names map to dow numbers
+    await userEvent.type(
+      screen.getByLabelText(/Weekly windows/),
+      'mon 09:00-17:00{Enter}bogus{Enter}tue 08:30-12:00',
+    );
+    await userEvent.type(screen.getByLabelText(/Holidays/), '2026-12-25{Enter}nope');
+    const closedMsg = screen.getByLabelText('Closed message');
+    await userEvent.clear(closedMsg);
+    await userEvent.type(closedMsg, 'Closed.');
+    const emergencyMsg = screen.getByLabelText('Emergency message');
+    await userEvent.clear(emergencyMsg);
+    await userEvent.type(emergencyMsg, 'Emergency.');
+    await userEvent.click(screen.getByRole('button', { name: 'Save hours' }));
+    await waitFor(() =>
+      expect(mocks.patch).toHaveBeenCalledWith('/admin/tenant/settings', {
+        hours: {
+          mode: 'auto',
+          timezone: 'Europe/Zurich',
+          open: [
+            { dow: 1, from: '09:00', to: '17:00' },
+            { dow: 2, from: '08:30', to: '12:00' },
+          ],
+          holidays: ['2026-12-25'],
+          closedMessage: 'Closed.',
+          emergencyMessage: 'Emergency.',
+        },
+      }),
+    );
+  }, 40_000);
 
   it('edits queue routing and member skills', async () => {
     renderSettings();
