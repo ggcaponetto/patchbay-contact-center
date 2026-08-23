@@ -142,6 +142,41 @@ function RoutingCard() {
             onChange={(e) => setDraft({ ...draft, holdReminderSec: Number(e.target.value) })}
           />
         </Stack>
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+          <TextField
+            type="number"
+            label="Alert: calls waiting (0 = off)"
+            value={draft.alerts.maxWaiting}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxWaiting: Number(e.target.value) },
+              })
+            }
+          />
+          <TextField
+            type="number"
+            label="Alert: longest wait (s, 0 = off)"
+            value={draft.alerts.maxWaitSec}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxWaitSec: Number(e.target.value) },
+              })
+            }
+          />
+          <TextField
+            type="number"
+            label="Alert: longest call (s, 0 = off)"
+            value={draft.alerts.maxCallSec}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                alerts: { ...draft.alerts, maxCallSec: Number(e.target.value) },
+              })
+            }
+          />
+        </Stack>
         <TextField
           label="Wrap-up codes (one per line: code | label; a / in the code groups)"
           multiline

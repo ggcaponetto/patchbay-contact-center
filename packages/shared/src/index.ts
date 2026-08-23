@@ -94,6 +94,17 @@ export const TenantSettings = z.object({
   monitorNotify: z.boolean().default(true),
   /** Persistent banner shown on every desk of the tenant; empty hides it. */
   ticker: z.string().max(200).default(''),
+  /** Threshold alerts for the dashboard / wallboard; a value of `0` turns one off. */
+  alerts: z
+    .object({
+      /** Alert when at least this many calls are waiting for a human. */
+      maxWaiting: z.number().int().min(0).max(1000).default(0),
+      /** Alert when the oldest waiting call is at least this old (seconds). */
+      maxWaitSec: z.number().int().min(0).max(86400).default(0),
+      /** Alert when the oldest running call is at least this old (seconds). */
+      maxCallSec: z.number().int().min(0).max(86400).default(0),
+    })
+    .prefault({}),
   /** Reason (aux) codes an agent can pick when going `not_ready`; `RONA` is added by the API. */
   notReadyReasons: z
     .array(z.string().min(1).max(40))

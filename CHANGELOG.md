@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Wallboard and threshold alerts (Phase 3): `GET /api/desk/stats` computes waiting /
+  active calls with their oldest ages, agents by state and today's totals on demand;
+  `TenantSettings.alerts` thresholds (calls waiting, longest wait, longest call) render
+  as red banners on the dashboard and the new read-only `#/wallboard` big-number page.
 - Team messaging (Phase 3): supervisors send instant messages to one agent or broadcast
   to every desk (snackbar on any page), and set a persistent ticker banner shown on all
   desks of the tenant (stored in the tenant settings, pushed live and on connect).

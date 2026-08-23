@@ -49,6 +49,17 @@ export type DeskSettings = {
   queues: { id: string; key: string; name: string }[];
 };
 
+/** `GET /api/desk/stats`: live tenant statistics and threshold alerts. */
+export type TenantStats = {
+  waiting: number;
+  longestWaitSec: number;
+  active: number;
+  longestCallSec: number;
+  agents: { ready: number; notReady: number; busy: number; acw: number };
+  today: { calls: number; answered: number; avgHandleSec: number };
+  alerts: string[];
+};
+
 /** One row of `GET /api/desk/calls` (History and Dashboard lists). */
 export type CallSummary = {
   id: string;
