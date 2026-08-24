@@ -286,21 +286,24 @@ describe.skipIf(!hasDb)('desk websocket: `?as=` picks the dev user', () => {
     const bob = await desk(port, dev.user, current, '?as=Bob%40Example.com');
     const boss = await desk(port, dev.user, current);
     await vi.waitFor(() => expect(boss.last('presence')).toBeDefined());
-    const ids = new Map(
-      (
-        (await app.inject({ url: '/api/admin/members' })).json() as {
-          userId: string;
-          email: string;
-        }[]
-      ).map((m) => [m.email, m.userId]),
-    );
-    await vi.waitFor(() =>
+    // Alice and Bob become members during their websocket upgrades, so the member list
+    // is re-fetched inside the retry: reading it once could race Bob's first request.
+    const ids = new Map<string, string>();
+    await vi.waitFor(async () => {
+      const members = (await app.inject({ url: '/api/admin/members' })).json() as {
+        userId: string;
+        email: string;
+      }[];
+      ids.clear();
+      for (const m of members) ids.set(m.email, m.userId);
+      expect(ids.get('alice@example.com')).toBeDefined();
+      expect(ids.get('bob@example.com')).toBeDefined();
       expect(
         (boss.last('presence') as { agents: { userId: string }[] }).agents
           .map((a) => a.userId)
           .sort(),
-      ).toEqual([ids.get('alice@example.com'), ids.get('bob@example.com'), dev.user.id].sort()),
-    );
+      ).toEqual([ids.get('alice@example.com'), ids.get('bob@example.com'), dev.user.id].sort());
+    });
     expect(ids.get('alice@example.com')).not.toBe(ids.get('bob@example.com'));
     await Promise.all([alice.close(), bob.close(), boss.close()]);
   });
