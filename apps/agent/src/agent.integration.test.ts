@@ -25,7 +25,9 @@ const hasCloud = Boolean(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_
 
 initializeLogger({ pretty: true, level: 'warn' });
 
-describe.skipIf(!hasCloud)('contact center agent', () => {
+// LLM output is nondeterministic and the inference service can return an empty turn;
+// each eval gets two retries before it counts as a failure.
+describe.skipIf(!hasCloud)('contact center agent', { retry: 2 }, () => {
   let session: voice.AgentSession;
   let judgeLlm: inference.LLM;
   let actions: { [K in keyof AgentActions]: ReturnType<typeof vi.fn> };
