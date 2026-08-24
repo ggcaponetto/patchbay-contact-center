@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 
 Nothing yet.
 
+## [0.4.1] - 2026-08-24
+
+### Fixed
+
+- Flaky CI: the two-dev-users websocket test re-resolves member ids inside its retry,
+  the ended-while-ringing desk test waits for the ring instead of sleeping 50 ms, and
+  the LLM agent evals retry twice (remote inference can return an empty turn).
+
 ## [0.4.0] - 2026-08-23
 
 ### Added
@@ -202,7 +210,8 @@ First proof-of-concept release, working end to end against LiveKit Cloud.
 - Git-flow branching (`main` / `develop`), semantic-version tags and a `Release` workflow that
   publishes GitHub releases.
 
-[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.1.0...v0.2.0
