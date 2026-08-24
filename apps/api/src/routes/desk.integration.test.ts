@@ -1,5 +1,5 @@
 import type { ServerMessage } from '@cc/shared';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client.ts';
 import { setCallStatus } from '../services/calls.ts';
 import { createEmbedKey, createTenant } from '../services/tenants.ts';
@@ -67,20 +67,20 @@ describe.skipIf(!hasDb)('desk routes: authorization and edge cases', () => {
 
   it('refuses to hand out a token when the call ended while it was ringing', async () => {
     const { callId } = await startCall();
-    srv.flow.routing.connect({
+    await srv.flow.routing.connect({
       userId: boss.id,
       tenantId: (await srv.as(boss).inject({ url: '/api/me' })).json().memberships[0].tenantId,
       name: 'Boss',
     });
-    srv.flow.routing.setState(boss.id, 'ready');
+    await srv.flow.routing.setState(boss.id, 'ready');
     const escalation = srv.app.inject({
       method: 'POST',
       url: `/api/internal/calls/${callId}/escalate`,
       headers: internal,
       payload: { reason: 'r', summary: 's' },
     });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(await srv.flow.routing.ringing(callId)).toBe(boss.id);
+    // the escalation long-polls; wait until the offer actually rings Boss
+    await vi.waitFor(async () => expect(await srv.flow.routing.ringing(callId)).toBe(boss.id));
     // the customer hung up and the worker already wrote `ended`, but the offer is still live
     await setCallStatus(db, callId, 'ended');
     const accept = await srv.as(boss).inject({
