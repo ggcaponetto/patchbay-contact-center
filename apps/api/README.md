@@ -33,6 +33,8 @@ Read from `apps/api/.env.local`, then the repo root `.env.local`.
 | `WEB_ORIGIN`                                | yes      | Origin of the web desk (`http://localhost:3000`). Better Auth base URL and trusted origin; the web app proxies `/api`.                                                                                                                                                                                              |
 | `API_ORIGIN`                                | no       | Not read by the API itself; the agent worker and e2e tests use it to find the API.                                                                                                                                                                                                                                  |
 | `INTERNAL_API_SECRET`                       | yes      | Shared secret the agent worker sends as `x-internal-secret`. Boot fails when empty.                                                                                                                                                                                                                                 |
+| `PUBLIC_CALLS_PER_MINUTE`                   | no       | Calls one client IP may start per minute via `POST /api/public/calls` (429 `rate_limited` beyond), default `10`; `0` turns the limit off (tests, load runs).                                                                                                                                                        |
+| `TRUST_PROXY`                               | no       | `true` behind a reverse proxy or load balancer: the client IP (for the rate limit) comes from `X-Forwarded-For`. Leave unset when clients reach the API directly, since they could fake the header.                                                                                                                 |
 | `ADMIN_EMAILS`                              | no       | Comma-separated emails that may create tenants and get a personal tenant on first login.                                                                                                                                                                                                                            |
 | `BETTER_AUTH_SECRET`                        | yes\*    | Cookie/JWT signing secret for Better Auth.                                                                                                                                                                                                                                                                          |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | yes\*    | Google OAuth client used by Better Auth.                                                                                                                                                                                                                                                                            |
@@ -87,7 +89,7 @@ flowchart LR
 
 Three kinds of callers, three route groups, one orchestrator:
 
-- **Embed → `/api/public`**: unauthenticated, protected by embed key + origin allow-list.
+- **Embed → `/api/public`**: unauthenticated, protected by embed key + origin allow-list + a per-IP call rate limit.
   Creates the call and returns the customer's LiveKit token.
 - **Integrations → any `/api/desk` or `/api/admin` route**: `Authorization: Bearer ak_…`
   API key with an explicit permission set (Settings → API keys). Same routes, same
