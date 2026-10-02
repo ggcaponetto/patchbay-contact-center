@@ -19,7 +19,7 @@ flowchart LR
 ## Running
 
 1. Create an API key on the desk: **Settings → API keys** (its permissions bound
-   what the tools may do; calls beyond them answer 403).
+   what the tools may do; calls beyond them answer 403), or with the Node script below.
 2. Configure and start:
 
 ```sh
@@ -28,8 +28,38 @@ MCP_API_KEY=ak_...                  # required
 npm run -w apps/mcp start
 ```
 
-Register it in an MCP client as a stdio server with that command, e.g. for the
-Claude CLI: `claude mcp add contact-center -e MCP_API_KEY=ak_... -- npm run -w apps/mcp start`.
+Register it in an MCP client as a stdio server, e.g. for the
+Claude CLI, from the repo root: `claude mcp add contact-center -e MCP_API_KEY=ak_... -- node "$PWD/apps/mcp/src/index.ts"`.
+Use `node` rather than `npm run` there: npm prints a banner on stdout, the protocol channel.
+Only documented GET/POST/PUT/PATCH/DELETE operations become tools; the API leaves
+Fastify's implicit HEAD routes out of the OpenAPI document.
+
+### Creating the key from Node.js
+
+The key cannot be generated locally: the API creates it, stores only a hash and returns
+the secret once (`POST /api/admin/api-keys`). [`scripts/create-api-key.mjs`](scripts/create-api-key.mjs)
+calls that route with plain `fetch` (no dependencies) and takes its settings as arguments
+instead of environment variables, so the same command works in bash, zsh, PowerShell and
+`cmd`. From the repository root, with the API running:
+
+```sh
+node apps/mcp/scripts/create-api-key.mjs                   # dev API on :4000, name "Claude MCP"
+node apps/mcp/scripts/create-api-key.mjs http://localhost:4100 "Claude MCP"
+node apps/mcp/scripts/create-api-key.mjs https://api.example.com "Claude MCP" ak_<admin key>
+npm run -w apps/mcp create-key -- http://localhost:4000 "Claude MCP"   # same, via npm
+```
+
+It prints `MCP_API_KEY=ak_…` once; copy it into the `claude mcp add` command.
+
+- **Dev** (`DEV_USER_EMAIL` set, you in `ADMIN_EMAILS`): no credentials needed; the dev
+  user is the supervisor who owns the key.
+- **Otherwise** pass an existing key that has `api-keys:manage` as the third argument
+  (create the first one on the desk). A wrong key fails with `401 unauthenticated`, a key
+  without that permission with `403 forbidden`; an API that is not running gives
+  `Cannot reach the API at …`.
+- Permissions: `calls:read`, `calls:answer`, `calls:supervise`, `tenant:read`,
+  `tenant:write`, `api-keys:manage`. Give the MCP client only what it needs; the script
+  leaves out the write and key-management ones (edit its `permissions` list to change that).
 
 ## Design
 
