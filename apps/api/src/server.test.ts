@@ -157,4 +157,35 @@ describe('buildServer', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect((await app.inject({ url: '/api/me' })).statusCode).toBe(401);
   });
+  it('rate-limits POST /api/public/calls per client IP (PUBLIC_CALLS_PER_MINUTE, TRUST_PROXY)', async () => {
+    const call = (app: Awaited<ReturnType<typeof build>>['app'], ip?: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/public/calls',
+        payload: {},
+        headers: ip ? { 'x-forwarded-for': ip } : {},
+      });
+    vi.stubEnv('PUBLIC_CALLS_PER_MINUTE', '2');
+    vi.stubEnv('TRUST_PROXY', 'true');
+    const { app } = await build({ getSession, internalSecret: 's' });
+    expect((await call(app, '1.1.1.1')).statusCode).toBe(400);
+    expect((await call(app, '1.1.1.1')).statusCode).toBe(400);
+    const limited = await call(app, '1.1.1.1');
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ error: 'rate_limited' });
+    expect(limited.json().message).toContain('try again in');
+    // Another forwarded IP has a budget of its own; health checks are never limited.
+    expect((await call(app, '2.2.2.2')).statusCode).toBe(400);
+    expect((await app.inject({ url: '/api/health' })).statusCode).toBe(200);
+
+    // Without a trusted proxy the forwarded header is ignored: one shared socket address.
+    const direct = await build({ getSession, internalSecret: 's', trustProxy: false });
+    await call(direct.app, '1.1.1.1');
+    await call(direct.app, '2.2.2.2');
+    expect((await call(direct.app, '3.3.3.3')).statusCode).toBe(429);
+
+    // 0 turns the limit off.
+    const unlimited = await build({ getSession, internalSecret: 's', publicCallsPerMinute: 0 });
+    for (let i = 0; i < 5; i++) expect((await call(unlimited.app)).statusCode).toBe(400);
+  });
 });

@@ -96,7 +96,7 @@ npm run test:e2e:cloud            # needs LIVEKIT_* in .env.local
 1. `POST`s `/api/admin/embed-keys` on `LOAD_API` (default `http://localhost:4100`) — this only works when the API runs with `DEV_USER_EMAIL` set to an email in `ADMIN_EMAILS`, so the dev user is a supervisor;
 2. exports the returned key as `LOAD_EMBED_KEY` and runs `npx artillery run tests/load/api.yml`.
 
-Start the API first, for example `PORT=4100 DEV_USER_EMAIL=<admin email> npm run dev:api` (with the matching `ADMIN_EMAILS`). The profile ramps from 2 to 20 arrivals/s over 30 s, then holds 20/s for 30 s, weighting three scenarios: customer starts a call (5), desk reads `/api/me` and `/api/desk/calls` (3), desk presence over the websocket (2). Thresholds: p95 response time under 300 ms and error rate under 1%, otherwise Artillery exits non-zero. Each "start a call" scenario creates a real call row and mints a real LiveKit token, so use a throwaway tenant. Not run in CI.
+Start the API first, for example `PORT=4100 PUBLIC_CALLS_PER_MINUTE=0 DEV_USER_EMAIL=<admin email> npm run dev:api` (with the matching `ADMIN_EMAILS`; `PUBLIC_CALLS_PER_MINUTE=0` lifts the per-IP call limit, which every Artillery request from one machine would hit). The profile ramps from 2 to 20 arrivals/s over 30 s, then holds 20/s for 30 s, weighting three scenarios: customer starts a call (5), desk reads `/api/me` and `/api/desk/calls` (3), desk presence over the websocket (2). Thresholds: p95 response time under 300 ms and error rate under 1%, otherwise Artillery exits non-zero. Each "start a call" scenario creates a real call row and mints a real LiveKit token, so use a throwaway tenant. Not run in CI.
 
 ## Debugging
 

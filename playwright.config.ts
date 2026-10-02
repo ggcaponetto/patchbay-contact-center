@@ -61,6 +61,8 @@ const env = {
   INTERNAL_API_SECRET: INTERNAL_SECRET,
   // Recording controls work everywhere without S3: no Egress is actually started.
   RECORDING_STUB: 'true',
+  // Every spec calls from localhost: the per-IP call limit would throttle the suite.
+  PUBLIC_CALLS_PER_MINUTE: '0',
 };
 
 const chromium = {

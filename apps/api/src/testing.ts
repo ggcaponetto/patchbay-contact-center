@@ -157,6 +157,8 @@ export async function testServer(
     livekit: lk.livekit,
     internalSecret: INTERNAL_SECRET,
     bus,
+    // Every test client is 127.0.0.1: one shared budget would throttle the suites.
+    publicCallsPerMinute: 0,
     getSession: async () => (resolve ? resolve() : current.user),
   });
   const as = (u: SessionUser | null) => {

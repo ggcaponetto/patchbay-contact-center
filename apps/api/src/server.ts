@@ -20,6 +20,7 @@
  */
 import { type Permission, ROLE_PERMISSIONS } from '@cc/shared';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -69,10 +70,24 @@ export type ServerDeps = {
   bus?: Bus;
   /** Name of this API process in the routing tables; defaults to a random id. */
   instanceId?: string;
+  /**
+   * `POST /api/public/calls` allowed per client IP per minute; `0` turns the limit off.
+   * Defaults to the `PUBLIC_CALLS_PER_MINUTE` env var, else 10.
+   */
+  publicCallsPerMinute?: number;
+  /**
+   * Take the client IP from `X-Forwarded-For` (behind a reverse proxy, Codespaces port
+   * forwarding, a cloud load balancer). Defaults to `TRUST_PROXY=true`. Leave it off when
+   * the API is reachable directly, or clients can fake their IP and dodge the rate limit.
+   */
+  trustProxy?: boolean;
 };
 
 /** Version reported in the OpenAPI document (the root `package.json` version). */
 const API_VERSION = '0.1.0';
+
+/** Default of {@link ServerDeps.publicCallsPerMinute}: plenty for a person, a wall for a script. */
+const DEFAULT_CALLS_PER_MINUTE = 10;
 
 /**
  * Per-request context filled by the `authenticate` preHandler.
@@ -111,7 +126,7 @@ declare module 'fastify' {
 /**
  * Builds the Fastify instance (not listening, so tests can `inject()`) and its event hub.
  *
- * Registration order: CORS, the hardening headers hook and `/api/health` first, then the static embed bundle (only if
+ * Registration order: CORS, the rate limiter (opt-in per route), the hardening headers hook and `/api/health` first, then the static embed bundle (only if
  * `apps/embed/dist` exists), the auth handler, `/api/me`, the route groups and finally the
  * websocket. Route groups are Fastify plugins that receive their dependencies as plugin
  * options, so each file lists exactly what it uses.
@@ -129,9 +144,21 @@ declare module 'fastify' {
  * ```
  */
 export async function buildServer(deps: ServerDeps) {
-  const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
+  const app = Fastify({
+    logger: process.env.NODE_ENV !== 'test',
+    trustProxy: deps.trustProxy ?? process.env.TRUST_PROXY === 'true',
+  });
   app.decorateRequest('ctx');
   await app.register(cors, { origin: true, credentials: true });
+  // Opt-in per route (`config.rateLimit`); only the anonymous call creation uses it today.
+  await app.register(rateLimit, {
+    global: false,
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: context.statusCode,
+      error: 'rate_limited',
+      message: `Too many calls, try again in ${context.after}.`,
+    }),
+  });
   // Baseline hardening headers on every reply (checked by the DAST scan, build/dast.mjs).
   app.addHook('onSend', async (_request, reply) => {
     reply.header('x-content-type-options', 'nosniff');
@@ -263,6 +290,9 @@ export async function buildServer(deps: ServerDeps) {
     livekit: deps.livekit,
     flow,
     hub,
+    callsPerMinute:
+      deps.publicCallsPerMinute ??
+      Number(process.env.PUBLIC_CALLS_PER_MINUTE ?? DEFAULT_CALLS_PER_MINUTE),
   });
   await app.register(internalRoutes, {
     prefix: '/api/internal',

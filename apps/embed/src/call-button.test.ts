@@ -111,8 +111,8 @@ describe('<cc-call-button>', () => {
     expect(ui(el).status()).toBe(de.pleaseHold);
   });
 
-  it('uses the api attribute and the browser language when the page has none', async () => {
-    const el = mount({ key: 'pk_1', api: 'https://api.example' });
+  it('uses the api attribute (trailing slash dropped) and the browser language when the page has none', async () => {
+    const el = mount({ key: 'pk_1', api: 'https://api.example//' });
     await flush();
     fetchMock.mockRejectedValueOnce('offline');
     ui(el).button('Call us').click();

@@ -200,6 +200,9 @@ remote audio.
   `apps/api/src/services/tenants.ts`). An empty list allows any origin, which is handy
   in development and a bad idea in production. `Origin` is set by the browser and cannot
   be changed from page script, but it offers no protection against non-browser clients.
+- The backstop against scripts is the API's **per-IP rate limit** on `POST /api/public/calls`
+  (`PUBLIC_CALLS_PER_MINUTE`, default 10; 429 `rate_limited`, shown inline like any API
+  error). Behind a proxy set `TRUST_PROXY=true` so the limit sees the real client IP.
 - The customer is **not authenticated**. The LiveKit token the API returns is scoped to
   that one room with the identity `customer:<callId>` and the `customer` role.
 - `customerMeta` (`page`, `userAgent`) is forwarded to the AI and shown on the
@@ -235,7 +238,7 @@ to the launcher and focuses the call button. `npm run dev:embed` serves the page
 parameters override the attributes for quick testing:
 
 ```
-http://localhost:3001/?key=pk_…&api=http://localhost:4000&queue=support&language=de
+http://localhost:3001/?key=pk_…&queue=support&language=de
 ```
 
 `label` and `language` are copied too; with a `language` but no `label` the page drops
@@ -243,8 +246,12 @@ its `label="Call us"` attribute so the translated default shows. The footer badg
 (`#key-state`) reads `No key set yet` or `Using key pk_….`; the e2e smoke and embed
 specs assert these texts and the `Call us` / `Hang up` button names, so keep them.
 
-The defaults point at `http://localhost:4000`; the API must be running, and the AI
-worker (`npm run dev:agent`) if you want someone to answer.
+The page sets no `api` attribute, so the button calls the page's own origin and the
+Vite dev server proxies `/api` to the API on `API_PORT` (default 4000). Only the page's
+port has to be reachable, which is what makes the demo work in a Codespace or through a
+tunnel; `?api=http://localhost:4100` points it at another API directly (the e2e suite
+does). The API must be running, and the AI worker (`npm run dev:agent`) if you want
+someone to answer.
 
 ## Testing
 

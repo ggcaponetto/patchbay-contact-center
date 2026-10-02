@@ -24,7 +24,9 @@ This is a proof of concept. Things to be aware of before exposing it to the inte
   request be any user — the e2e suite relies on it); it is ignored when `NODE_ENV=production`,
   but never set it on a reachable deployment.
 - Embed keys are public by design; restrict them with allowed origins in Settings.
-  Origin checks rely on the browser-sent `Origin` header.
+  Origin checks rely on the browser-sent `Origin` header; scripts are held back only by the
+  per-IP limit on `POST /api/public/calls` (`PUBLIC_CALLS_PER_MINUTE`, default 10 per minute,
+  in memory per API process). Set `TRUST_PROXY=true` behind a proxy so it sees real client IPs.
 - The internal API used by the agent worker is protected by a single shared secret
   (`INTERNAL_API_SECRET`); rotate it like any credential.
 - Transcripts and summaries contain personal data; apply your retention rules to the
