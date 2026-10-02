@@ -9,6 +9,29 @@ All notable changes to this project are documented here. The format follows
 
 Nothing yet.
 
+## [0.5.0] - 2026-10-02
+
+### Added
+
+- **Rate limit on calls from the button**: `POST /api/public/calls` accepts
+  `PUBLIC_CALLS_PER_MINUTE` calls per client IP per minute (default 10, `0` = off) and
+  answers 429 `rate_limited` beyond, so a script cannot burn a tenant's AI minutes with
+  its public embed key. `TRUST_PROXY=true` takes the client IP from `X-Forwarded-For`
+  behind a reverse proxy or load balancer.
+- **GitHub Codespaces**: step-by-step "Running in GitHub Codespaces" in the README
+  (LiveKit login without a desktop browser, dev sign-in, embed key origin).
+
+### Changed
+
+- The embed demo page (`npm run dev:embed`) proxies `/api` to the API like the desk and
+  calls its own origin by default, so only ports 3000 and 3001 need to be reachable
+  (Codespaces, tunnels); `?api=` still points it elsewhere.
+
+### Fixed
+
+- The call button drops trailing slashes from its `api` attribute (`https://api.example/`
+  no longer produces `//api/public/calls`).
+
 ## [0.4.1] - 2026-08-24
 
 ### Fixed
@@ -210,7 +233,8 @@ First proof-of-concept release, working end to end against LiveKit Cloud.
 - Git-flow branching (`main` / `develop`), semantic-version tags and a `Release` workflow that
   publishes GitHub releases.
 
-[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.2.0...v0.3.0
