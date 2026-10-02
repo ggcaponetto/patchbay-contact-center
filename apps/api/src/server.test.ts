@@ -115,6 +115,10 @@ describe('buildServer', () => {
       .filter((m) => !m[1]!.startsWith('/api/auth') && !m[1]!.startsWith('/api/ws'))
       .map((m) => m[1]!.replace(/:(\w+)/g, '{$1}'));
     for (const path of registered) expect(Object.keys(doc.paths)).toContain(path);
+    // Fastify's implicit HEAD twins of the GET routes are not documented.
+    const methods = Object.values(doc.paths).flatMap((ops) => Object.keys(ops as object));
+    expect(methods).toContain('get');
+    expect(methods).not.toContain('head');
     const accept = doc.paths['/api/desk/calls/{id}/accept'].post;
     expect(accept).toMatchObject({
       'x-permission': 'calls:answer',
