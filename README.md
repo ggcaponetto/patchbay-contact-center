@@ -111,6 +111,35 @@ person while you are **Available** on the desk and watch the ring come in. The f
 walkthrough, env var reference and troubleshooting are in
 [Getting started](docs/guide/getting-started.md).
 
+### Generate the secrets
+
+Replace every `change-me` in `.env.local` with a random value. Use a different value for
+each key, e.g. `INTERNAL_API_SECRET` and `BETTER_AUTH_SECRET` (≥ 32 chars).
+
+**Any OS (Node is already installed):**
+
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**Linux / macOS:**
+
+```sh
+openssl rand -hex 32
+```
+
+**Windows (PowerShell):**
+
+```powershell
+-join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+```
+
+Run the command once per secret and paste each result into `.env.local`. These are
+server-side secrets: never commit `.env.local` or ship them to the browser.
+
+Embed keys (`pk_…`) are **not** generated here: create them on the desk under
+**Settings → Call button → Create key**. A URL like `?key=change-me` will not work.
+
 ### Running in GitHub Codespaces
 
 A Codespace has no desktop browser and reaches your browser only through forwarded
@@ -161,6 +190,45 @@ back to a forwarded port) and the embed key's allowed origin. Step by step:
 
 9. _Optional, for the Playwright suites:_ `sudo npx playwright install-deps chromium` once,
    since the Codespace image lacks the libraries Chromium needs.
+
+## Using the MCP server with Claude
+
+`apps/mcp` exposes every permission-gated API operation as an MCP tool (read
+calls and transcripts, live stats, agent state, call control, queues, routing settings,
+keys, team messages), so Claude can work with the contact center directly. The tools are
+generated at startup from the API's `GET /api/openapi.json`.
+
+1. **Start the API** (`npm run dev` or `npm run dev:api`).
+2. **Create an API key** on the desk: **Settings → API keys**, or from Node.js with
+   `node apps/mcp/scripts/create-api-key.mjs` (any OS, see [apps/mcp/README.md](apps/mcp/README.md#creating-the-key-from-node-js)).
+   Its permissions bound what the tools may do; the tool list is the same for every key and calls beyond the key's
+   permissions answer 403.
+3. **Register the server with Claude Code**, from the repository root:
+
+   ```sh
+   claude mcp add contact-center -e MCP_API_KEY=ak_… -e MCP_API_URL=http://localhost:4000 \
+     -- node "$PWD/apps/mcp/src/index.ts"
+   ```
+
+   Start it with `node`, not `npm run`: npm prints a banner on stdout, which is the
+   server's protocol channel. Keep the default `local` scope (only you, only this project);
+   `--scope project` would write the key into a committed `.mcp.json`.
+
+4. **Use it:** in Claude Code, `/mcp` shows the server and its tools; then ask in plain
+   words ("summarize today's calls in the support queue", "who is Ready right now?").
+
+To list or try the tools without Claude, use the
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) CLI (target first, then
+`-e`, then `--method`):
+
+```sh
+npx @modelcontextprotocol/inspector --cli node "$PWD/apps/mcp/src/index.ts" \
+  -e MCP_API_KEY=ak_… --method tools/list
+npx @modelcontextprotocol/inspector --cli node "$PWD/apps/mcp/src/index.ts" \
+  -e MCP_API_KEY=ak_… --method tools/call --tool-name get_desk_stats
+```
+
+Details: [MCP server](apps/mcp/README.md).
 
 ## Repository layout
 

@@ -124,14 +124,20 @@ function buildOpenApi(routes: Collected[], info: { title: string; version: strin
 
 /**
  * Collects documented routes as they are registered and serves the document at
- * `GET /api/openapi.json`. Call before registering the route plugins.
+ * `GET /api/openapi.json`. Call before registering the route plugins. The implicit
+ * HEAD routes Fastify adds for every GET are left out.
  */
 export function registerOpenApi(app: FastifyInstance, info: { title: string; version: string }) {
   const routes: Collected[] = [];
   app.addHook('onRoute', (route) => {
     const doc = route.config?.doc;
     if (!doc) return;
-    for (const method of [route.method].flat()) routes.push({ method, url: route.url, doc });
+    // Fastify adds a HEAD twin for every GET (`exposeHeadRoutes`); it carries the GET's
+    // config but no body, so documenting it would only duplicate the GET (and give the
+    // MCP server a useless `head_*` tool per GET).
+    for (const method of [route.method].flat()) {
+      if (method !== 'HEAD') routes.push({ method, url: route.url, doc });
+    }
   });
   app.get(
     '/api/openapi.json',

@@ -9,6 +9,25 @@ All notable changes to this project are documented here. The format follows
 
 Nothing yet.
 
+## [0.6.0] - 2026-10-02
+
+### Added
+
+- **MCP server with Claude**: a "Using the MCP server with Claude" guide in the README
+  (API key, `claude mcp add` from the repository root, trying the tools with the MCP
+  Inspector) and `apps/mcp/scripts/create-api-key.mjs` (`npm run -w apps/mcp create-key`),
+  which creates the API key through `POST /api/admin/api-keys` with plain `fetch`, as the
+  dev user or with an existing `api-keys:manage` key, on any OS.
+- **Generate the secrets**: README recipes for `INTERNAL_API_SECRET` and
+  `BETTER_AUTH_SECRET` on Linux, macOS and Windows (Node, OpenSSL, PowerShell).
+
+### Changed
+
+- `GET /api/openapi.json` leaves out Fastify's implicit HEAD twins of the GET routes, so
+  the MCP server no longer generates a useless `head_*` tool per GET.
+- The MCP server is registered with `node apps/mcp/src/index.ts` rather than `npm run`,
+  whose banner on stdout corrupted the stdio protocol channel.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added
@@ -233,7 +252,8 @@ First proof-of-concept release, working end to end against LiveKit Cloud.
 - Git-flow branching (`main` / `develop`), semantic-version tags and a `Release` workflow that
   publishes GitHub releases.
 
-[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ggcaponetto/patchbay-contact-center/compare/v0.3.0...v0.4.0

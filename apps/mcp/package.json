@@ -6,7 +6,8 @@
   "description": "MCP server exposing the Patchbay Contact Center API as tools",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "start": "node src/index.ts"
+    "start": "node src/index.ts",
+    "create-key": "node scripts/create-api-key.mjs"
   },
   "engines": {
     "node": ">=24.0.0"
