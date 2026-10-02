@@ -7,8 +7,11 @@
  * tenant's `routingMode` the AI is dispatched immediately (`ai-first`) or the humans are
  * rung first (`human-first`, see `Flow.humanFirst`).
  *
- * Security relies on two things only: the embed key must exist, and the request's
- * `Origin` must be in the key's allow-list (an empty list allows any origin).
+ * Security relies on three things: the embed key must exist, the request's `Origin` must
+ * be in the key's allow-list (an empty list allows any origin), and each client IP may
+ * start only `callsPerMinute` calls a minute (429 `rate_limited`), so a script cannot
+ * burn the tenant's AI minutes. The key is public by design (it sits in the website's
+ * HTML) and `Origin` can be faked outside a browser, so the rate limit is the backstop.
  *
  * `GET /media/:id` serves uploaded sound files without any authentication: ids are random
  * UUIDs (unguessable) and sounds are not sensitive — they are played to anonymous callers
@@ -31,8 +34,17 @@ import { readMediaAsset } from '../services/mediaAssets.ts';
 import { originAllowed, resolveEmbedKey } from '../services/tenants.ts';
 import { parseBody } from './util.ts';
 
-/** Plugin options for {@link publicRoutes}. */
-export type PublicOpts = { db: Db; livekit: LiveKit; flow: Flow; hub: EventEmitter };
+/**
+ * Plugin options for {@link publicRoutes}. `callsPerMinute` caps `POST /calls` per client
+ * IP (`0` = unlimited).
+ */
+export type PublicOpts = {
+  db: Db;
+  livekit: LiveKit;
+  flow: Flow;
+  hub: EventEmitter;
+  callsPerMinute: number;
+};
 
 /** Body of `POST /calls`. `customerMeta` is opaque and forwarded to the AI agent. */
 const CreateCallBody = z.object({
@@ -47,17 +59,20 @@ const CreateCallBody = z.object({
  * Unauthenticated endpoints used by the embeddable call button.
  *
  * `POST /calls` → `{ callId, roomName, token, url, sounds }`; errors: 400 `invalid_body`,
- * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`. `GET /media/:id` streams an
+ * 404 `unknown_embed_key_or_queue`, 403 `origin_not_allowed`, 429 `rate_limited`. `GET /media/:id` streams an
  * uploaded sound (404 `not_found`).
  */
 export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
   app,
-  { db, livekit, flow, hub },
+  { db, livekit, flow, hub, callsPerMinute },
 ) => {
   app.post(
     '/calls',
     {
       config: {
+        ...(callsPerMinute > 0
+          ? { rateLimit: { max: callsPerMinute, timeWindow: '1 minute' } }
+          : {}),
         doc: {
           summary: 'Start a call from the embedded button; returns the LiveKit token',
           access: 'public',
@@ -75,6 +90,7 @@ export const publicRoutes: FastifyPluginAsync<PublicOpts> = async (
             '400 invalid_body',
             '403 origin_not_allowed / closed',
             '404 unknown_embed_key_or_queue',
+            '429 rate_limited',
           ],
         },
       },

@@ -79,6 +79,9 @@ lk cloud auth && lk app env -w -d .env.local   # LIVEKIT_URL / API_KEY / API_SEC
 docker compose up -d                       # Postgres on localhost:5432
 ```
 
+On a headless machine (GitHub Codespaces, SSH, a container) follow
+[Running in GitHub Codespaces](#running-in-github-codespaces) below instead.
+
 Minimum `.env.local` besides the LiveKit values:
 
 | Variable                                    | Purpose                                                                            |
@@ -107,6 +110,57 @@ Then: sign in on the desk → **Settings → Call button → Create key** → op
 person while you are **Available** on the desk and watch the ring come in. The full
 walkthrough, env var reference and troubleshooting are in
 [Getting started](docs/guide/getting-started.md).
+
+### Running in GitHub Codespaces
+
+A Codespace has no desktop browser and reaches your browser only through forwarded
+ports, which changes three things: the LiveKit login, the sign-in (Google cannot redirect
+back to a forwarded port) and the embed key's allowed origin. Step by step:
+
+1. **Install and configure.** In the Codespace terminal:
+
+   ```sh
+   npm install
+   cp .env.example .env.local
+   curl -sSL https://get.livekit.io/cli | bash   # LiveKit CLI, if `lk --version` fails
+   ```
+
+2. **LiveKit credentials.** Run `lk cloud auth`. It opens a text-mode browser (lynx) in the
+   terminal where sign-in does not work: quit it (`q`, then `y`), scroll up, open the
+   confirmation link `lk` printed in your own browser and approve (re-run `lk cloud auth`
+   for a fresh link if it exited). Then `lk app env -w -d .env.local`. Alternatively, on
+   [cloud.livekit.io](https://cloud.livekit.io) open your project → **Settings → API Keys**,
+   create a key and fill `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` in
+   `.env.local` yourself.
+
+3. **Sign-in without Google.** In `.env.local` set `DEV_USER_EMAIL` and `ADMIN_EMAILS` to the
+   same email (you become the supervisor of a fresh contact center, with a seeded demo team),
+   and give `INTERNAL_API_SECRET` and `BETTER_AUTH_SECRET` random values
+   (`openssl rand -hex 32`). Leave `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` empty.
+
+4. **Postgres:** `docker compose up -d`.
+
+5. **Start everything:** `npm run dev`. A few `[web] ws proxy error: ECONNREFUSED` lines while
+   the API boots are harmless (an open desk tab reconnecting); they stop once the API logs
+   `Server listening`.
+
+6. **Open the desk.** In VS Code's **Ports** tab open port **3000** in the browser
+   (`https://<codespace>-3000.app.github.dev`). Ports stay **Private**: you are signed in to
+   GitHub in that browser, and the desk and the demo page both proxy `/api` to the API, so
+   port 4000 is never opened. Press **Available**.
+
+7. **Create an embed key.** **Settings → Call button → Create key**. For allowed origins enter
+   **`http://localhost:3001`**, not the `app.github.dev` address: the Codespaces forwarder
+   rewrites the browser's `Origin` header to `http://localhost:<port>`, so any other value
+   fails with `origin_not_allowed`. Leaving the list empty (any origin) works too.
+
+8. **Call.** Open port **3001** from the Ports tab and add the key:
+   `https://<codespace>-3001.app.github.dev/?key=pk_…` (no `api` parameter; the page calls
+   its own origin). Press **Call us**, allow the microphone and talk to the AI; ask for a
+   person and the desk rings.
+
+9. _Optional, for the Playwright suites:_ `sudo npx playwright install-deps chromium` once,
+   since the Codespace image lacks the libraries Chromium needs.
 
 ## Repository layout
 

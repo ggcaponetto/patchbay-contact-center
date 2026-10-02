@@ -19,6 +19,8 @@ Open items after the first POC iteration (2026-08-22), roughly in priority order
 
 - [ ] Deploy the agent worker to LiveKit Cloud (`lk agent create` / `lk agent deploy` with the existing Dockerfile) so calls work without a laptop running `npm run dev:agent`.
 - [ ] Host the API and web desk somewhere with HTTPS; update `WEB_ORIGIN`, `API_ORIGIN` and the Google redirect URI.
+- [ ] Tighten CORS before going public: `server.ts` registers `@fastify/cors` with `origin: true, credentials: true`, so any origin may send credentialed requests. Allow credentials only for `WEB_ORIGIN`; `/api/public` needs no cookies.
+- [ ] The per-IP call limit (`PUBLIC_CALLS_PER_MINUTE`) is in memory per API process; with several instances move it to a shared store, and consider a per-embed-key cap and bot protection (e.g. Turnstile) on `POST /api/public/calls`.
 
 ## Product / architecture
 

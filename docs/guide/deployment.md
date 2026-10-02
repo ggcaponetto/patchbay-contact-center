@@ -31,6 +31,7 @@ Requirements: Node 24, a Postgres database, and the environment described in [Ge
 - Set `PORT`, `WEB_ORIGIN` (the public desk origin, used as Better Auth `baseURL` and trusted origin), `INTERNAL_API_SECRET`, `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `ADMIN_EMAILS` and the three `LIVEKIT_*` values.
 - Set **`NODE_ENV=production`**. Besides the usual Fastify logging defaults, this is what disables the dev auth bypass: `apps/api/src/index.ts` only honours `DEV_USER_EMAIL` when `NODE_ENV !== 'production'`. **Never set `DEV_USER_EMAIL` in production** — it signs every request in as that user and makes them a supervisor if they are in `ADMIN_EMAILS`.
 - The server binds `0.0.0.0` and needs websocket pass-through on `/api/ws` from whatever proxy sits in front of it.
+- Behind that proxy set **`TRUST_PROXY=true`**, otherwise every customer shares the proxy's IP and the per-IP call limit (`PUBLIC_CALLS_PER_MINUTE`, default 10 per minute) throttles them all together. Do not set it when the API is reachable directly: clients could then fake `X-Forwarded-For` to dodge the limit.
 
 ## Web desk
 

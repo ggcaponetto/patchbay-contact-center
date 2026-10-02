@@ -21,7 +21,9 @@ const scriptSrc = (document.currentScript as HTMLScriptElement | null)?.src;
  * Attributes (live: changing one re-renders, and the next call uses the new value):
  * - `key`: public embed key (`pk_…`) created in the supervisor settings. Required.
  * - `queue`: queue key to ring; defaults to `support`.
- * - `api`: origin of the API; defaults to the origin of the loaded script.
+ * - `api`: origin of the API; defaults to the origin of the loaded script (the page's
+ *   origin when the script is a module, as on the dev demo page). Trailing slashes are
+ *   dropped, so `https://api.example/` works too.
  * - `label`: text of the call button; defaults to "Call us" in the customer's language.
  * - `language`: the customer's language (BCP 47); defaults to the page's `<html lang>`,
  *   then the browser's language. Picks the UI translation (en, de, it; anything else
@@ -61,7 +63,7 @@ export class CcCallButton extends HTMLElement {
     return {
       embedKey: attr('key') ?? '',
       queue: attr('queue') ?? 'support',
-      api: attr('api') ?? new URL(scriptSrc ?? location.href).origin,
+      api: (attr('api') ?? new URL(scriptSrc ?? location.href).origin).replace(/\/+$/, ''),
       label: attr('label') ?? undefined,
       language:
         attr('language') || document.documentElement.lang || navigator.language || undefined,

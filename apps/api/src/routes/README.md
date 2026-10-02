@@ -18,13 +18,13 @@ flowchart LR
 
 ## Access levels
 
-| Level           | How it is checked                                                                | Failure                                |
-| --------------- | -------------------------------------------------------------------------------- | -------------------------------------- |
-| public          | embed key must exist; `Origin` must be in the key's allow-list (empty = any)     | 404 / 403                              |
-| internal secret | `x-internal-secret` header equals `INTERNAL_API_SECRET` (plugin-wide preHandler) | 401 `unauthenticated`                  |
-| member          | session cookie + a membership in the tenant (`x-tenant-id` or first membership)  | 401 `unauthenticated`, 403 `no_tenant` |
-| supervisor      | member with role `supervisor`                                                    | 403 `forbidden`                        |
-| admin email     | session + email listed in `ADMIN_EMAILS`                                         | 403 `forbidden`                        |
+| Level           | How it is checked                                                                                                                                     | Failure                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| public          | embed key must exist; `Origin` must be in the key's allow-list (empty = any); `POST /calls` is rate-limited per client IP (`PUBLIC_CALLS_PER_MINUTE`) | 404 / 403 / 429 `rate_limited`         |
+| internal secret | `x-internal-secret` header equals `INTERNAL_API_SECRET` (plugin-wide preHandler)                                                                      | 401 `unauthenticated`                  |
+| member          | session cookie + a membership in the tenant (`x-tenant-id` or first membership)                                                                       | 401 `unauthenticated`, 403 `no_tenant` |
+| supervisor      | member with role `supervisor`                                                                                                                         | 403 `forbidden`                        |
+| admin email     | session + email listed in `ADMIN_EMAILS`                                                                                                              | 403 `forbidden`                        |
 
 All error bodies are `{ error: '<code>' }`; `400 invalid_body` adds `issues` from zod.
 
